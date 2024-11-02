@@ -1,18 +1,16 @@
-# Import necessary modules
+# main.py
 import pygame
 import sys
 from canvas import Canvas
-from track import Track
-from train import Train
 from timer import Timer
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, BG_COLOR, TRACK_COLOR, TRAIN_COLOR, GRID_SIZE, CELL_SIZE, SPEED, FPS
+from settings import WINDOW_WIDTH, WINDOW_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT, BG_COLOR, HEADER_HEIGHT, FOOTER_HEIGHT, FPS
 
-# Main game loop
 def main():
-    # Initialize classes
-    canvas = Canvas(SCREEN_WIDTH, SCREEN_HEIGHT, BG_COLOR)
-    track = Track(GRID_SIZE, CELL_SIZE, TRACK_COLOR)
-    train = Train(CELL_SIZE, CELL_SIZE * 2, TRAIN_COLOR, SPEED, [0, 0], "right")
+    pygame.init()
+    screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
+    pygame.display.set_caption("Track Simulation with Header and Footer")
+
+    canvas = Canvas(CANVAS_WIDTH, CANVAS_HEIGHT, BG_COLOR, HEADER_HEIGHT)
     timer = Timer(FPS)
 
     while True:
@@ -21,22 +19,23 @@ def main():
                 pygame.quit()
                 sys.exit()
 
-        # Clear canvas
-        canvas.clear()
+        # Clear the entire window
+        screen.fill(BG_COLOR)
 
-        # Draw track
-        track.draw(canvas.screen)
+        # Draw header and footer sections
+        header_rect = pygame.Rect(0, 0, WINDOW_WIDTH, HEADER_HEIGHT)
+        footer_rect = pygame.Rect(0, WINDOW_HEIGHT - FOOTER_HEIGHT, WINDOW_WIDTH, FOOTER_HEIGHT)
+        pygame.draw.rect(screen, (50, 50, 50), header_rect)  # Dark grey for header
+        pygame.draw.rect(screen, (50, 50, 50), footer_rect)  # Dark grey for footer
 
-        # Move and draw train
-        train.move(SCREEN_WIDTH, SCREEN_HEIGHT, CELL_SIZE)
-        train.draw(canvas.screen)
+        # Update and draw the canvas area within the window
+        canvas.update(screen)
 
         # Update display
-        canvas.update()
+        pygame.display.flip()
 
         # Cap the frame rate
         timer.tick()
 
-# Run the main function
 if __name__ == "__main__":
     main()
