@@ -1,6 +1,6 @@
 # Window and Canvas Settings
-WINDOW_WIDTH = 1366
-WINDOW_HEIGHT = 768
+WINDOW_WIDTH = 1920
+WINDOW_HEIGHT = 1000
 HEADER_HEIGHT = 100
 FOOTER_HEIGHT = 10
 
@@ -23,3 +23,7 @@ SPEED = 2  # Pixels per frame
 
 # Timer Settings
 FPS = 30  # Frames per second
+
+# New variables for grid customization
+GRID_BORDER_COLOR = (0, 0, 0)  # Custom grid line color
+GRID_BORDER_THICKNESS = 0.5  # Set border thickness (1 pixel)

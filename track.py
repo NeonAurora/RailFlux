@@ -3,11 +3,11 @@ import pygame
 from settings import GRID_ROWS, GRID_COLUMNS, CELL_SIZE, TRACK_COLOR
 
 class Track:
-    def __init__(self, grid_rows, grid_columns, cell_size, color):
+    def __init__(self, grid_rows, grid_columns, cell_size):
         self.grid_rows = grid_rows
         self.grid_columns = grid_columns
         self.cell_size = cell_size
-        self.color = color
+        self.color = TRACK_COLOR
 
     def draw(self, canvas):
         # Draw the grid inside the canvas area
