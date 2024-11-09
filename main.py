@@ -8,7 +8,7 @@ from settings import WINDOW_WIDTH, WINDOW_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT, B
 def main():
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-    pygame.display.set_caption("Track Simulation with Header and Footer")
+    pygame.display.set_caption("Track Simulation")
 
     canvas = Canvas(CANVAS_WIDTH, CANVAS_HEIGHT, BG_COLOR, HEADER_HEIGHT)
     timer = Timer(FPS)
