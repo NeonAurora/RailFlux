@@ -14,7 +14,7 @@ TRACK_COLOR = (234, 224, 200)  # Pearl White for the grid color
 TRAIN_COLOR = (255, 50, 50)  # Train color
 
 # Grid Settings
-GRID_ROWS = 100  # Number of rows in the grid
+GRID_ROWS = 200  # Number of rows in the grid
 GRID_COLUMNS = 250  # Number of columns in the grid
 CELL_SIZE = CANVAS_WIDTH / GRID_COLUMNS
 
