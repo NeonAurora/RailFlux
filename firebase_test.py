@@ -22,6 +22,14 @@ root_ref.set({
                 "S2": {
                     "coordinates": [(60, 50), (60, 100)],
                     "occupied": False
+                },
+                "S3": {
+                    "coordinates": [(60, 100), (60, 150)],
+                    "occupied": False
+                },
+                "S4": {
+                    "coordinates": [(60, 150), (60, 200)],
+                    "occupied": False
                 }
             }
         },

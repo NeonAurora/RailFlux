@@ -1,6 +1,7 @@
 # main.py
 import pygame
 import sys
+import firebase_setup  # Import firebase_setup to ensure Firebase is initialized before anything else
 from canvas import Canvas
 from timer import Timer
 from settings import WINDOW_WIDTH, WINDOW_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT, BG_COLOR, HEADER_HEIGHT, FOOTER_HEIGHT, FPS
