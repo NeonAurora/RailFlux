@@ -15,15 +15,16 @@ class Canvas:
         # Create a Track instance to draw multiple tracks
         self.track = Track(GRID_ROWS, GRID_COLUMNS, CELL_SIZE)
 
-        # Initialize two trains, each assigned to a separate track
+        # Initialize two trains, each assigned to a separate track with unique train IDs
         # Use TRAIN_TRANSPARENT to determine the train color (if transparent, make alpha 0)
         self.train1_color = (*TRAIN_COLOR[:3], 0) if TRAIN_TRANSPARENT else TRAIN_COLOR
         self.train2_color = (*TRAIN2_COLOR[:3], 0) if TRAIN_TRANSPARENT else TRAIN2_COLOR
 
-        # Initialize two trains
-        self.train1 = Train(CELL_SIZE * 1.5, CELL_SIZE * 1.5, self.train1_color, SPEED, self.track.get_track_waypoints('T1'))
-        self.train2 = Train(CELL_SIZE * 1.5, CELL_SIZE * 1.5, self.train2_color, SPEED, self.track.get_track_waypoints('T2', reverse=True))
+        # Initialize two trains with unique IDs
+        self.train1 = Train(CELL_SIZE * 1.5, CELL_SIZE * 1.5, self.train1_color, SPEED, self.track.get_track_waypoints('T1'), train_id='train1')
+        self.train2 = Train(CELL_SIZE * 1.5, CELL_SIZE * 1.5, self.train2_color, SPEED, self.track.get_track_waypoints('T2', reverse=True), train_id='train2')
 
+        # Keep track of the previously occupied segments for each train
         self.previous_segments = {
             'train1': None,
             'train2': None
@@ -32,6 +33,7 @@ class Canvas:
     def draw_grid(self, canvas):
         temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
 
+        # Draw horizontal and vertical grid lines
         for row in range(GRID_ROWS + 1):
             y = row * CELL_SIZE
             color = SECOND_PRIORITY_COLOR if row % 10 == 0 else GRID_BORDER_COLOR
@@ -45,9 +47,11 @@ class Canvas:
         canvas.blit(temp_surface, (0, 0))
 
     def draw(self, screen):
+        # Draw canvas background
         canvas_rect = pygame.Rect(0, self.header_height, self.width, self.height)
         pygame.draw.rect(screen, self.bg_color, canvas_rect)
 
+        # Define the canvas area and draw grid, tracks, and trains
         canvas_area = screen.subsurface(canvas_rect)
         self.draw_grid(canvas_area)
         self.track.draw_tracks(canvas_area)
@@ -65,6 +69,7 @@ class Canvas:
         # Update segment occupation for train 2
         self.update_train_segment('train2', self.train2)
 
+        # Redraw everything on the screen
         self.draw(screen)
 
     def update_train_segment(self, train_name, train):
