@@ -3,6 +3,7 @@ import pygame
 import math
 from collections import deque
 
+
 class Train:
     def __init__(self, width, height, color, speed, waypoints, num_wagons=10, spacing_interval=3):
         self.width = width
@@ -47,11 +48,18 @@ class Train:
             self.frame_counter = 0
 
     def draw(self, screen):
+        # Create a temporary surface to support transparency
+        temp_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+
+        # Draw each segment of the train (head + wagons)
         positions_list = list(self.positions)
         for i in range(0, len(positions_list), self.spacing_interval):
             pos = positions_list[i]
-            train_rect = pygame.Rect(pos[0], pos[1], self.width, self.height)
-            pygame.draw.rect(screen, self.color, train_rect)
+            train_rect = pygame.Rect(0, 0, self.width, self.height)
+
+            # Use the temporary surface to draw with transparency
+            temp_surface.fill(self.color)
+            screen.blit(temp_surface, pos)
 
     def get_current_position(self):
         return self.position

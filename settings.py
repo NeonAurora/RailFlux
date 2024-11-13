@@ -12,6 +12,7 @@ CANVAS_HEIGHT = WINDOW_HEIGHT - HEADER_HEIGHT - FOOTER_HEIGHT
 BG_COLOR = (30, 30, 30)  # Background color
 TRACK_COLOR = (234, 224, 200)  # Pearl White for the grid color
 TRAIN_COLOR = (255, 50, 50)  # Train color
+TRAIN2_COLOR = (0, 0, 255)  # Train 2 color (blue)
 
 # Grid Settings
 GRID_ROWS = 200  # Number of rows in the grid
@@ -20,11 +21,12 @@ CELL_SIZE = CANVAS_WIDTH / GRID_COLUMNS
 
 # Train Settings
 SPEED = 2  # Pixels per frame
+TRAIN_TRANSPARENT = True  # Toggle for train transparency (True for transparent)
 
 # Timer Settings
 FPS = 30  # Frames per second
 
 # New variables for grid customization
-GRID_BORDER_COLOR = (255, 255, 255, 50)  # Red with 50% transparency
+GRID_BORDER_COLOR = (255, 255, 255, 50)  # Grid border color with 50% transparency
 GRID_BORDER_THICKNESS = 1  # Set border thickness (1 pixel)
 SECOND_PRIORITY_COLOR = (255, 0, 0, 128)  # Second priority color (red with 50% transparency)

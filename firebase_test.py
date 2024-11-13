@@ -30,6 +30,10 @@ root_ref.set({
                 "S4": {
                     "coordinates": [(60, 150), (60, 200)],
                     "occupied": False
+                },
+                "S5": {
+                    "coordinates": [(60, 200), (60, 250)],
+                    "occupied": False
                 }
             }
         },
@@ -41,6 +45,18 @@ root_ref.set({
                 },
                 "S2": {
                     "coordinates": [(80, 50), (80, 100)],
+                    "occupied": False
+                },
+                "S3": {
+                    "coordinates": [(80, 100), (80, 150)],
+                    "occupied": False
+                },
+                "S4": {
+                    "coordinates": [(80, 150), (80, 200)],
+                    "occupied": False
+                },
+                "S5": {
+                    "coordinates": [(80, 200), (80, 250)],
                     "occupied": False
                 }
             }
