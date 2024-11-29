@@ -63,7 +63,7 @@ class Train:
         # Update Firebase every second
         current_time = time.time()
         if current_time - self.last_update_time >= 1:  # Check if at least 1 second has passed
-            self.update_firebase()
+            # self.update_firebase()
             self.last_update_time = current_time
 
     def update_firebase(self):

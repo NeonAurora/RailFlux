@@ -2,6 +2,9 @@
 import pygame
 import firebase_setup  # Import firebase_setup to ensure Firebase is initialized
 from firebase_admin import db
+import settings
+from settings import TRACK_COLOR
+
 
 class Track:
     def __init__(self, grid_rows, grid_columns, cell_size):
@@ -32,7 +35,7 @@ class Track:
                     self.tracks[track_id][segment_id] = segment
 
     def draw_tracks(self, canvas):
-        unoccupied_color = (0, 255, 255)  # Cyan for unoccupied segments
+        unoccupied_color = TRACK_COLOR  # Cyan for unoccupied segments
         occupied_color = (255, 0, 0)      # Red for occupied segments
         track_thickness = 3
 
