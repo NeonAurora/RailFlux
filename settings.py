@@ -21,7 +21,7 @@ CELL_SIZE = CANVAS_WIDTH / GRID_COLUMNS
 
 # Train Settings
 SPEED = 2  # Pixels per frame
-TRAIN_TRANSPARENT = True  # Toggle for train transparency (True for transparent)
+TRAIN_TRANSPARENT = False  # Toggle for train transparency (True for transparent)
 
 # Timer Settings
 FPS = 30  # Frames per second

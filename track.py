@@ -17,27 +17,58 @@ class Track:
         # Firebase reference to the tracks data
         self.tracks_ref = db.reference('/tracks')
 
-        # Load all tracks data from Firebase
+        # Load initial tracks data from Firebase
         self.load_tracks_from_firebase()
 
     def load_tracks_from_firebase(self):
-        # Load all tracks data from Firebase
+        """
+        Load all track segments and initial occupancy status from Firebase.
+        """
         tracks_data = self.tracks_ref.get()
         if tracks_data:
             for track_id, track_info in tracks_data.items():
                 segments = track_info.get('segments', {})
                 self.tracks[track_id] = {}
                 for segment_id, segment_info in segments.items():
+                    print("We got into segment", segment_id)
                     segment = {
                         'coordinates': segment_info['coordinates'],
                         'occupied': segment_info['occupied']
                     }
                     self.tracks[track_id][segment_id] = segment
 
+    def update_track_segments_from_firebase(self):
+        """
+        Update the occupancy status of track segments from Firebase in real-time.
+        """
+        tracks_data = self.tracks_ref.get()
+        if tracks_data:
+            for track_id, track_info in tracks_data.items():
+                segments = track_info.get('segments', {})
+                if track_id not in self.tracks:
+                    self.tracks[track_id] = {}
+
+                for segment_id, segment_info in segments.items():
+                    # Update only the occupancy status
+                    if segment_id in self.tracks[track_id]:
+                        self.tracks[track_id][segment_id]['occupied'] = segment_info['occupied']
+                    else:
+                        # In case of a new segment added dynamically
+                        self.tracks[track_id][segment_id] = {
+                            'coordinates': segment_info['coordinates'],
+                            'occupied': segment_info['occupied']
+                        }
+
     def draw_tracks(self, canvas):
-        unoccupied_color = TRACK_COLOR  # Cyan for unoccupied segments
-        occupied_color = (255, 0, 0)      # Red for occupied segments
+        """
+        Draw track segments on the canvas, coloring them based on their occupancy status.
+        """
+        unoccupied_color = TRACK_COLOR  # Color for unoccupied segments
+        occupied_color = (255, 0, 0)    # Red for occupied segments
         track_thickness = 3
+
+        # Update track segments from Firebase to ensure we're drawing the latest information
+        self.update_track_segments_from_firebase()
 
         # Iterate over each track and draw each segment with gaps between segments
         for track_id, segments in self.tracks.items():
@@ -104,52 +135,3 @@ class Track:
             waypoints = waypoints[::-1]
 
         return waypoints
-
-    def get_segment_id_from_position(self, position):
-        px, py = position
-
-        for track_id, segments in self.tracks.items():
-            for segment_id, segment_info in segments.items():
-                coordinates = segment_info['coordinates']
-                # Convert cell coordinates to pixel coordinates
-                pixel_coordinates = [(col * self.cell_size, row * self.cell_size) for row, col in coordinates]
-
-                # Check if the current position falls between two consecutive coordinates in the segment
-                for i in range(len(pixel_coordinates) - 1):
-                    start = pixel_coordinates[i]
-                    end = pixel_coordinates[i + 1]
-
-                    if self._is_position_on_segment((px, py), start, end):
-                        return track_id, segment_id
-
-        return None
-
-    def _is_position_on_segment(self, position, start, end):
-        px, py = position
-        sx, sy = start
-        ex, ey = end
-
-        # Calculate cross product to check if position is on the line
-        cross_product = (py - sy) * (ex - sx) - (px - sx) * (ey - sy)
-        if abs(cross_product) > 1e-6:
-            return False
-
-        # Check if position lies within the segment bounds
-        if min(sx, ex) <= px <= max(sx, ex) and min(sy, ey) <= py <= max(sy, ey):
-            return True
-
-        return False
-
-    def mark_segment_occupied(self, track_id, segment_id):
-        if track_id in self.tracks and segment_id in self.tracks[track_id]:
-            segment = self.tracks[track_id][segment_id]
-            if not segment['occupied']:
-                segment['occupied'] = True
-                self.tracks_ref.child(f'{track_id}/segments/{segment_id}/occupied').set(True)
-
-    def mark_segment_free(self, track_id, segment_id):
-        if track_id in self.tracks and segment_id in self.tracks[track_id]:
-            segment = self.tracks[track_id][segment_id]
-            if segment['occupied']:
-                segment['occupied'] = False
-                self.tracks_ref.child(f'{track_id}/segments/{segment_id}/occupied').set(False)

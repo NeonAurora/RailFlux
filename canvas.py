@@ -2,6 +2,7 @@
 import pygame
 from train import Train
 from track import Track
+from firebase_admin import db
 from settings import (GRID_ROWS, GRID_COLUMNS, CELL_SIZE, TRAIN_COLOR, TRAIN2_COLOR, SPEED,
                       GRID_BORDER_COLOR, GRID_BORDER_THICKNESS, SECOND_PRIORITY_COLOR, TRAIN_TRANSPARENT)
 
@@ -64,27 +65,24 @@ class Canvas:
         self.train2.move()
 
         # Update segment occupation for train 1
-        self.update_train_segment('train1', self.train1)
+        self.update_train_segment('train1')
 
         # Update segment occupation for train 2
-        self.update_train_segment('train2', self.train2)
+        self.update_train_segment('train2')
 
         # Redraw everything on the screen
         self.draw(screen)
 
-    def update_train_segment(self, train_name, train):
-        current_position = train.get_current_position()
-        current_segment_info = self.track.get_segment_id_from_position(current_position)
+    def update_train_segment(self, train_name):
+        # Reference the train data from Firebase
+        train_ref = db.reference(f'/trains/{train_name}')
+        train_data = train_ref.get()
 
-        # If we have a previous segment and it's different from the current one, mark it as free
-        if self.previous_segments[train_name] and self.previous_segments[train_name] != current_segment_info:
-            previous_track_id, previous_segment_id = self.previous_segments[train_name]
-            self.track.mark_segment_free(previous_track_id, previous_segment_id)
+        if not train_data:
+            return
 
-        # If there is a current segment, mark it as occupied
-        if current_segment_info:
-            current_track_id, current_segment_id = current_segment_info
-            self.track.mark_segment_occupied(current_track_id, current_segment_id)
+        current_track = train_data.get('current_track')
+        current_segment = train_data.get('current_segment')
 
-        # Update the previous segment
-        self.previous_segments[train_name] = current_segment_info
+        # Update the previously occupied segment
+        self.previous_segments[train_name] = (current_track, current_segment)
