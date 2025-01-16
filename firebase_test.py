@@ -146,41 +146,6 @@ root_ref.set({
         "T7": {
             "segments": {
                 "S1": {
-                    "coordinates": [(40, 170), (60, 190)],
-                    "occupied": False
-                },
-                "S2": {
-                    "coordinates": [(40, 170), (60, 190)],
-                    "occupied": False
-                },
-                "S3": {
-                    "coordinates": [(40, 170), (60, 190)],
-                    "occupied": False
-                }
-            }
-        },
-
-        "T8": {
-            "segments": {
-                "S1": {
-                    "coordinates": [(40, 170), (60, 190)],
-                    "occupied": False
-                }
-            }
-        },
-
-        "T9": {
-            "segments": {
-                "S1": {
-                    "coordinates": [(40, 170), (60, 190)],
-                    "occupied": False
-                }
-            }
-        },
-
-        "T10": {
-            "segments": {
-                "S1": {
                     "coordinates": [(90, 110), (90, 130)],
                     "occupied": False
                 },
@@ -195,7 +160,7 @@ root_ref.set({
             }
         },
 
-        "T11": {
+        "T8": {
             "segments": {
                 "S1": {
                     "coordinates": [(70, 100), (90, 120)],
@@ -204,7 +169,7 @@ root_ref.set({
             }
         },
 
-        "T12": {
+        "T9": {
             "segments": {
                 "S1": {
                     "coordinates": [(90, 170), (70, 190)],
@@ -212,8 +177,6 @@ root_ref.set({
                 }
             }
         },
-
-
     },
     "trains": {
         "train1": {
