@@ -13,6 +13,12 @@ BG_COLOR = (30, 30, 30)  # Background color
 TRACK_COLOR = (234, 224, 200)  # Pearl White for the grid color
 TRAIN_COLOR = (255, 50, 50)  # Train color
 TRAIN2_COLOR = (0, 0, 255)  # Train 2 color (blue)
+TRAIN3_COLOR = (0, 255, 0)  # Train 3 color (green)
+
+# LC_GATE Settings
+LC_GATE_COLOR = (100, 100, 100)  # Yellow color for LC gates
+LC_GATE_THICKNESS = 3  # Line thickness for LC gates
+LC_GATE_CIRCLE_RADIUS = 5  # Circle radius in pixels for LC gates
 
 # Grid Settings
 GRID_ROWS = 200  # Number of rows in the grid

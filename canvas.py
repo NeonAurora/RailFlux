@@ -6,7 +6,8 @@ from track import Track
 from firebase_admin import db
 from settings import (
     GRID_ROWS, GRID_COLUMNS, CELL_SIZE,
-    TRAIN_COLOR, TRAIN2_COLOR, SPEED,
+    TRAIN_COLOR, TRAIN2_COLOR, TRAIN3_COLOR, LC_GATE_COLOR, LC_GATE_THICKNESS,
+    LC_GATE_CIRCLE_RADIUS, SPEED,
     GRID_BORDER_COLOR, GRID_BORDER_THICKNESS,
     SECOND_PRIORITY_COLOR, TRAIN_TRANSPARENT
 )
@@ -24,6 +25,7 @@ class Canvas:
         # Initialize two trains, each assigned to a separate track with unique IDs
         self.train1_color = (*TRAIN_COLOR[:3], 0) if TRAIN_TRANSPARENT else TRAIN_COLOR
         self.train2_color = (*TRAIN2_COLOR[:3], 0) if TRAIN_TRANSPARENT else TRAIN2_COLOR
+        self.train3_color = (*TRAIN3_COLOR[:3], 0) if TRAIN_TRANSPARENT else TRAIN3_COLOR
 
         self.train1 = Train(
             CELL_SIZE * 1.5, CELL_SIZE * 1.5,
@@ -39,10 +41,18 @@ class Canvas:
             train_id='train2'
         )
 
+        self.train3 = Train(
+            CELL_SIZE * 1.5, CELL_SIZE * 1.5,
+            self.train3_color, SPEED,
+            self.track.get_track_waypoints('T3'),
+            train_id='train3'
+        )
+
         # Keep track of previously occupied segments for each train
         self.previous_segments = {
             'train1': None,
-            'train2': None
+            'train2': None,
+            'train3': None
         }
 
         # Firebase reference for starter signals
@@ -112,6 +122,59 @@ class Canvas:
 
         canvas.blit(temp_surface, (0, 0))
 
+    def draw_lc_gates(self, surface):
+        """
+        Draw Level Crossing (LC) gates.
+        Four white lines representing two LC gates in open state,
+        with four circles at specified locations.
+        """
+        # Define the LC gate properties
+        lc_gate_color = LC_GATE_COLOR  # Use variable instead of hard-coded color
+        lc_gate_thickness = LC_GATE_THICKNESS  # Line thickness
+        circle_radius = LC_GATE_CIRCLE_RADIUS  # Circle radius in pixels
+
+        # Define the coordinates for all LC gate lines
+        lc_gate_lines = [
+            # First LC gate
+            ((40, 35), (90, 35)),  # First line
+            ((40, 45), (90, 45)),  # Second line
+
+            # Second LC gate
+            ((40, 210), (90, 210)),  # Third line
+            ((40, 220), (90, 220))  # Fourth line
+        ]
+
+        # Draw each LC gate line
+        for start_coords, end_coords in lc_gate_lines:
+            start_row, start_col = start_coords
+            end_row, end_col = end_coords
+
+            # Convert grid coordinates to pixel coordinates
+            start_x = start_col * CELL_SIZE
+            start_y = start_row * CELL_SIZE
+            end_x = end_col * CELL_SIZE
+            end_y = end_row * CELL_SIZE
+
+            # Draw the line
+            pygame.draw.line(surface, lc_gate_color, (start_x, start_y), (end_x, end_y), lc_gate_thickness)
+
+        # Define the coordinates for the four circles
+        circle_positions = [
+            (50, 35),  # First circle
+            (80, 45),  # Second circle
+            (50, 210),  # Third circle
+            (80, 220)  # Fourth circle
+        ]
+
+        # Draw each circle
+        for row, col in circle_positions:
+            # Convert grid coordinates to pixel coordinates
+            center_x = int(col * CELL_SIZE)
+            center_y = int(row * CELL_SIZE)
+
+            # Draw the circle
+            pygame.draw.circle(surface, lc_gate_color, (center_x, center_y), circle_radius)
+
     # --------------------------------------------------------------------------
     # MAIN DRAW
     def draw(self, screen):
@@ -122,9 +185,11 @@ class Canvas:
         # Define the canvas area and draw grid, tracks, and trains
         canvas_area = screen.subsurface(canvas_rect)
         self.draw_grid(canvas_area)
+        self.draw_lc_gates(canvas_area)  # Draw LC gates
         self.track.draw_tracks(canvas_area)
         self.train1.draw(canvas_area)
         self.train2.draw(canvas_area)
+        self.train3.draw(canvas_area)
 
         # Draw the signals from Firebase (no more hard-coded calls)
         self.draw_fetched_signals(canvas_area)
@@ -139,6 +204,7 @@ class Canvas:
         # 2) Update train segment occupation
         self.update_train_segment('train1')
         self.update_train_segment('train2')
+        self.update_train_segment('train3')
 
         # 3) Fetch signals from Firebase (updates self.signals_data)
         self.fetch_signals_data()
