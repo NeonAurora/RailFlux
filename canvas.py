@@ -75,6 +75,19 @@ class Canvas:
                 self.signals_data = []
             self.last_signal_fetch_time = current_time
 
+    def grid_to_pixel(self, row, col):
+        """
+        Convert grid coordinates to pixel coordinates.
+        IMPORTANT: Remember the coordinate system:
+        - row corresponds to y-axis (vertical position)
+        - col corresponds to x-axis (horizontal position)
+        - x = col * CELL_SIZE
+        - y = row * CELL_SIZE
+        """
+        x = col * CELL_SIZE
+        y = row * CELL_SIZE
+        return x, y
+
     # --------------------------------------------------------------------------
     # DRAW the signals that we fetched from Firebase
     def draw_fetched_signals(self, surface):
@@ -122,58 +135,123 @@ class Canvas:
 
         canvas.blit(temp_surface, (0, 0))
 
+    # --------------------------------------------------------------------------
+    def draw_lc_gate_lines(self, surface, line_coords, color, thickness):
+        """
+        Draw multiple lines for LC gates.
+        """
+        for start_coords, end_coords in line_coords:
+            start_row, start_col = start_coords
+            end_row, end_col = end_coords
+            start_x, start_y = self.grid_to_pixel(start_row, start_col)
+            end_x, end_y = self.grid_to_pixel(end_row, end_col)
+            pygame.draw.line(surface, color, (start_x, start_y), (end_x, end_y), thickness)
+
+    def draw_lc_gate_circles(self, surface, circle_coords, color, radius):
+        """
+        Draw multiple circles for LC gates.
+        """
+        for row, col in circle_coords:
+            center_x, center_y = self.grid_to_pixel(row, col)
+            pygame.draw.circle(surface, color, (center_x, center_y), radius)
+
+    # --------------------------------------------------------------------------
+    def draw_lc_gate_status_indicators(self, surface, gate_number, gate_state):
+        """
+        Draw status indicators (red/green lines) for a specific LC gate.
+        Red lines = gate activated/closed
+        Green lines = gate deactivated/open
+
+        Args:
+            surface: pygame surface to draw on
+            gate_number: 1 for first LC gate, 2 for second LC gate
+            gate_state: True for activated/closed, False for deactivated/open
+        """
+        # Define coordinates for each gate
+        gate_coordinates = {
+            1: {  # First LC gate
+                'red_lines': [
+                    ((50, 35), (50, 45)),  # Vertical line from (50,35) to (50,45)
+                    ((80, 45), (80, 35))  # Vertical line from (80,45) to (80,35)
+                ],
+                'green_lines': [
+                    ((50, 35), (45, 40)),  # Diagonal line from (50,35) to (45,40)
+                    ((80, 45), (75, 40))  # Diagonal line from (80,45) to (75,40)
+                ]
+            },
+            2: {  # Second LC gate
+                'red_lines': [
+                    ((50, 210), (50, 220)),  # Vertical line from (50,210) to (50,220)
+                    ((80, 220), (80, 210))  # Vertical line from (80,220) to (80,210)
+                ],
+                'green_lines': [
+                    ((50, 210), (45, 215)),  # Diagonal line from (50,210) to (45,215)
+                    ((80, 220), (75, 215))  # Diagonal line from (80,220) to (75,215)
+                ]
+            }
+        }
+
+        # Get coordinates for the specified gate
+        if gate_number not in gate_coordinates:
+            return  # Invalid gate number
+
+        coords = gate_coordinates[gate_number]
+
+        if gate_state:  # Activated/Closed - Red lines
+            red_color = (255, 0, 0)
+            red_thickness = 3
+            self.draw_lc_gate_lines(surface, coords['red_lines'], red_color, red_thickness)
+        else:  # Deactivated/Open - Green lines
+            green_color = (0, 255, 0)
+            green_thickness = 3
+            self.draw_lc_gate_lines(surface, coords['green_lines'], green_color, green_thickness)
+
     def draw_lc_gates(self, surface):
         """
         Draw Level Crossing (LC) gates.
-        Four white lines representing two LC gates in open state,
-        with four circles at specified locations.
+        Includes white base lines, circles, and status indicators.
+
+        COORDINATE SYSTEM REMINDER:
+        - All coordinates are in (row, col) format
+        - row = y-axis position, col = x-axis position
+        - Conversion: x = col * CELL_SIZE, y = row * CELL_SIZE
         """
-        # Define the LC gate properties
-        lc_gate_color = LC_GATE_COLOR  # Use variable instead of hard-coded color
-        lc_gate_thickness = LC_GATE_THICKNESS  # Line thickness
-        circle_radius = LC_GATE_CIRCLE_RADIUS  # Circle radius in pixels
+        # LC gate properties
+        lc_gate_color = LC_GATE_COLOR
+        lc_gate_thickness = LC_GATE_THICKNESS
+        circle_radius = LC_GATE_CIRCLE_RADIUS
 
-        # Define the coordinates for all LC gate lines
+        # Hardcoded LC gate states (will be fetched from Firebase later)
+        lc_gate1 = False  # True = activated/closed, False = deactivated/open
+        lc_gate2 = True  # True = activated/closed, False = deactivated/open
+
+        # Define coordinates for LC gate base lines
         lc_gate_lines = [
-            # First LC gate
-            ((40, 35), (90, 35)),  # First line
-            ((40, 45), (90, 45)),  # Second line
-
+            # First LC gate (remember: row, col format)
+            ((40, 35), (90, 35)),  # Horizontal line at row 40, from col 35 to 90
+            ((40, 45), (90, 45)),  # Horizontal line at row 45, from col 35 to 90
             # Second LC gate
-            ((40, 210), (90, 210)),  # Third line
-            ((40, 220), (90, 220))  # Fourth line
+            ((40, 210), (90, 210)),  # Horizontal line at row 210, from col 35 to 90
+            ((40, 220), (90, 220))  # Horizontal line at row 220, from col 35 to 90
         ]
 
-        # Draw each LC gate line
-        for start_coords, end_coords in lc_gate_lines:
-            start_row, start_col = start_coords
-            end_row, end_col = end_coords
-
-            # Convert grid coordinates to pixel coordinates
-            start_x = start_col * CELL_SIZE
-            start_y = start_row * CELL_SIZE
-            end_x = end_col * CELL_SIZE
-            end_y = end_row * CELL_SIZE
-
-            # Draw the line
-            pygame.draw.line(surface, lc_gate_color, (start_x, start_y), (end_x, end_y), lc_gate_thickness)
-
-        # Define the coordinates for the four circles
+        # Define coordinates for LC gate circles
         circle_positions = [
-            (50, 35),  # First circle
-            (80, 45),  # Second circle
-            (50, 210),  # Third circle
-            (80, 220)  # Fourth circle
+            (50, 35),  # First circle (row 50, col 35)
+            (80, 45),  # Second circle (row 80, col 45)
+            (50, 210),  # Third circle (row 50, col 210)
+            (80, 220)  # Fourth circle (row 80, col 220)
         ]
 
-        # Draw each circle
-        for row, col in circle_positions:
-            # Convert grid coordinates to pixel coordinates
-            center_x = int(col * CELL_SIZE)
-            center_y = int(row * CELL_SIZE)
+        # Draw LC gate base lines
+        self.draw_lc_gate_lines(surface, lc_gate_lines, lc_gate_color, lc_gate_thickness)
 
-            # Draw the circle
-            pygame.draw.circle(surface, lc_gate_color, (center_x, center_y), circle_radius)
+        # Draw LC gate circles
+        self.draw_lc_gate_circles(surface, circle_positions, lc_gate_color, circle_radius)
+
+        # Draw status indicators for both LC gates
+        self.draw_lc_gate_status_indicators(surface, 1, lc_gate1)  # First LC gate
+        self.draw_lc_gate_status_indicators(surface, 2, lc_gate2)  # Second LC gate
 
     # --------------------------------------------------------------------------
     # MAIN DRAW
@@ -200,6 +278,7 @@ class Canvas:
         # 1) Move trains
         self.train1.move()
         self.train2.move()
+        self.train3.move()
 
         # 2) Update train segment occupation
         self.update_train_segment('train1')
