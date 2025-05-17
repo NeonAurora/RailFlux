@@ -200,6 +200,53 @@ root_ref.set({
     }
 })
 
+# Reference to the axle counter signals
+axle_counter_ref = db.reference('/signals/axle_counters')
+
+# Set up 5 sample axle counters
+axle_counters = [
+    {
+        "id": "AC1",
+        "row": 60,
+        "col": 90,
+        "active": True,
+        "visible": True
+    },
+    {
+        "id": "AC2",
+        "row": 70,
+        "col": 120,
+        "active": False,
+        "visible": True
+    },
+    {
+        "id": "AC3",
+        "row": 80,
+        "col": 150,
+        "active": True,
+        "visible": True
+    },
+    {
+        "id": "AC4",
+        "row": 90,
+        "col": 180,
+        "active": False,
+        "visible": True
+    },
+    {
+        "id": "AC5",
+        "row": 40,
+        "col": 130,
+        "active": True,
+        "visible": True
+    }
+]
+
+# Write to Firebase
+axle_counter_ref.set(axle_counters)
+
+print("Axle counter data successfully written to Firebase")
+
 print("New data written to Firebase.")
 
 # Read back all the data from the database to verify it was written correctly

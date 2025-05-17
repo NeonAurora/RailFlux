@@ -3,6 +3,7 @@ import pygame
 import time
 from train import Train
 from track import Track
+from train_detection_icon import TrainDetectionIcon
 from firebase_admin import db
 from settings import (
     GRID_ROWS, GRID_COLUMNS, CELL_SIZE,
@@ -65,6 +66,14 @@ class Canvas:
         self.lc_gate_states = {'lc_gate1': False, 'lc_gate2': False}  # Default states
         self.last_lc_gate_fetch_time = 0
 
+        # Add Firebase reference for axle counter signals
+        self.axle_counter_ref = db.reference('/signals/axle_counters')
+        self.axle_counter_data = []  # Store the fetched data
+        self.last_axle_counter_fetch_time = 0
+
+        # Create train detection icon renderer
+        self.train_detection_icon = TrainDetectionIcon(CELL_SIZE)
+
     # --------------------------------------------------------------------------
     # Fetch signals from Firebase (LIST format) and store in self.signals_data
     def fetch_signals_data(self):
@@ -96,6 +105,22 @@ class Canvas:
                 print("No LC gate states found, using defaults.")
                 self.lc_gate_states = {'lc_gate1': False, 'lc_gate2': False}
             self.last_lc_gate_fetch_time = current_time
+
+    def fetch_axle_counter_data(self):
+        """
+        Fetch axle counter data from Firebase at regular intervals
+        """
+        current_time = time.time()
+        # Fetch once per second to avoid excessive database calls
+        if current_time - self.last_axle_counter_fetch_time > 1.0:
+            data = self.axle_counter_ref.get()
+            if data:
+                print("Fetched axle counter signals:", data)
+                self.axle_counter_data = data
+            else:
+                print("No axle counter data found.")
+                self.axle_counter_data = []
+            self.last_axle_counter_fetch_time = current_time
 
     def grid_to_pixel(self, row, col):
         """
@@ -275,6 +300,37 @@ class Canvas:
         self.draw_lc_gate_status_indicators(surface, 1, lc_gate1)  # First LC gate
         self.draw_lc_gate_status_indicators(surface, 2, lc_gate2)  # Second LC gate
 
+    def draw_axle_counters(self, surface):
+        """
+        Draw train detection icons based on axle counter data from Firebase
+        """
+        # Check if we have any data to draw
+        if not self.axle_counter_data:
+            return
+
+        # Iterate through the axle counter data
+        for counter in self.axle_counter_data:
+            # Skip any None entries
+            if not counter:
+                continue
+
+            # Extract data (with defaults if keys are missing)
+            row = counter.get('row')
+            col = counter.get('col')
+            active = counter.get('active', False)
+            visible = counter.get('visible', True)
+
+            # Skip if missing required data or not visible
+            if row is None or col is None or not visible:
+                continue
+
+            # Convert grid coordinates to pixel coordinates
+            x = int(col * CELL_SIZE)
+            y = int(row * CELL_SIZE)
+
+            # Draw the train detection icon
+            self.train_detection_icon.draw(surface, x, y, active)
+
     # --------------------------------------------------------------------------
     # MAIN DRAW
     def draw(self, screen):
@@ -293,6 +349,7 @@ class Canvas:
 
         # Draw the signals from Firebase (no more hard-coded calls)
         self.draw_fetched_signals(canvas_area)
+        self.draw_axle_counters(canvas_area)
 
     # --------------------------------------------------------------------------
     # UPDATE
@@ -312,6 +369,7 @@ class Canvas:
 
         # 4) Fetch LC gate states from Firebase
         self.fetch_lc_gate_states()
+        self.fetch_axle_counter_data()
 
         # 5) Draw everything
         self.draw(screen)
