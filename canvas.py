@@ -60,6 +60,11 @@ class Canvas:
         self.signals_data = []  # We'll store the list from Firebase here
         self.last_signal_fetch_time = 0
 
+        # Firebase reference for LC gates
+        self.lc_gates_ref = db.reference('/signals/lc_gates')
+        self.lc_gate_states = {'lc_gate1': False, 'lc_gate2': False}  # Default states
+        self.last_lc_gate_fetch_time = 0
+
     # --------------------------------------------------------------------------
     # Fetch signals from Firebase (LIST format) and store in self.signals_data
     def fetch_signals_data(self):
@@ -74,6 +79,23 @@ class Canvas:
                 print("No starter signals found.")
                 self.signals_data = []
             self.last_signal_fetch_time = current_time
+
+    # --------------------------------------------------------------------------
+    # Fetch LC gate states from Firebase
+    def fetch_lc_gate_states(self):
+        current_time = time.time()
+        # Fetch once per second to avoid console spam or heavy DB usage
+        if current_time - self.last_lc_gate_fetch_time > 1.0:
+            lc_gate_data = self.lc_gates_ref.get()
+            if lc_gate_data:
+                # Update the stored states with Firebase data
+                self.lc_gate_states['lc_gate1'] = lc_gate_data.get('lc_gate1', False)
+                self.lc_gate_states['lc_gate2'] = lc_gate_data.get('lc_gate2', False)
+                print("Fetched LC gate states from Firebase:", self.lc_gate_states)
+            else:
+                print("No LC gate states found, using defaults.")
+                self.lc_gate_states = {'lc_gate1': False, 'lc_gate2': False}
+            self.last_lc_gate_fetch_time = current_time
 
     def grid_to_pixel(self, row, col):
         """
@@ -221,9 +243,9 @@ class Canvas:
         lc_gate_thickness = LC_GATE_THICKNESS
         circle_radius = LC_GATE_CIRCLE_RADIUS
 
-        # Hardcoded LC gate states (will be fetched from Firebase later)
-        lc_gate1 = False  # True = activated/closed, False = deactivated/open
-        lc_gate2 = True  # True = activated/closed, False = deactivated/open
+        # Get LC gate states from Firebase (fetched in update method)
+        lc_gate1 = self.lc_gate_states['lc_gate1']
+        lc_gate2 = self.lc_gate_states['lc_gate2']
 
         # Define coordinates for LC gate base lines
         lc_gate_lines = [
@@ -288,7 +310,10 @@ class Canvas:
         # 3) Fetch signals from Firebase (updates self.signals_data)
         self.fetch_signals_data()
 
-        # 4) Draw everything
+        # 4) Fetch LC gate states from Firebase
+        self.fetch_lc_gate_states()
+
+        # 5) Draw everything
         self.draw(screen)
 
     # --------------------------------------------------------------------------

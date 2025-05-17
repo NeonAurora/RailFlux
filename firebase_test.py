@@ -190,6 +190,12 @@ root_ref.set({
             "direction": "backward",
             "current_track": "T2",
             "current_segment": "S1"
+        },
+        "train3": {
+            "speed": 25,
+            "direction": "forward",
+            "current_track": "T1",
+            "current_segment": "S1"
         }
     }
 })
