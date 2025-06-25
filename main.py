@@ -7,7 +7,7 @@ from canvas import Canvas
 from timer import Timer
 from settings import (
     WINDOW_WIDTH, WINDOW_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT, BG_COLOR,
-    HEADER_HEIGHT, FOOTER_HEIGHT, FPS, TRACK_COLOR, TRAIN_COLOR, TRAIN2_COLOR, TRAIN3_COLOR,
+    HEADER_HEIGHT, FOOTER_HEIGHT, FPS, TRACK_COLOR, TRAIN_COLOR, TRAIN2_COLOR,
     GRID_ROWS, GRID_COLUMNS, CELL_SIZE, GRID_BORDER_COLOR, GRID_BORDER_THICKNESS,
     SECOND_PRIORITY_COLOR, SPEED, TRAIN_TRANSPARENT
 )
@@ -32,7 +32,6 @@ def push_metadata_to_firebase():
             "TRACK_COLOR": TRACK_COLOR,
             "TRAIN_COLOR": TRAIN_COLOR,
             "TRAIN2_COLOR": TRAIN2_COLOR,
-            "TRAIN3_COLOR": TRAIN3_COLOR,
             "GRID_BORDER_COLOR": GRID_BORDER_COLOR,
             "GRID_BORDER_THICKNESS": GRID_BORDER_THICKNESS,
             "SECOND_PRIORITY_COLOR": SECOND_PRIORITY_COLOR
@@ -62,6 +61,9 @@ def main():
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption("Track Simulation")
 
+    # Initialize font for header text
+    header_font = pygame.font.SysFont('Arial', 48, bold=True)  # Use SysFont if you don't have a custom font
+
     # Push metadata to Firebase when initializing the application
     push_metadata_to_firebase()
 
@@ -85,6 +87,11 @@ def main():
         pygame.draw.rect(screen, (50, 50, 50), header_rect)  # Dark grey for header
         pygame.draw.rect(screen, (50, 50, 50), footer_rect)  # Dark grey for footer
 
+        # Render "CHUADANGA" text
+        header_text = header_font.render("CHUADANGA", True, (255, 255, 255))  # White text
+        text_rect = header_text.get_rect(center=(WINDOW_WIDTH // 2, HEADER_HEIGHT // 2))
+        screen.blit(header_text, text_rect)
+
         # Update and draw the canvas area within the window
         canvas.update(screen)
 
@@ -97,4 +104,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

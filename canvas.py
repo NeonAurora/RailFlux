@@ -4,6 +4,7 @@ import time
 from train import Train
 from track import Track
 from train_detection_icon import TrainDetectionIcon
+from text_renderer import TextRenderer
 from firebase_admin import db
 from settings import (
     GRID_ROWS, GRID_COLUMNS, CELL_SIZE,
@@ -73,6 +74,12 @@ class Canvas:
 
         # Create train detection icon renderer
         self.train_detection_icon = TrainDetectionIcon(CELL_SIZE)
+
+        # Initialize the text renderer with the cell size
+        self.text_renderer = TextRenderer(default_font_size=16, cell_size=CELL_SIZE)
+
+        # Load text elements from configuration file
+        self.text_renderer.load_from_file("text_config.txt")
 
     # --------------------------------------------------------------------------
     # Fetch signals from Firebase (LIST format) and store in self.signals_data
@@ -350,6 +357,8 @@ class Canvas:
         # Draw the signals from Firebase (no more hard-coded calls)
         self.draw_fetched_signals(canvas_area)
         self.draw_axle_counters(canvas_area)
+
+        self.text_renderer.render(canvas_area)  # Draw text elements
 
     # --------------------------------------------------------------------------
     # UPDATE

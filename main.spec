@@ -5,8 +5,11 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('firebase_admin_key.json', '.')],
-    hiddenimports=[],
+    datas=[
+        ('firebase_admin_key.json', '.'),
+        ('text_config.txt', '.')
+    ],
+    hiddenimports=['pygame.font', 'pygame.mixer', 'pygame.image', 'pygame.transform'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +25,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='main',
+    name='RailFlux',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,4 +38,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=None
 )
