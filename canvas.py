@@ -98,16 +98,22 @@ class Canvas:
 
     # --------------------------------------------------------------------------
     # Fetch LC gate states from Firebase
+
     def fetch_lc_gate_states(self):
         current_time = time.time()
         # Fetch once per second to avoid console spam or heavy DB usage
         if current_time - self.last_lc_gate_fetch_time > 1.0:
             lc_gate_data = self.lc_gates_ref.get()
             if lc_gate_data:
+                # Check for state changes and log them
+                for gate_id, new_state in lc_gate_data.items():
+                    old_state = self.lc_gate_states.get(gate_id, False)
+                    if old_state != new_state:
+                        state_text = "CLOSED" if new_state else "OPEN"
+                        print(f"LC Gate {gate_id} is now {state_text}")
+
                 # Update the stored states with Firebase data
-                self.lc_gate_states['lc_gate1'] = lc_gate_data.get('lc_gate1', False)
-                self.lc_gate_states['lc_gate2'] = lc_gate_data.get('lc_gate2', False)
-                print("Fetched LC gate states from Firebase:", self.lc_gate_states)
+                self.lc_gate_states.update(lc_gate_data)
             else:
                 print("No LC gate states found, using defaults.")
                 self.lc_gate_states = {'lc_gate1': False, 'lc_gate2': False}
