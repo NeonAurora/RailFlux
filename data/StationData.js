@@ -1,5 +1,8 @@
+// StationData.js - QML Compatible Version
+.pragma library
+
 // Core station layout data - ported from your firebase_test.py
-const trackSegments = [
+var trackSegments = [
     // T1 Track segments
     { id: "T1S1", startRow: 60, startCol: 0, endRow: 60, endCol: 10, occupied: false },
     { id: "T1S2", startRow: 60, startCol: 10, endRow: 60, endCol: 30, occupied: false },
@@ -21,7 +24,7 @@ const trackSegments = [
     { id: "T2S7", startRow: 70, startCol: 182, endRow: 70, endCol: 200, occupied: false },
     { id: "T2S8", startRow: 70, startCol: 200, endRow: 70, endCol: 250, occupied: false },
 
-    // Junction tracks (your T3)
+    // Junction tracks
     { id: "T3S1", startRow: 70, startCol: 95, endRow: 65, endCol: 100, occupied: false },
     { id: "T3S2", startRow: 65, startCol: 100, endRow: 60, endCol: 105, occupied: false },
 
@@ -45,8 +48,8 @@ const trackSegments = [
     { id: "T9S1", startRow: 90, startCol: 170, endRow: 70, endCol: 190, occupied: false }
 ];
 
-// Basic signal positions (we'll expand this later with proper signal logic)
-const signalPositions = [
+// Basic signal positions
+var signalPositions = [
     { id: "SG001", type: "BASIC", row: 57, col: 4, name: "T1S1", aspect: "RED" },
     { id: "SG002", type: "BASIC", row: 57, col: 19, name: "T1S2", aspect: "RED" },
     { id: "SG003", type: "BASIC", row: 57, col: 39, name: "T1S3", aspect: "RED" },
@@ -55,7 +58,7 @@ const signalPositions = [
 ];
 
 // Text labels from your text_config.txt
-const textLabels = [
+var textLabels = [
     // Grid reference marks
     { text: "50", row: 1, col: 49, fontSize: 12 },
     { text: "100", row: 1, col: 99, fontSize: 12 },
@@ -79,8 +82,8 @@ const textLabels = [
     { text: "LC_GATE2", row: 37, col: 211, fontSize: 12 }
 ];
 
-// Level crossings from your setup
-const levelCrossings = [
+// Level crossings
+var levelCrossings = [
     { id: "LC001", row: 37, col: 36, state: "OPEN", name: "LC_GATE1" },
     { id: "LC002", row: 37, col: 211, state: "OPEN", name: "LC_GATE2" }
 ];
@@ -99,6 +102,3 @@ function pixelToGrid(x, y, cellSize) {
         col: Math.floor(x / cellSize)
     };
 }
-
-// Export core data only
-export { trackSegments, signalPositions, textLabels, levelCrossings, gridToPixel, pixelToGrid };
