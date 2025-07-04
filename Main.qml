@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import RailFlux.Database
+import "layouts" as Layouts
 
 ApplicationWindow {
     id: mainWindow
@@ -90,7 +91,7 @@ ApplicationWindow {
         }
     }
 
-    StationLayout {
+    Layouts.StationLayout {
         id: stationLayout
         anchors.fill: parent
         anchors.margins: theme.spacingMedium
