@@ -9,21 +9,63 @@ Rectangle {
     property var dbManager
     property int cellSize: Math.floor(width / 320)
     property bool showGrid: true
+    property int signalRefreshTrigger: 0
 
-    property real globalRowPadding: 1
-    property real globalColPadding: 1
+    property real globalRowPadding: 0
+    property real globalColPadding: 0
+    property var appStartTime: new Date()  // Capture when layout loads
+    property string appUptime: "00:00:00"  // Formatted uptime string
 
     // Basic click handlers
     function handleTrackClick(segmentId, currentState) {
         console.log("Track segment clicked:", segmentId, "Currently occupied:", currentState)
     }
 
-    function handleSignalClick(signalId) {
-        console.log("Signal clicked:", signalId)
-    }
-
     function updateDisplay() {
         console.log("Station display updated from database")
+    }
+
+    function handleOuterSignalClick(signalId, currentAspect) {
+        // Update the JavaScript data
+        var signal = StationData.getOuterSignalById(signalId)
+        if (signal) {
+            var currentIndex = signal.possibleAspects.indexOf(currentAspect)
+            var nextIndex = (currentIndex + 1) % signal.possibleAspects.length
+            signal.currentAspect = signal.possibleAspects[nextIndex]
+
+            // ✅ Trigger refresh: This causes QML to re-evaluate all bindings that depend on this property
+            signalRefreshTrigger = signalRefreshTrigger + 1
+        }
+    }
+
+    function handleHomeSignalClick(signalId, currentAspect) {
+        // Update the JavaScript data
+        var signal = StationData.getHomeSignalById(signalId)
+        if (signal) {
+            var currentIndex = signal.possibleAspects.indexOf(currentAspect)
+            var nextIndex = (currentIndex + 1) % signal.possibleAspects.length
+            signal.currentAspect = signal.possibleAspects[nextIndex]
+
+            console.log("Changed home signal", signalId, "to", signal.currentAspect)
+
+            // Trigger refresh
+            signalRefreshTrigger = signalRefreshTrigger + 1
+        }
+    }
+
+    function handleStarterSignalClick(signalId, currentAspect) {
+        // Update the JavaScript data
+        var signal = StationData.getStarterSignalById(signalId)
+        if (signal) {
+            var currentIndex = signal.possibleAspects.indexOf(currentAspect)
+            var nextIndex = (currentIndex + 1) % signal.possibleAspects.length
+            signal.currentAspect = signal.possibleAspects[nextIndex]
+
+            console.log("Changed starter signal", signalId, "to", signal.currentAspect)
+
+            // Trigger refresh
+            signalRefreshTrigger = signalRefreshTrigger + 1
+        }
     }
 
     // Main grid canvas
@@ -57,25 +99,34 @@ Rectangle {
             }
         }
 
-        // Basic signals
+        // Outer Signals Rendering Block
         Repeater {
-            model: StationData.signalPositions
+            model: StationData.getAllOuterSignals()
 
-            BasicSignal {
+            OuterSignal {
                 x: modelData.col * stationLayout.cellSize
                 y: modelData.row * stationLayout.cellSize
                 signalId: modelData.id
                 signalName: modelData.name
+                currentAspect: {
+                    stationLayout.signalRefreshTrigger  // Depend on this value
+                    var signal = StationData.getOuterSignalById(signalId)
+                    return signal ? signal.currentAspect : "RED"
+                }
+                direction: modelData.direction
+                isActive: modelData.isActive
                 cellSize: stationLayout.cellSize
 
-                currentAspect: {
-                    if (!stationLayout.dbManager) return modelData.aspect
-                    return modelData.aspect
+                onSignalClicked: {
+                    console.log("Outer signal control:", signalId, currentAspect)
+                    // TODO: Add signal control logic here
+                    stationLayout.handleOuterSignalClick(signalId, currentAspect)
                 }
-
-                onSignalClicked: stationLayout.handleSignalClick(signalId)
             }
         }
+
+        // Basic signals
+
 
         // Text labels
         Repeater {
@@ -91,28 +142,82 @@ Rectangle {
             }
         }
 
-        // Level crossings
         Repeater {
-            model: StationData.levelCrossings
+            model: StationData.getAllHomeSignals()
 
-            LevelCrossingGate {
+            HomeSignal {
                 x: modelData.col * stationLayout.cellSize
                 y: modelData.row * stationLayout.cellSize
-                gateId: modelData.id
-                gateName: modelData.name
+                signalId: modelData.id
+                signalName: modelData.name
+                currentAspect: {
+                    stationLayout.signalRefreshTrigger  // Depend on refresh trigger
+                    var signal = StationData.getHomeSignalById(signalId)
+                    return signal ? signal.currentAspect : "RED"
+                }
+                direction: modelData.direction
+                isActive: modelData.isActive
                 cellSize: stationLayout.cellSize
 
-                gateState: {
-                    if (!stationLayout.dbManager) return modelData.state
-                    return modelData.state
+                onSignalClicked: {
+                    console.log("Home signal control:", signalId, currentAspect)
+                    stationLayout.handleHomeSignalClick(signalId, currentAspect)
                 }
+            }
+        }
 
-                onGateClicked: console.log("Level crossing clicked:", gateId)
+        Repeater {
+            model: StationData.getAllStarterSignals()
+
+            StarterSignal {
+                x: modelData.col * stationLayout.cellSize
+                y: modelData.row * stationLayout.cellSize
+                signalId: modelData.id
+                signalName: modelData.name
+                currentAspect: {
+                    stationLayout.signalRefreshTrigger  // Depend on refresh trigger
+                    var signal = StationData.getStarterSignalById(signalId)
+                    return signal ? signal.currentAspect : "RED"
+                }
+                aspectCount: modelData.aspectCount
+                direction: modelData.direction
+                isActive: modelData.isActive
+                cellSize: stationLayout.cellSize
+
+                onSignalClicked: {
+                    console.log("Starter signal control:", signalId, currentAspect)
+                    stationLayout.handleStarterSignalClick(signalId, currentAspect)
+                }
             }
         }
     }
 
-    // Replace your entire statusPanel Rectangle with this minimal version:
+    Timer {
+        id: uptimeTimer
+        interval: 1000  // Update every second
+        running: true   // Start immediately
+        repeat: true    // Keep running
+
+        onTriggered: {
+            var currentTime = new Date()
+            var uptimeMs = currentTime.getTime() - stationLayout.appStartTime.getTime()
+
+            // Convert milliseconds to hours:minutes:seconds
+            var totalSeconds = Math.floor(uptimeMs / 1000)
+            var hours = Math.floor(totalSeconds / 3600)
+            var minutes = Math.floor((totalSeconds % 3600) / 60)
+            var seconds = totalSeconds % 60
+
+            // Format with leading zeros
+            var hoursStr = hours.toString().padStart(2, '0')
+            var minutesStr = minutes.toString().padStart(2, '0')
+            var secondsStr = seconds.toString().padStart(2, '0')
+
+            // Update the uptime display
+            stationLayout.appUptime = hoursStr + ":" + minutesStr + ":" + secondsStr
+        }
+    }
+
     // **ENHANCED EXPANDABLE STATUS PANEL** with Dynamic Grid + Resize
     Rectangle {
         id: statusPanel
@@ -602,7 +707,7 @@ Rectangle {
                 }
             }
 
-            // **SECTION 4: ADVANCED CONTROLS**
+            // **SECTION 4: ADVANCED CONTROLS** - Updated version
             Rectangle {
                 width: (sectionsGrid.width - (sectionsGrid.columns - 1) * sectionsGrid.spacing) / sectionsGrid.columns
                 height: (sectionsGrid.height - (sectionsGrid.rows - 1) * sectionsGrid.spacing) / sectionsGrid.rows
@@ -623,6 +728,7 @@ Rectangle {
                         font.weight: Font.Bold
                     }
 
+                    // **DATABASE CONNECTION STATUS**
                     Row {
                         width: parent.width
                         Rectangle {
@@ -639,33 +745,20 @@ Rectangle {
                         }
                     }
 
+                    // **APP UPTIME DISPLAY** - Simplified property access
                     Row {
                         width: parent.width
+                        Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: "#3182ce"  // Blue indicator
+                        }
                         Text {
-                            text: "Signals:"
+                            text: "Uptime: " + stationLayout.appUptime  // ✅ Direct access to stationLayout
                             color: "#a0aec0"
                             font.pixelSize: 9
-                            width: 45
-                        }
-                        Text {
-                            text: StationData.signalPositions.length.toString()
-                            color: "#ffffff"
-                            font.pixelSize: 9
-                        }
-                    }
-
-                    Row {
-                        width: parent.width
-                        Text {
-                            text: "Gates:"
-                            color: "#a0aec0"
-                            font.pixelSize: 9
-                            width: 45
-                        }
-                        Text {
-                            text: StationData.levelCrossings.length.toString()
-                            color: "#ffffff"
-                            font.pixelSize: 9
+                            leftPadding: 6
                         }
                     }
                 }

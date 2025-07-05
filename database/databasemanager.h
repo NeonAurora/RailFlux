@@ -52,7 +52,7 @@ private:
     QHash<int, bool> lastTrackStates;
     QHash<int, QString> lastPointStates;
 
-    static constexpr int POLLING_INTERVAL_MS = 200;
+    static constexpr int POLLING_INTERVAL_MS = 50000;
 
     void detectAndEmitChanges();
     bool setupDatabase();

@@ -19,7 +19,7 @@ qt_add_qml_module(appRailFlux
     QML_FILES
         Main.qml
         components/TrackSegment.qml
-        components/BasicSignal.qml
+
         components/LevelCrossingGate.qml
         components/GridCanvas.qml
         layouts/StationLayout.qml
@@ -28,6 +28,9 @@ qt_add_qml_module(appRailFlux
     SOURCES
         database/databasemanager.h
         database/databasemanager.cpp
+        QML_FILES components/OuterSignal.qml
+        QML_FILES components/HomeSignal.qml
+        QML_FILES components/StarterSignal.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

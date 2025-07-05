@@ -13,13 +13,13 @@ Item {
     property string trackType: "straight"
 
     // **PADDING CONTROLS** - Grid-based
-    property real rowPadding: 2
-    property real colPadding: 2
+    property real rowPadding: 0
+    property real colPadding: 0
 
     // Visual properties
-    property color trackColorNormal: "#eae0c8"
+    property color trackColorNormal: "#a6a6a6"
     property color trackColorOccupied: "#ff3232"
-    property color railColor: "#ffffff"
+    property color railColor: "#a6a6a6"
 
     // **DIRECTION DETECTION**
     property bool isHorizontal: Math.abs(endCol - startCol) > Math.abs(endRow - startRow)

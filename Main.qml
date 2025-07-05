@@ -13,17 +13,20 @@ ApplicationWindow {
     // Professional railway color scheme
     color: "#1a1a1a"
 
-    property alias databaseManager: dbManager
+    // **FIXED**: No alias needed - use globalDatabaseManager directly
+    // property alias databaseManager: globalDatabaseManager  // ❌ Can't alias context properties
 
-    DatabaseManager {
-        id: dbManager
+    // **CONNECT TO THE WORKING DATABASE MANAGER**
+    Connections {
+        target: globalDatabaseManager  // Context property from main.cpp
 
-        onConnectionStateChanged: {
+        function onConnectionStateChanged(isConnected) {
+            console.log("Database connection changed:", isConnected)
             connectionStatus.text = isConnected ? "Connected" : "Disconnected"
             connectionStatus.color = isConnected ? theme.successGreen : theme.dangerRed
         }
 
-        onDataUpdated: {
+        function onDataUpdated() {
             // Trigger UI updates when database data changes
             stationLayout.updateDisplay()
         }
@@ -69,9 +72,10 @@ ApplicationWindow {
 
             Text {
                 id: connectionStatus
-                text: "Disconnected"
+                // **FIXED**: Use globalDatabaseManager directly (no alias)
+                text: globalDatabaseManager && globalDatabaseManager.isConnected ? "Connected" : "Disconnected"
                 font.pixelSize: 14
-                color: theme.dangerRed
+                color: globalDatabaseManager && globalDatabaseManager.isConnected ? theme.successGreen : theme.dangerRed
                 anchors.verticalCenter: parent.verticalCenter
             }
 
@@ -96,7 +100,7 @@ ApplicationWindow {
         anchors.fill: parent
         anchors.margins: theme.spacingMedium
 
-        // Pass database manager to children
-        property alias dbManager: dbManager
+        // **FIXED**: Pass globalDatabaseManager directly (no alias)
+        dbManager: globalDatabaseManager
     }
 }
