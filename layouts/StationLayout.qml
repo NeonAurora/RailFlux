@@ -11,8 +11,6 @@ Rectangle {
     property bool showGrid: true
     property int signalRefreshTrigger: 0
 
-    property real globalRowPadding: 0
-    property real globalColPadding: 0
     property var appStartTime: new Date()  // Capture when layout loads
     property string appUptime: "00:00:00"  // Formatted uptime string
 
@@ -68,6 +66,50 @@ Rectangle {
         }
     }
 
+    function handlePointMachineClick(machineId, currentPosition) {
+        console.log("Point machine click handler:", machineId, "Current:", currentPosition)
+
+        // Determine target position
+        var targetPosition = (currentPosition === "NORMAL") ? "REVERSE" : "NORMAL"
+
+        // ✅ FIXED: Use the updated function that returns result object
+        var result = StationData.operatePointMachine(machineId, targetPosition)
+
+        if (result.success) {
+            console.log("Point machine operation initiated:", machineId, "→", targetPosition)
+
+            // Trigger immediate UI refresh for transition state
+            signalRefreshTrigger = signalRefreshTrigger + 1
+
+            // ✅ FIXED: Use QML Timer instead of setTimeout
+            if (result.transitionTime > 0) {
+                var timer = Qt.createQmlObject(`
+                    import QtQuick 2.0
+                    Timer {
+                        interval: ${result.transitionTime}
+                        running: true
+                        repeat: false
+                    }
+                `, stationLayout)
+
+                timer.triggered.connect(function() {
+                    // Complete the operation
+                    StationData.completePointMachineOperation(machineId, targetPosition)
+
+                    // Trigger final UI refresh
+                    signalRefreshTrigger = signalRefreshTrigger + 1
+                    console.log("Point machine transition completed:", machineId)
+
+                    // Clean up timer
+                    timer.destroy()
+                })
+            }
+        } else {
+            console.warn("Point machine operation failed:", result.reason)
+            // Could show user notification here
+        }
+    }
+
     // Main grid canvas
     GridCanvas {
         id: canvas
@@ -87,15 +129,35 @@ Rectangle {
                 endCol: modelData.endCol
                 cellSize: stationLayout.cellSize
 
-                rowPadding: stationLayout.globalRowPadding
-                colPadding: stationLayout.globalColPadding
-
                 isOccupied: {
                     if (!stationLayout.dbManager) return modelData.occupied
                     return modelData.occupied
                 }
 
                 onTrackClicked: stationLayout.handleTrackClick(segmentId, currentState)
+            }
+        }
+
+        // **LAYER 2: Point Machines** (middle layer)
+        Repeater {
+            model: StationData.pointMachines
+            PointMachine {
+                machineId: modelData.id
+                position: {
+                    stationLayout.signalRefreshTrigger
+                    var pm = StationData.getPointMachineById(modelData.id)
+                    return pm ? pm.position : "NORMAL"
+                }
+                operatingStatus: {
+                    stationLayout.signalRefreshTrigger
+                    var pm = StationData.getPointMachineById(modelData.id)
+                    return pm ? pm.operatingStatus : "CONNECTED"
+                }
+                junctionPoint: modelData.junctionPoint
+                rootTrack: modelData.rootTrack
+                normalTrack: modelData.normalTrack
+                reverseTrack: modelData.reverseTrack
+                cellSize: stationLayout.cellSize
             }
         }
 
@@ -187,6 +249,34 @@ Rectangle {
                 onSignalClicked: {
                     console.log("Starter signal control:", signalId, currentAspect)
                     stationLayout.handleStarterSignalClick(signalId, currentAspect)
+                }
+            }
+        }
+
+        Repeater {
+            model: StationData.getAllPointMachines()
+
+            PointMachine {
+                machineId: modelData.id
+                position: {
+                    stationLayout.signalRefreshTrigger  // Trigger refresh
+                    var pm = StationData.getPointMachineById(modelData.id)
+                    return pm ? pm.position : "NORMAL"
+                }
+                operatingStatus: {
+                    stationLayout.signalRefreshTrigger  // Trigger refresh
+                    var pm = StationData.getPointMachineById(modelData.id)
+                    return pm ? pm.operatingStatus : "CONNECTED"
+                }
+                junctionPoint: modelData.junctionPoint
+                rootTrack: modelData.rootTrack
+                normalTrack: modelData.normalTrack
+                reverseTrack: modelData.reverseTrack
+                cellSize: stationLayout.cellSize
+
+                onPointMachineClicked: function(machineId, currentPosition) {
+                    console.log("Point machine operation requested:", machineId, currentPosition)
+                    stationLayout.handlePointMachineClick(machineId, currentPosition)
                 }
             }
         }
@@ -339,11 +429,11 @@ Rectangle {
             // **DYNAMIC LAYOUT CALCULATION**
             property real aspectRatio: width / height
             property int optimalColumns: {
-                if (aspectRatio > 2.0) return 4      // Very wide: 4x1
-                else if (aspectRatio > 1.2) return 2 // Wide: 2x2
+                if (aspectRatio > 2.0) return 3      // Very wide: 4x1
+                else if (aspectRatio > 1.0) return 2 // Wide: 2x2
                 else return 1                        // Tall: 1x4
             }
-            property int optimalRows: Math.ceil(4 / optimalColumns)
+            property int optimalRows: Math.ceil(3 / optimalColumns)
 
             columns: optimalColumns
             rows: optimalRows
@@ -420,226 +510,7 @@ Rectangle {
                 }
             }
 
-            // **SECTION 2: TRACK PADDING**
-            Rectangle {
-                width: (sectionsGrid.width - (sectionsGrid.columns - 1) * sectionsGrid.spacing) / sectionsGrid.columns
-                height: (sectionsGrid.height - (sectionsGrid.rows - 1) * sectionsGrid.spacing) / sectionsGrid.rows
-                color: "#374151"
-                radius: 4
-                border.color: "#4a5568"
-                border.width: 1
-
-                Column {
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    spacing: 4  // Reduced spacing to prevent overlap
-
-                    // **SECTION HEADER WITH TOGGLE DOT**
-                    Item {
-                        width: parent.width
-                        height: 16  // Fixed height to prevent overlap
-
-                        Text {
-                            text: "Track Padding"
-                            color: "#ffffff"
-                            font.pixelSize: 11
-                            font.weight: Font.Bold
-                            anchors.left: parent.left
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        // **TOGGLE DOT** - Toggles between 0 and 1
-                        Rectangle {
-                            width: 14
-                            height: 14
-                            radius: 7
-                            color: toggleMouse.pressed ? "#a0aec0" : "#ffffff"
-                            border.color: "#666666"
-                            border.width: 1
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-
-                            // **TOGGLE STATE INDICATOR**
-                            Text {
-                                anchors.centerIn: parent
-                                text: {
-                                    // Show current toggle state (0 if both are 0, 1 if either is non-zero)
-                                    return (stationLayout.globalRowPadding === 0 && stationLayout.globalColPadding === 0) ? "1" : "0"
-                                }
-                                color: "#000000"
-                                font.pixelSize: 8
-                                font.weight: Font.Bold
-                            }
-
-                            MouseArea {
-                                id: toggleMouse
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-
-                                onClicked: {
-                                    // **TOGGLE LOGIC**: Switch between 0 and 1
-                                    if (stationLayout.globalRowPadding === 0 && stationLayout.globalColPadding === 0) {
-                                        // Currently 0 → Set to 1
-                                        stationLayout.globalRowPadding = 1
-                                        stationLayout.globalColPadding = 1
-                                        console.log("Track padding toggled to 1,1")
-                                    } else {
-                                        // Currently non-zero → Set to 0
-                                        stationLayout.globalRowPadding = 0
-                                        stationLayout.globalColPadding = 0
-                                        console.log("Track padding toggled to 0,0")
-                                    }
-                                }
-                            }
-
-                            // **HOVER EFFECT**
-                            Behavior on color {
-                                ColorAnimation { duration: 150 }
-                            }
-
-                            // **SCALE ANIMATION** on click
-                            Behavior on scale {
-                                NumberAnimation { duration: 100 }
-                            }
-
-                            scale: toggleMouse.pressed ? 0.9 : 1.0
-                        }
-                    }
-
-                    // **ROW PADDING INPUT**
-                    Row {
-                        width: parent.width
-                        height: 18  // Fixed height
-                        spacing: 0
-
-                        Text {
-                            text: "Row:"
-                            color: "#a0aec0"
-                            font.pixelSize: 9
-                            width: 40
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Rectangle {
-                            width: 45
-                            height: 16  // Slightly smaller to fit better
-                            color: "#4a5568"
-                            border.color: rowInput.activeFocus ? "#3182ce" : "#666666"
-                            border.width: 1
-                            radius: 2
-                            anchors.verticalCenter: parent.verticalCenter
-
-                            TextInput {
-                                id: rowInput
-                                anchors.fill: parent
-                                anchors.margins: 3
-                                text: stationLayout.globalRowPadding.toString()
-                                color: "#ffffff"
-                                font.pixelSize: 8  // Smaller font to fit
-                                horizontalAlignment: TextInput.AlignHCenter
-                                verticalAlignment: TextInput.AlignVCenter
-                                selectByMouse: true
-
-                                onEditingFinished: {
-                                    let value = parseFloat(text)
-                                    if (!isNaN(value) && value >= 0 && value <= 10) {
-                                        stationLayout.globalRowPadding = value
-                                    } else {
-                                        text = stationLayout.globalRowPadding.toString()
-                                    }
-                                }
-                            }
-
-                            Behavior on border.color {
-                                ColorAnimation { duration: 150 }
-                            }
-                        }
-
-                        Text {
-                            text: " cells"
-                            color: "#a0aec0"
-                            font.pixelSize: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            leftPadding: 4
-                        }
-                    }
-
-                    // **COLUMN PADDING INPUT**
-                    Row {
-                        width: parent.width
-                        height: 18  // Fixed height
-                        spacing: 0
-
-                        Text {
-                            text: "Col:"
-                            color: "#a0aec0"
-                            font.pixelSize: 9
-                            width: 40
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-
-                        Rectangle {
-                            width: 45
-                            height: 16  // Slightly smaller to fit better
-                            color: "#4a5568"
-                            border.color: colInput.activeFocus ? "#3182ce" : "#666666"
-                            border.width: 1
-                            radius: 2
-                            anchors.verticalCenter: parent.verticalCenter
-
-                            TextInput {
-                                id: colInput
-                                anchors.fill: parent
-                                anchors.margins: 3
-                                text: stationLayout.globalColPadding.toString()
-                                color: "#ffffff"
-                                font.pixelSize: 8  // Smaller font to fit
-                                horizontalAlignment: TextInput.AlignHCenter
-                                verticalAlignment: TextInput.AlignVCenter
-                                selectByMouse: true
-
-                                onEditingFinished: {
-                                    let value = parseFloat(text)
-                                    if (!isNaN(value) && value >= 0 && value <= 10) {
-                                        stationLayout.globalColPadding = value
-                                    } else {
-                                        text = stationLayout.globalColPadding.toString()
-                                    }
-                                }
-                            }
-
-                            Behavior on border.color {
-                                ColorAnimation { duration: 150 }
-                            }
-                        }
-
-                        Text {
-                            text: " cells"
-                            color: "#a0aec0"
-                            font.pixelSize: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            leftPadding: 4
-                        }
-                    }
-
-                    // **PADDING PREVIEW** (optional - shows current state)
-                    Row {
-                        width: parent.width
-                        height: 12
-                        visible: stationLayout.globalRowPadding > 0 || stationLayout.globalColPadding > 0
-
-                        Text {
-                            text: "Gap: " + (stationLayout.globalRowPadding * cellSize) + "×" + (stationLayout.globalColPadding * cellSize) + "px"
-                            color: "#d69e2e"
-                            font.pixelSize: 7
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-                }
-            }
-
-            // **SECTION 3: VIEW CONTROLS**
+            // **SECTION 2: VIEW CONTROLS**
             Rectangle {
                 width: (sectionsGrid.width - (sectionsGrid.columns - 1) * sectionsGrid.spacing) / sectionsGrid.columns
                 height: (sectionsGrid.height - (sectionsGrid.rows - 1) * sectionsGrid.spacing) / sectionsGrid.rows

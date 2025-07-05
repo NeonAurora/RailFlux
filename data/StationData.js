@@ -1,4 +1,4 @@
-// StationData.js - QML Compatible Version with 50-row offset
+// StationData.js - QML Compatible Version with Railway Control System Data
 .pragma library
 
 // Core station layout data - ported from your firebase_test.py
@@ -7,7 +7,7 @@ var trackSegments = [
     { id: "T1S1",  startRow: 110, startCol: 0, endRow: 110, endCol: 12, occupied: false },
     { id: "T1S2",  startRow: 110, startCol: 13, endRow: 110, endCol: 34, occupied: false },
     { id: "T1S3",  startRow: 110, startCol: 35, endRow: 110, endCol: 67, occupied: false },
-    { id: "T1S4",  startRow: 110, startCol: 68, endRow: 110, endCol: 95, occupied: false },
+    { id: "T1S4",  startRow: 110, startCol: 68, endRow: 110, endCol: 90, occupied: false },
     { id: "T1S5",  startRow: 110, startCol: 99, endRow: 110, endCol: 153, occupied: false },
     { id: "T1S6",  startRow: 110, startCol: 154, endRow: 110, endCol: 232, occupied: false },
     { id: "T1S7",  startRow: 110, startCol: 233, endRow: 110, endCol: 277, occupied: false },
@@ -36,7 +36,6 @@ var textLabels = [
     { text: "30", row: 29, col: 1, fontSize: 12 },
     { text: "90", row: 89, col: 1, fontSize: 12 },
 
-
     // Track segment labels
     { text: "T1S1", row: 107, col: 7, fontSize: 12 },
     { text: "T1S2", row: 107, col: 24, fontSize: 12 },
@@ -49,8 +48,6 @@ var textLabels = [
     { text: "T1S9", row: 107, col: 318, fontSize: 12 },
     { text: "T1S10", row: 107, col: 346, fontSize: 12 },
     { text: "T1S11", row: 107, col: 360, fontSize: 12 },
-
-
     { text: "T4S1", row: 85, col: 105, fontSize: 12 },
 ];
 
@@ -173,25 +170,111 @@ var starterSignals = [
     },
 ];
 
+var pointMachines = [
+    {
+        id: "PM001",
+        name: "Junction A",
+        type: "POINT_MACHINE",
+
+        // **JUNCTION GEOMETRY** - Where all tracks meet
+        junctionPoint: { row: 110.8, col: 94.5 },
+
+        // **TRACK CONNECTIONS** - Define relationships with offsets
+        rootTrack: {
+            trackId: "T1S4",           // The "common" track
+            connectionEnd: "END",       // Which end connects to junction
+            offset: { row: 0.8, col: 0 } // ✅ NEW: Offset for proper alignment
+        },
+        normalTrack: {                 // Straight-through path
+            trackId: "T1S5",
+            connectionEnd: "START",
+            offset: { row: 0.8, col: 0 } // ✅ NEW: Offset to align with track thickness
+        },
+        reverseTrack: {                // Diverging path
+            trackId: "T5S1",
+            connectionEnd: "START",
+            offset: { row: 0.5, col: 0.5 } // ✅ NEW: Offset for diagonal alignment
+        },
+
+        // **OPERATIONAL STATE**
+        position: "REVERSE",            // "NORMAL" or "REVERSE"
+        operatingStatus: "CONNECTED",  // "CONNECTED" or "IN_TRANSITION"
+
+        // **PHYSICAL PROPERTIES**
+        location: { row: 110, col: 95 },
+        motorPosition: "BELOW",        // Visual placement of motor indicator
+        transitionTime: 3000           // Milliseconds for switching
+    }
+];
+
 var levelCrossings = [
     { id: "LC001", row: 87, col: 36, state: "OPEN", name: "LC_GATE1" },
     { id: "LC002", row: 87, col: 211, state: "OPEN", name: "LC_GATE2" }
 ];
 
+// ============================================================================
+// OUTER SIGNAL FUNCTIONS
+// ============================================================================
+
+/**
+ * Retrieves an outer signal by its unique identifier
+ * @param {String} signalId - Unique identifier for the outer signal (e.g., "OT001")
+ * @returns {Object|undefined} - Outer signal object or undefined if not found
+ * @example
+ * var signal = getOuterSignalById("OT001");
+ * if (signal) console.log("Found signal:", signal.name);
+ */
 function getOuterSignalById(signalId) {
     return outerSignals.find(signal => signal.id === signalId);
 }
+
+/**
+ * Returns all outer signals in the system
+ * @returns {Array} - Array of all outer signal objects
+ * @example
+ * var allOuters = getAllOuterSignals();
+ * console.log("Total outer signals:", allOuters.length);
+ */
 function getAllOuterSignals() {
     return outerSignals;
 }
+
+/**
+ * Filters outer signals by their directional operation
+ * @param {String} direction - Direction filter ("UP" for incoming trains, "DOWN" for outgoing trains)
+ * @returns {Array} - Array of outer signal objects matching the direction
+ * @example
+ * var upSignals = getOuterSignalsByDirection("UP");
+ * var downSignals = getOuterSignalsByDirection("DOWN");
+ */
 function getOuterSignalsByDirection(direction) {
     return outerSignals.filter(signal => signal.direction === direction);
 }
+
+/**
+ * Validates if an aspect change is permitted for an outer signal
+ * @param {String} signalId - Unique identifier of the outer signal
+ * @param {String} newAspect - Proposed new aspect ("RED", "SINGLE_YELLOW", "DOUBLE_YELLOW", "GREEN")
+ * @returns {Boolean} - True if aspect change is valid, false otherwise
+ * @example
+ * if (isValidOuterAspectChange("OT001", "GREEN")) {
+ *     // Proceed with aspect change
+ * }
+ */
 function isValidOuterAspectChange(signalId, newAspect) {
     const signal = getOuterSignalById(signalId);
     if (!signal) return false;
     return signal.possibleAspects.includes(newAspect);
 }
+
+/**
+ * Returns the standard color code for an outer signal aspect
+ * @param {String} aspect - Signal aspect ("RED", "SINGLE_YELLOW", "DOUBLE_YELLOW", "GREEN")
+ * @returns {String} - Hexadecimal color code for the aspect
+ * @example
+ * var redColor = getOuterAspectColor("RED"); // Returns "#e53e3e"
+ * var greenColor = getOuterAspectColor("GREEN"); // Returns "#38a169"
+ */
 function getOuterAspectColor(aspect) {
     switch(aspect) {
         case "RED": return "#e53e3e";
@@ -201,40 +284,342 @@ function getOuterAspectColor(aspect) {
         default: return "#e53e3e";
     }
 }
+
+// ============================================================================
+// HOME SIGNAL FUNCTIONS
+// ============================================================================
+
+/**
+ * Retrieves a home signal by its unique identifier
+ * @param {String} signalId - Unique identifier for the home signal (e.g., "HM001")
+ * @returns {Object|undefined} - Home signal object or undefined if not found
+ * @example
+ * var homeSignal = getHomeSignalById("HM001");
+ * if (homeSignal) console.log("Calling-on aspect:", homeSignal.callingOnAspect);
+ */
 function getHomeSignalById(signalId) {
     return homeSignals.find(signal => signal.id === signalId);
 }
+
+/**
+ * Returns all home signals in the system
+ * @returns {Array} - Array of all home signal objects
+ * @example
+ * var allHomes = getAllHomeSignals();
+ * allHomes.forEach(signal => console.log(signal.name, signal.currentAspect));
+ */
 function getAllHomeSignals() {
     return homeSignals;
 }
+
+/**
+ * Filters home signals by their directional operation
+ * @param {String} direction - Direction filter ("UP" for platform entry, "DOWN" for platform exit)
+ * @returns {Array} - Array of home signal objects matching the direction
+ * @example
+ * var entrySignals = getHomeSignalsByDirection("UP");
+ * var exitSignals = getHomeSignalsByDirection("DOWN");
+ */
 function getHomeSignalsByDirection(direction) {
     return homeSignals.filter(signal => signal.direction === direction);
 }
+
+/**
+ * Validates if a main aspect change is permitted for a home signal
+ * @param {String} signalId - Unique identifier of the home signal
+ * @param {String} newAspect - Proposed new main aspect ("RED", "YELLOW", "GREEN")
+ * @returns {Boolean} - True if aspect change is valid, false otherwise
+ * @example
+ * if (isValidHomeAspectChange("HM001", "GREEN")) {
+ *     // Check calling-on and loop signal states before proceeding
+ * }
+ */
 function isValidHomeAspectChange(signalId, newAspect) {
     const signal = getHomeSignalById(signalId);
     if (!signal) return false;
     return signal.possibleAspects.includes(newAspect);
 }
+
+// ============================================================================
+// STARTER SIGNAL FUNCTIONS
+// ============================================================================
+
+/**
+ * Retrieves a starter signal by its unique identifier
+ * @param {String} signalId - Unique identifier for the starter signal (e.g., "ST001")
+ * @returns {Object|undefined} - Starter signal object or undefined if not found
+ * @example
+ * var starter = getStarterSignalById("ST001");
+ * if (starter) console.log("Aspect count:", starter.aspectCount);
+ */
 function getStarterSignalById(signalId) {
     return starterSignals.find(signal => signal.id === signalId);
 }
+
+/**
+ * Returns all starter signals in the system
+ * @returns {Array} - Array of all starter signal objects
+ * @example
+ * var allStarters = getAllStarterSignals();
+ * var twoAspectStarters = allStarters.filter(s => s.aspectCount === 2);
+ */
 function getAllStarterSignals() {
     return starterSignals;
 }
+
+/**
+ * Filters starter signals by their directional operation
+ * @param {String} direction - Direction filter ("UP" for loop entry, "DOWN" for main departure)
+ * @returns {Array} - Array of starter signal objects matching the direction
+ * @example
+ * var departureSignals = getStarterSignalsByDirection("DOWN");
+ * var loopSignals = getStarterSignalsByDirection("UP");
+ */
 function getStarterSignalsByDirection(direction) {
     return starterSignals.filter(signal => signal.direction === direction);
 }
+
+/**
+ * Validates if an aspect change is permitted for a starter signal
+ * @param {String} signalId - Unique identifier of the starter signal
+ * @param {String} newAspect - Proposed new aspect ("RED", "YELLOW", "GREEN" - depending on aspectCount)
+ * @returns {Boolean} - True if aspect change is valid, false otherwise
+ * @example
+ * if (isValidStarterAspectChange("ST001", "YELLOW")) {
+ *     // 2-aspect starter can only show RED or YELLOW
+ * }
+ */
 function isValidStarterAspectChange(signalId, newAspect) {
     const signal = getStarterSignalById(signalId);
     if (!signal) return false;
     return signal.possibleAspects.includes(newAspect);
 }
+
+// ============================================================================
+// TRACK MANAGEMENT FUNCTIONS
+// ============================================================================
+
+/**
+ * Resolves which physical point of a track connects to a junction
+ * @param {Object} track - Track segment object containing startRow, startCol, endRow, endCol
+ * @param {String} connectionEnd - "START" or "END" indicating which end to use
+ * @returns {Object} - { row, col } coordinates of the connection point
+ * @example
+ * var track = getTrackById("T1S1");
+ * var startPoint = getTrackEndpoint(track, "START");
+ * var endPoint = getTrackEndpoint(track, "END");
+ */
+function getTrackEndpoint(track, connectionEnd) {
+    if (connectionEnd === "START") {
+        return {
+            row: track.startRow,
+            col: track.startCol
+        };
+    } else { // "END"
+        return {
+            row: track.endRow,
+            col: track.endCol
+        };
+    }
+}
+
+/**
+ * Finds a track object by its unique identifier
+ * @param {String} trackId - Track identifier (e.g., "T1S1", "T4S2")
+ * @returns {Object|undefined} - Track object or undefined if not found
+ * @example
+ * var track = getTrackById("T1S1");
+ * if (track) console.log("Track length:", track.endCol - track.startCol);
+ */
+function getTrackById(trackId) {
+    return trackSegments.find(track => track.id === trackId);
+}
+
+// ============================================================================
+// POINT MACHINE FUNCTIONS
+// ============================================================================
+
+/**
+ * Retrieves a point machine by its unique identifier
+ * @param {String} machineId - Unique identifier for the point machine (e.g., "PM001")
+ * @returns {Object|undefined} - Point machine object or undefined if not found
+ * @example
+ * var pm = getPointMachineById("PM001");
+ * if (pm) console.log("Current position:", pm.position);
+ */
+function getPointMachineById(machineId) {
+    return pointMachines.find(pm => pm.id === machineId);
+}
+
+/**
+ * Returns all point machines in the system
+ * @returns {Array} - Array of all point machine objects
+ * @example
+ * var allPMs = getAllPointMachines();
+ * var activePMs = allPMs.filter(pm => pm.operatingStatus === "CONNECTED");
+ */
+function getAllPointMachines() {
+    return pointMachines;
+}
+
+/**
+ * Determines which track is currently active (connected) for a point machine
+ * @param {Object} pointMachine - Point machine object
+ * @returns {String} - Active track ID (either normal or reverse track)
+ * @example
+ * var pm = getPointMachineById("PM001");
+ * var activeTrack = getConnectedTrackId(pm);
+ * console.log("Currently connected to track:", activeTrack);
+ */
+function getConnectedTrackId(pointMachine) {
+    if (pointMachine.position === "NORMAL") {
+        return pointMachine.normalTrack.trackId;
+    } else {
+        return pointMachine.reverseTrack.trackId;
+    }
+}
+
+/**
+ * Finds the point machine that controls a specific track
+ * @param {String} trackId - Track identifier to search for
+ * @returns {Object|null} - Point machine object that controls this track, or null if none found
+ * @example
+ * var pm = getPointMachineByTrack("T1S2");
+ * if (pm) console.log("Track T1S2 is controlled by:", pm.name);
+ */
+function getPointMachineByTrack(trackId) {
+    return pointMachines.find(pm =>
+        pm.rootTrack.trackId === trackId ||
+        pm.normalTrack.trackId === trackId ||
+        pm.reverseTrack.trackId === trackId
+    );
+}
+
+/**
+ * Checks if a point machine operation is safe to perform
+ * @param {Object} pointMachine - Point machine object to check
+ * @returns {Boolean} - True if safe to operate, false if blocked by occupied tracks
+ * @example
+ * var pm = getPointMachineById("PM001");
+ * if (isPointMachineOperationSafe(pm)) {
+ *     operatePointMachine("PM001", "REVERSE");
+ * }
+ */
+function isPointMachineOperationSafe(pointMachine) {
+    // Check if any controlled tracks are occupied
+    var tracks = [
+        pointMachine.rootTrack.trackId,
+        pointMachine.normalTrack.trackId,
+        pointMachine.reverseTrack.trackId
+    ];
+
+    return !tracks.some(trackId => {
+        var track = getTrackById(trackId);
+        return track && track.occupied;
+    });
+}
+
+// data/StationData.js - Replace the operatePointMachine function
+
+/**
+ * Attempts to start a point machine operation to a new position
+ * @param {String} machineId - Unique identifier of the point machine
+ * @param {String} newPosition - Desired position ("NORMAL" or "REVERSE")
+ * @returns {Object} - Operation result with success status and transition time
+ * @example
+ * var result = operatePointMachine("PM001", "REVERSE");
+ * if (result.success) console.log("Transition time:", result.transitionTime);
+ */
+function operatePointMachine(machineId, newPosition) {
+    var pm = getPointMachineById(machineId);
+    if (!pm || pm.operatingStatus === "IN_TRANSITION") {
+        return {
+            success: false,
+            reason: "Cannot operate during transition or machine not found",
+            transitionTime: 0
+        };
+    }
+
+    if (pm.position === newPosition) {
+        return {
+            success: true,
+            reason: "Already in desired position",
+            transitionTime: 0
+        };
+    }
+
+    // Safety checks
+    if (!isPointMachineOperationSafe(pm)) {
+        console.warn("Point machine operation blocked - safety interlock");
+        return {
+            success: false,
+            reason: "Safety interlock - tracks occupied",
+            transitionTime: 0
+        };
+    }
+
+    // Begin transition
+    pm.operatingStatus = "IN_TRANSITION";
+    console.log("Point machine", machineId, "starting transition to", newPosition);
+
+    return {
+        success: true,
+        reason: "Transition started",
+        transitionTime: pm.transitionTime || 3000,
+        targetPosition: newPosition
+    };
+}
+
+/**
+ * Completes a point machine transition (called after timer expires)
+ * @param {String} machineId - Unique identifier of the point machine
+ * @param {String} newPosition - Target position to set
+ * @returns {Boolean} - True if completion was successful
+ */
+function completePointMachineOperation(machineId, newPosition) {
+    var pm = getPointMachineById(machineId);
+    if (!pm) {
+        console.error("Point machine not found:", machineId);
+        return false;
+    }
+
+    pm.position = newPosition;
+    pm.operatingStatus = "CONNECTED";
+    console.log("Point machine", machineId, "operation complete:", newPosition);
+    return true;
+}
+
+// ============================================================================
+// COORDINATE CONVERSION UTILITIES
+// ============================================================================
+
+/**
+ * Converts grid coordinates to pixel coordinates
+ * @param {Number} row - Grid row position
+ * @param {Number} col - Grid column position
+ * @param {Number} cellSize - Size of each grid cell in pixels
+ * @returns {Object} - { x, y } pixel coordinates
+ * @example
+ * var pixelPos = gridToPixel(10, 20, 15);
+ * console.log("Pixel position:", pixelPos.x, pixelPos.y);
+ */
 function gridToPixel(row, col, cellSize) {
     return {
         x: col * cellSize,
         y: row * cellSize
     };
 }
+
+/**
+ * Converts pixel coordinates to grid coordinates
+ * @param {Number} x - Pixel X coordinate
+ * @param {Number} y - Pixel Y coordinate
+ * @param {Number} cellSize - Size of each grid cell in pixels
+ * @returns {Object} - { row, col } grid coordinates
+ * @example
+ * var gridPos = pixelToGrid(150, 300, 15);
+ * console.log("Grid position:", gridPos.row, gridPos.col);
+ */
 function pixelToGrid(x, y, cellSize) {
     return {
         row: Math.floor(y / cellSize),

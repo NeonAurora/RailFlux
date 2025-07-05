@@ -1,3 +1,4 @@
+// components/TrackSegment.qml
 import QtQuick
 
 Item {
@@ -11,10 +12,6 @@ Item {
     property bool isOccupied: false
     property int cellSize: 20
     property string trackType: "straight"
-
-    // **PADDING CONTROLS** - Grid-based
-    property real rowPadding: 0
-    property real colPadding: 0
 
     // Visual properties
     property color trackColorNormal: "#a6a6a6"
@@ -30,52 +27,19 @@ Item {
     property bool isTopLeftToBottomRight: isDiagonal && (endRow > startRow)
     property bool isBottomLeftToTopRight: isDiagonal && (endRow < startRow)
 
-    // **CALCULATE PADDED COORDINATES**
-    property real paddedStartRow: {
-        if (isVertical) return startRow + rowPadding
-        if (isHorizontal) return startRow
-        if (isTopLeftToBottomRight) return startRow + rowPadding * 0.5
-        if (isBottomLeftToTopRight) return startRow - rowPadding * 0.5
-        return startRow
-    }
+    // Convert to pixel positions - NO PADDING
+    property real startX: startCol * cellSize
+    property real startY: startRow * cellSize
+    property real endX: endCol * cellSize
+    property real endY: endRow * cellSize
 
-    property real paddedStartCol: {
-        if (isHorizontal) return startCol + colPadding
-        if (isVertical) return startCol
-        if (isTopLeftToBottomRight) return startCol + colPadding * 0.5
-        if (isBottomLeftToTopRight) return startCol + colPadding * 0.5
-        return startCol
-    }
+    // **CALCULATE CONTAINER DIMENSIONS**
+    property real containerWidth: Math.max(Math.abs(endX - startX) + 16, 20)
+    property real containerHeight: Math.max(Math.abs(endY - startY) + 16, 20)
 
-    property real paddedEndRow: {
-        if (isVertical) return endRow - rowPadding
-        if (isHorizontal) return endRow
-        if (isTopLeftToBottomRight) return endRow - rowPadding * 0.5
-        if (isBottomLeftToTopRight) return endRow + rowPadding * 0.5
-        return endRow
-    }
-
-    property real paddedEndCol: {
-        if (isHorizontal) return endCol - colPadding
-        if (isVertical) return endCol
-        if (isTopLeftToBottomRight) return endCol - colPadding * 0.5
-        if (isBottomLeftToTopRight) return endCol - colPadding * 0.5
-        return endCol
-    }
-
-    // Convert to pixel positions
-    property real paddedStartX: paddedStartCol * cellSize
-    property real paddedStartY: paddedStartRow * cellSize
-    property real paddedEndX: paddedEndCol * cellSize
-    property real paddedEndY: paddedEndRow * cellSize
-
-    // **CALCULATE CONTAINER DIMENSIONS** (only set once, no errors)
-    property real containerWidth: Math.max(Math.abs(paddedEndX - paddedStartX) + 16, 20)
-    property real containerHeight: Math.max(Math.abs(paddedEndY - paddedStartY) + 16, 20)
-
-    // **FIXED POSITIONING** - Position container to encompass the track
-    x: Math.min(paddedStartX, paddedEndX) - 8  // 8px padding
-    y: Math.min(paddedStartY, paddedEndY) - 8  // 8px padding
+    // **POSITIONING** - Position container to encompass the track
+    x: Math.min(startX, endX) - 8  // 8px padding
+    y: Math.min(startY, endY) - 8  // 8px padding
     width: containerWidth
     height: containerHeight
 
@@ -87,13 +51,13 @@ Item {
         id: trackBed
 
         // **POSITION TRACK WITHIN CONTAINER**
-        x: paddedStartX - parent.x
-        y: paddedStartY - parent.y
-        width: Math.sqrt(Math.pow(paddedEndX - paddedStartX, 2) + Math.pow(paddedEndY - paddedStartY, 2))
+        x: startX - parent.x
+        y: startY - parent.y
+        width: Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2))
         height: 8
 
         transformOrigin: Item.Left
-        rotation: Math.atan2(paddedEndY - paddedStartY, paddedEndX - paddedStartX) * 180 / Math.PI
+        rotation: Math.atan2(endY - startY, endX - startX) * 180 / Math.PI
 
         color: isOccupied ? trackColorOccupied : trackColorNormal
         radius: 2
@@ -128,7 +92,7 @@ Item {
         }
     }
 
-    // **LARGER MOUSE AREA** - Covers entire container for reliable click detection
+    // **MOUSE AREA** - Covers entire container for reliable click detection
     MouseArea {
         id: hoverArea
         anchors.fill: parent
@@ -137,8 +101,7 @@ Item {
 
         onClicked: {
             console.log("Track segment clicked:", segmentId,
-                       "Original:", "(" + startRow + "," + startCol + ") to (" + endRow + "," + endCol + ")",
-                       "Padded:", "(" + paddedStartRow.toFixed(1) + "," + paddedStartCol.toFixed(1) + ") to (" + paddedEndRow.toFixed(1) + "," + paddedEndCol.toFixed(1) + ")",
+                       "Coordinates:", "(" + startRow + "," + startCol + ") to (" + endRow + "," + endCol + ")",
                        "Direction:", isHorizontal ? "H" : (isVertical ? "V" : (isTopLeftToBottomRight ? "TL→BR" : "BL→TR")))
             trackSegment.trackClicked(segmentId, isOccupied)
         }
