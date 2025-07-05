@@ -69,11 +69,15 @@ Item {
     property real paddedEndX: paddedEndCol * cellSize
     property real paddedEndY: paddedEndRow * cellSize
 
-    // **FIXED POSITIONING** - Position the container at start point
-    x: paddedStartX
-    y: paddedStartY
-    width: Math.sqrt(Math.pow(paddedEndX - paddedStartX, 2) + Math.pow(paddedEndY - paddedStartY, 2))
-    height: 8
+    // **CALCULATE CONTAINER DIMENSIONS** (only set once, no errors)
+    property real containerWidth: Math.max(Math.abs(paddedEndX - paddedStartX) + 16, 20)
+    property real containerHeight: Math.max(Math.abs(paddedEndY - paddedStartY) + 16, 20)
+
+    // **FIXED POSITIONING** - Position container to encompass the track
+    x: Math.min(paddedStartX, paddedEndX) - 8  // 8px padding
+    y: Math.min(paddedStartY, paddedEndY) - 8  // 8px padding
+    width: containerWidth
+    height: containerHeight
 
     // **CLICKABLE FUNCTIONALITY**
     signal trackClicked(string segmentId, bool currentState)
@@ -82,13 +86,12 @@ Item {
     Rectangle {
         id: trackBed
 
-        // **KEY FIX**: Position rectangle at origin (0,0) within the Item
-        x: 0
-        y: 0
-        width: parent.width
-        height: parent.height
+        // **POSITION TRACK WITHIN CONTAINER**
+        x: paddedStartX - parent.x
+        y: paddedStartY - parent.y
+        width: Math.sqrt(Math.pow(paddedEndX - paddedStartX, 2) + Math.pow(paddedEndY - paddedStartY, 2))
+        height: 8
 
-        // **KEY FIX**: Set transform origin to left edge for proper rotation
         transformOrigin: Item.Left
         rotation: Math.atan2(paddedEndY - paddedStartY, paddedEndX - paddedStartX) * 180 / Math.PI
 
@@ -125,10 +128,10 @@ Item {
         }
     }
 
-    // **CLICKABLE MOUSE AREA**
+    // **LARGER MOUSE AREA** - Covers entire container for reliable click detection
     MouseArea {
         id: hoverArea
-        anchors.fill: trackBed  // Fill the rotated rectangle
+        anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
 
@@ -143,13 +146,35 @@ Item {
         onEntered: trackSegment.trackHovered(segmentId)
     }
 
-    // **DEBUG COORDINATES** (temporary for verification)
-    Text {
+    // **DEBUG TEXT WITH BACKGROUND**
+    Rectangle {
+        id: debugBackground
         anchors.centerIn: parent
-        text: "(" + startRow + "," + startCol + ")\n→(" + endRow + "," + endCol + ")"
-        color: "yellow"
-        font.pixelSize: 12
-        visible: true  // Set to true to verify coordinates
-        horizontalAlignment: Text.AlignHCenter
+        width: debugText.contentWidth + 6
+        height: debugText.contentHeight + 4
+        color: "#000000"
+        opacity: 0.8
+        radius: 2
+        visible: debugText.visible
+
+        Text {
+            id: debugText
+            anchors.centerIn: parent
+            text: segmentId + "\n(" + startRow + "," + startCol + ")\n→(" + endRow + "," + endCol + ")"
+            color: "yellow"
+            font.pixelSize: 7
+            visible: false  // Set to true to verify coordinates
+            horizontalAlignment: Text.AlignHCenter
+        }
+    }
+
+    // **CONTAINER BOUNDS DEBUG** (shows the clickable area)
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        border.color: isDiagonal ? "red" : "cyan"
+        border.width: 1
+        opacity: 0.4
+        visible: false  // Set to true to see clickable bounds
     }
 }

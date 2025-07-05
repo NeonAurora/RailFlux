@@ -23,7 +23,7 @@ var trackSegments = [
     { id: "T4S4", startRow: 40, startCol: 175, endRow: 40, endCol: 259, occupied: false },
 
     // Connection tracks
-    { id: "T5S1", startRow: 57, startCol: 97, endRow: 40, endCol: 114, occupied: true },
+    { id: "T5S1", startRow: 57, startCol: 97, endRow: 40, endCol: 114, occupied: false },
     { id: "T6S1", startRow: 40, startCol: 259, endRow: 60, endCol: 279, occupied: false },
 ];
 
