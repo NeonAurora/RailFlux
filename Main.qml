@@ -5,8 +5,8 @@ import "layouts" as Layouts
 
 ApplicationWindow {
     id: mainWindow
-    width: 1400
-    height: 900
+    width: 1920
+    height: 1000
     visible: true
     title: qsTr("RailFlux - Railway Control System")
 

@@ -23,7 +23,7 @@ bool DatabaseManager::connectToDatabase() {
     db.setHostName("localhost");
     db.setDatabaseName("railway_control_system");
     db.setUserName("postgres");
-    db.setPassword("your_password"); // TODO: Move to config file
+    db.setPassword("qwerty"); // TODO: Move to config file
     db.setPort(5432);
 
     if (!db.open()) {
