@@ -335,14 +335,6 @@ var advanceStarterSignals = [
     },
 ];
 
-// Add these functions at the end of the file, after the existing signal functions
-
-
-
-var levelCrossings = [
-    { id: "LC001", row: 87, col: 36, state: "OPEN", name: "LC_GATE1" },
-    { id: "LC002", row: 87, col: 211, state: "OPEN", name: "LC_GATE2" }
-];
 
 // ============================================================================
 // OUTER SIGNAL FUNCTIONS
