@@ -4,26 +4,26 @@
 // Core station layout data - ported from your firebase_test.py
 var trackSegments = [
     // T1 Track segments
-    { id: "T1S1",  startRow: 110, startCol: 0, endRow: 110, endCol: 12, occupied: false },
-    { id: "T1S2",  startRow: 110, startCol: 13, endRow: 110, endCol: 34, occupied: false },
-    { id: "T1S3",  startRow: 110, startCol: 35, endRow: 110, endCol: 67, occupied: false },
-    { id: "T1S4",  startRow: 110, startCol: 68, endRow: 110, endCol: 90, occupied: false },
-    { id: "T1S5",  startRow: 110, startCol: 101, endRow: 110, endCol: 153, occupied: false },
-    { id: "T1S6",  startRow: 110, startCol: 154, endRow: 110, endCol: 232, occupied: false },
-    { id: "T1S7",  startRow: 110, startCol: 233, endRow: 110, endCol: 277, occupied: false },
-    { id: "T1S8",  startRow: 110, startCol: 287, endRow: 110, endCol: 305, occupied: false },
-    { id: "T1S9",  startRow: 110, startCol: 306, endRow: 110, endCol: 338, occupied: false },
-    { id: "T1S10", startRow: 110, startCol: 339, endRow: 110, endCol: 358, occupied: false },
-    { id: "T1S11", startRow: 110, startCol: 359, endRow: 110, endCol: 369, occupied: false },
+    { id: "T1S1",  startRow: 110, startCol: 0, endRow: 110, endCol: 12, occupied: false, assigned: false },
+    { id: "T1S2",  startRow: 110, startCol: 13, endRow: 110, endCol: 34, occupied: false, assigned: false },
+    { id: "T1S3",  startRow: 110, startCol: 35, endRow: 110, endCol: 67, occupied: false, assigned: false },
+    { id: "T1S4",  startRow: 110, startCol: 68, endRow: 110, endCol: 90, occupied: false, assigned: false },
+    { id: "T1S5",  startRow: 110, startCol: 101, endRow: 110, endCol: 153, occupied: false, assigned: false },
+    { id: "T1S6",  startRow: 110, startCol: 154, endRow: 110, endCol: 232, occupied: false, assigned: true },
+    { id: "T1S7",  startRow: 110, startCol: 233, endRow: 110, endCol: 277, occupied: false, assigned: false },
+    { id: "T1S8",  startRow: 110, startCol: 287, endRow: 110, endCol: 305, occupied: false, assigned: false },
+    { id: "T1S9",  startRow: 110, startCol: 306, endRow: 110, endCol: 338, occupied: false, assigned: false },
+    { id: "T1S10", startRow: 110, startCol: 339, endRow: 110, endCol: 358, occupied: false, assigned: false },
+    { id: "T1S11", startRow: 110, startCol: 359, endRow: 110, endCol: 369, occupied: false, assigned: false },
 
     // T4 Track segments
-    { id: "T4S1", startRow: 88, startCol: 98, endRow: 88, endCol: 110, occupied: false },
-    { id: "T4S2", startRow: 88, startCol: 120, endRow: 88, endCol: 255, occupied: false },
-    { id: "T4S3", startRow: 88, startCol: 265, endRow: 88, endCol: 281, occupied: false },
+    { id: "T4S1", startRow: 88, startCol: 98, endRow: 88, endCol: 110, occupied: false, assigned: false },
+    { id: "T4S2", startRow: 88, startCol: 120, endRow: 88, endCol: 255, occupied: false, assigned: false },
+    { id: "T4S3", startRow: 88, startCol: 265, endRow: 88, endCol: 281, occupied: false, assigned: false },
 
     // Connection tracks
-    { id: "T5S1", startRow: 106, startCol: 98, endRow: 92, endCol: 112, occupied: false },
-    { id: "T6S1", startRow: 92, startCol: 263, endRow: 105, endCol: 277, occupied: false },
+    { id: "T5S1", startRow: 106, startCol: 98, endRow: 92, endCol: 112, occupied: false, assigned: false },
+    { id: "T6S1", startRow: 92, startCol: 263, endRow: 105, endCol: 277, occupied: false, assigned: false },
 ];
 
 // Text labels from your text_config.txt

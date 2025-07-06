@@ -148,6 +148,11 @@ Rectangle {
                     return modelData.occupied
                 }
 
+                isAssigned: {
+                    if (!stationLayout.dbManager) return modelData.assigned
+                    return modelData.assigned
+                }
+
                 onTrackClicked: stationLayout.handleTrackClick(segmentId, currentState)
             }
         }
