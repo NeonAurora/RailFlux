@@ -318,9 +318,10 @@ Item {
 
         // **SMOOTH TRANSITION ANIMATIONS**
         Behavior on rotation {
-            NumberAnimation {
+            RotationAnimation {
                 duration: operatingStatus === "IN_TRANSITION" ? transitionTime : normalAnimationDuration
                 easing.type: Easing.OutQuart
+                direction: RotationAnimation.Shortest  // Automatically chooses shortest path
             }
         }
 
