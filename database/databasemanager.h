@@ -3,15 +3,26 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QSqlDriver>  // ✅ ADD: Include QSqlDriver for complete type info
 #include <QTimer>
 #include <QHash>
 #include <QVariantMap>
+#include <QVariantList>
 #include <QDebug>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <memory>
 
 class DatabaseManager : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged)
+
+    // ✅ NEW: Data model properties for QML binding
+    Q_PROPERTY(QVariantList trackSegments READ getTrackSegmentsList NOTIFY trackSegmentsChanged)
+    Q_PROPERTY(QVariantList allSignals READ getAllSignalsList NOTIFY signalsChanged)
+    Q_PROPERTY(QVariantList allPointMachines READ getAllPointMachinesList NOTIFY pointMachinesChanged)
+    Q_PROPERTY(QVariantList textLabels READ getTextLabelsList NOTIFY textLabelsChanged)
 
 public:
     explicit DatabaseManager(QObject* parent = nullptr);
@@ -22,30 +33,71 @@ public:
     Q_INVOKABLE void stopPolling();
     Q_INVOKABLE bool isConnected() const;
 
-    // Component state queries (callable from QML)
+    // ✅ EXISTING: Component state queries
     Q_INVOKABLE QVariantMap getAllSignalStates();
     Q_INVOKABLE QVariantMap getAllTrackCircuitStates();
     Q_INVOKABLE QVariantMap getAllPointMachineStates();
-
-    // Individual component queries
     Q_INVOKABLE QString getSignalState(int signalId);
     Q_INVOKABLE bool getTrackOccupancy(int circuitId);
     Q_INVOKABLE QString getPointPosition(int machineId);
+
+    // ✅ NEW: Complete data object queries
+    Q_INVOKABLE QVariantList getTrackSegmentsList();
+    Q_INVOKABLE QVariantList getAllSignalsList();
+    Q_INVOKABLE QVariantList getOuterSignalsList();
+    Q_INVOKABLE QVariantList getHomeSignalsList();
+    Q_INVOKABLE QVariantList getStarterSignalsList();
+    Q_INVOKABLE QVariantList getAdvanceStarterSignalsList();
+    Q_INVOKABLE QVariantList getAllPointMachinesList();
+    Q_INVOKABLE QVariantList getTextLabelsList();
+
+    // ✅ NEW: Individual object queries
+    Q_INVOKABLE QVariantMap getSignalById(const QString& signalId);
+    Q_INVOKABLE QVariantMap getTrackSegmentById(const QString& segmentId);
+    Q_INVOKABLE QVariantMap getPointMachineById(const QString& machineId);
+
+    // ✅ NEW: Update operations (for signal clicks, etc.)
+    Q_INVOKABLE bool updateSignalAspect(const QString& signalId, const QString& newAspect);
+    Q_INVOKABLE bool updatePointMachinePosition(const QString& machineId, const QString& newPosition);
+    Q_INVOKABLE bool updateTrackOccupancy(const QString& segmentId, bool isOccupied);
+    Q_INVOKABLE bool updateTrackAssignment(const QString& segmentId, bool isAssigned);
+
+    // ✅ NEW: Real-time notification handling
+    Q_INVOKABLE void enableRealTimeUpdates();
 
 signals:
     void signalStateChanged(int signalId, const QString& newState);
     void trackCircuitStateChanged(int circuitId, bool isOccupied);
     void pointMachineStateChanged(int machineId, const QString& newPosition);
     void connectionStateChanged(bool connected);
-    void dataUpdated(); // General update signal for QML bindings
+    void dataUpdated();
+
+    // ✅ NEW: Specific data change signals
+    void trackSegmentsChanged();
+    void signalsChanged();
+    void pointMachinesChanged();
+    void textLabelsChanged();
+    void signalUpdated(const QString& signalId);
+    void pointMachineUpdated(const QString& machineId);
+    void trackSegmentUpdated(const QString& segmentId);
 
 private slots:
     void pollDatabase();
+    // ✅ FIXED: Simplified notification handler signature
+    void handleDatabaseNotification(const QString& name, const QVariant& payload);
 
 private:
     QSqlDatabase db;
     std::unique_ptr<QTimer> pollingTimer;
     bool connected;
+
+    // ✅ NEW: Data caches for performance
+    QVariantList cachedTrackSegments;
+    QVariantList cachedSignals;
+    QVariantList cachedPointMachines;
+    QVariantList cachedTextLabels;
+    QHash<QString, QVariantMap> signalCache;
+    QHash<QString, QVariantMap> pointMachineCache;
 
     // State caches for change detection
     QHash<int, QString> lastSignalStates;
@@ -57,4 +109,12 @@ private:
     void detectAndEmitChanges();
     bool setupDatabase();
     void logError(const QString& operation, const QSqlError& error);
+
+    // ✅ NEW: Cache management
+    void refreshDataCaches();
+    void refreshSignalCache();
+    void refreshPointMachineCache();
+    QVariantMap convertSignalRowToVariant(const QSqlQuery& query);
+    QVariantMap convertTrackRowToVariant(const QSqlQuery& query);
+    QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);
 };

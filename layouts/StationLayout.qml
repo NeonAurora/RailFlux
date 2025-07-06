@@ -1,6 +1,6 @@
 import QtQuick
 import "../components"
-import "../data/StationData.js" as StationData
+// ✅ REMOVED: import "../data/StationData.js" as StationData
 
 Rectangle {
     id: stationLayout
@@ -9,118 +9,317 @@ Rectangle {
     property var dbManager
     property int cellSize: Math.floor(width / 320)
     property bool showGrid: true
-    property int signalRefreshTrigger: 0
 
-    property var appStartTime: new Date()  // Capture when layout loads
-    property string appUptime: "00:00:00"  // Formatted uptime string
+    // ✅ NEW: Data properties from database (replaces StationData.js)
+    property var trackSegmentsModel: []
+    property var outerSignalsModel: []
+    property var homeSignalsModel: []
+    property var starterSignalsModel: []
+    property var advanceStarterSignalsModel: []
+    property var pointMachinesModel: []
+    property var textLabelsModel: []
 
-    // Basic click handlers
+    // App timing properties
+    property var appStartTime: new Date()
+    property string appUptime: "00:00:00"
+
+    // ✅ NEW: Data refresh functions (replaces signalRefreshTrigger)
+    function refreshAllData() {
+        if (!dbManager || !dbManager.isConnected) {
+            console.log("Database not connected - cannot refresh data")
+            return
+        }
+
+        console.log("Refreshing all station data from database")
+        refreshTrackData()
+        refreshSignalData()
+        refreshPointMachineData()
+        refreshTextLabelData()
+    }
+
+    function refreshTrackData() {
+        if (!dbManager || !dbManager.isConnected) return
+
+        console.log("Refreshing track segments from database")
+        trackSegmentsModel = dbManager.getTrackSegmentsList()
+        console.log("Loaded", trackSegmentsModel.length, "track segments")
+    }
+
+    function refreshSignalData() {
+        if (!dbManager || !dbManager.isConnected) return
+
+        console.log("Refreshing signals from database")
+        var allSignals = dbManager.getAllSignalsList()
+
+        // Filter signals by type
+        outerSignalsModel = allSignals.filter(signal => signal.type === "OUTER")
+        homeSignalsModel = allSignals.filter(signal => signal.type === "HOME")
+        starterSignalsModel = allSignals.filter(signal => signal.type === "STARTER")
+        advanceStarterSignalsModel = allSignals.filter(signal => signal.type === "ADVANCED_STARTER")
+
+        console.log("Loaded signals - Outer:", outerSignalsModel.length,
+                   "Home:", homeSignalsModel.length,
+                   "Starter:", starterSignalsModel.length,
+                   "Advanced:", advanceStarterSignalsModel.length)
+    }
+
+    function refreshPointMachineData() {
+        if (!dbManager || !dbManager.isConnected) return
+
+        console.log("Refreshing point machines from database")
+        pointMachinesModel = dbManager.getAllPointMachinesList()
+        console.log("Loaded", pointMachinesModel.length, "point machines")
+    }
+
+    function refreshTextLabelData() {
+        if (!dbManager || !dbManager.isConnected) return
+
+        console.log("Refreshing text labels from database")
+        textLabelsModel = dbManager.getTextLabelsList()
+        console.log("Loaded", textLabelsModel.length, "text labels")
+    }
+
+    // ✅ UPDATED: Signal handlers now update database instead of StationData.js
     function handleTrackClick(segmentId, currentState) {
         console.log("Track segment clicked:", segmentId, "Currently occupied:", currentState)
+
+        if (!dbManager || !dbManager.isConnected) {
+            console.warn("Database not connected - cannot update track state")
+            return
+        }
+
+        // Toggle occupancy state in database
+        var newState = !currentState
+        console.log("Updating track", segmentId, "occupancy to:", newState)
+
+        var success = dbManager.updateTrackOccupancy(segmentId, newState)
+        if (success) {
+            console.log("Track occupancy updated successfully")
+            // Data will be refreshed automatically via database signals
+        } else {
+            console.error("Failed to update track occupancy")
+        }
     }
 
     function updateDisplay() {
-        console.log("Station display updated from database")
+        console.log("Station display update requested")
+        refreshAllData()
     }
 
     function handleOuterSignalClick(signalId, currentAspect) {
-        // Update the JavaScript data
-        var signal = StationData.getOuterSignalById(signalId)
-        if (signal) {
-            var currentIndex = signal.possibleAspects.indexOf(currentAspect)
-            var nextIndex = (currentIndex + 1) % signal.possibleAspects.length
-            signal.currentAspect = signal.possibleAspects[nextIndex]
+        console.log("Outer signal control:", signalId, "Current aspect:", currentAspect)
 
-            // ✅ Trigger refresh: This causes QML to re-evaluate all bindings that depend on this property
-            signalRefreshTrigger = signalRefreshTrigger + 1
+        if (!dbManager || !dbManager.isConnected) {
+            console.warn("Database not connected - cannot update signal")
+            return
+        }
+
+        // Get signal data from database to find possible aspects
+        var signalData = dbManager.getSignalById(signalId)
+        if (!signalData || !signalData.possibleAspects) {
+            console.error("Could not get signal data for", signalId)
+            return
+        }
+
+        // Calculate next aspect
+        var possibleAspects = signalData.possibleAspects
+        var currentIndex = possibleAspects.indexOf(currentAspect)
+        var nextIndex = (currentIndex + 1) % possibleAspects.length
+        var nextAspect = possibleAspects[nextIndex]
+
+        console.log("Changing outer signal", signalId, "from", currentAspect, "to", nextAspect)
+
+        // Update in database
+        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        if (success) {
+            console.log("Outer signal aspect updated successfully")
+        } else {
+            console.error("Failed to update outer signal aspect")
         }
     }
 
     function handleHomeSignalClick(signalId, currentAspect) {
-        // Update the JavaScript data
-        var signal = StationData.getHomeSignalById(signalId)
-        if (signal) {
-            var currentIndex = signal.possibleAspects.indexOf(currentAspect)
-            var nextIndex = (currentIndex + 1) % signal.possibleAspects.length
-            signal.currentAspect = signal.possibleAspects[nextIndex]
+        console.log("Home signal control:", signalId, "Current aspect:", currentAspect)
 
-            console.log("Changed home signal", signalId, "to", signal.currentAspect)
+        if (!dbManager || !dbManager.isConnected) {
+            console.warn("Database not connected - cannot update signal")
+            return
+        }
 
-            // Trigger refresh
-            signalRefreshTrigger = signalRefreshTrigger + 1
+        var signalData = dbManager.getSignalById(signalId)
+        if (!signalData || !signalData.possibleAspects) {
+            console.error("Could not get signal data for", signalId)
+            return
+        }
+
+        var possibleAspects = signalData.possibleAspects
+        var currentIndex = possibleAspects.indexOf(currentAspect)
+        var nextIndex = (currentIndex + 1) % possibleAspects.length
+        var nextAspect = possibleAspects[nextIndex]
+
+        console.log("Changing home signal", signalId, "from", currentAspect, "to", nextAspect)
+
+        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        if (success) {
+            console.log("Home signal aspect updated successfully")
+        } else {
+            console.error("Failed to update home signal aspect")
         }
     }
 
     function handleStarterSignalClick(signalId, currentAspect) {
-        // Update the JavaScript data
-        var signal = StationData.getStarterSignalById(signalId)
-        if (signal) {
-            var currentIndex = signal.possibleAspects.indexOf(currentAspect)
-            var nextIndex = (currentIndex + 1) % signal.possibleAspects.length
-            signal.currentAspect = signal.possibleAspects[nextIndex]
+        console.log("Starter signal control:", signalId, "Current aspect:", currentAspect)
 
-            console.log("Changed starter signal", signalId, "to", signal.currentAspect)
+        if (!dbManager || !dbManager.isConnected) {
+            console.warn("Database not connected - cannot update signal")
+            return
+        }
 
-            // Trigger refresh
-            signalRefreshTrigger = signalRefreshTrigger + 1
+        var signalData = dbManager.getSignalById(signalId)
+        if (!signalData || !signalData.possibleAspects) {
+            console.error("Could not get signal data for", signalId)
+            return
+        }
+
+        var possibleAspects = signalData.possibleAspects
+        var currentIndex = possibleAspects.indexOf(currentAspect)
+        var nextIndex = (currentIndex + 1) % possibleAspects.length
+        var nextAspect = possibleAspects[nextIndex]
+
+        console.log("Changing starter signal", signalId, "from", currentAspect, "to", nextAspect)
+
+        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        if (success) {
+            console.log("Starter signal aspect updated successfully")
+        } else {
+            console.error("Failed to update starter signal aspect")
         }
     }
 
     function handlePointMachineClick(machineId, currentPosition) {
-        console.log("Point machine click handler:", machineId, "Current:", currentPosition)
+        console.log("Point machine operation requested:", machineId, "Current position:", currentPosition)
+
+        if (!dbManager || !dbManager.isConnected) {
+            console.warn("Database not connected - cannot operate point machine")
+            return
+        }
 
         // Determine target position
         var targetPosition = (currentPosition === "NORMAL") ? "REVERSE" : "NORMAL"
 
-        // ✅ FIXED: Use the updated function that returns result object
-        var result = StationData.operatePointMachine(machineId, targetPosition)
+        console.log("Operating point machine", machineId, "from", currentPosition, "to", targetPosition)
 
-        if (result.success) {
-            console.log("Point machine operation initiated:", machineId, "→", targetPosition)
-
-            // Trigger immediate UI refresh for transition state
-            signalRefreshTrigger = signalRefreshTrigger + 1
-
-            // ✅ FIXED: Use QML Timer instead of setTimeout
-            if (result.transitionTime > 0) {
-                var timer = Qt.createQmlObject(`
-                    import QtQuick 2.0
-                    Timer {
-                        interval: ${result.transitionTime}
-                        running: true
-                        repeat: false
-                    }
-                `, stationLayout)
-
-                timer.triggered.connect(function() {
-                    // Complete the operation
-                    StationData.completePointMachineOperation(machineId, targetPosition)
-
-                    // Trigger final UI refresh
-                    signalRefreshTrigger = signalRefreshTrigger + 1
-                    console.log("Point machine transition completed:", machineId)
-
-                    // Clean up timer
-                    timer.destroy()
-                })
-            }
+        // Update in database - this will handle the transition logic
+        var success = dbManager.updatePointMachinePosition(machineId, targetPosition)
+        if (success) {
+            console.log("Point machine operation initiated successfully")
+            // The database will handle the transition timing and state updates
+            // UI will be updated automatically via polling or notifications
         } else {
-            console.warn("Point machine operation failed:", result.reason)
-            // Could show user notification here
+            console.error("Failed to operate point machine")
         }
     }
 
     function handleAdvanceStarterSignalClick(signalId, currentAspect) {
-        // Update the JavaScript data
-        var signal = StationData.getAdvanceStarterSignalById(signalId)
-        if (signal) {
-            // Toggle between RED and GREEN (only 2 aspects)
-            signal.currentAspect = (currentAspect === "RED") ? "GREEN" : "RED"
+        console.log("Advanced starter signal control:", signalId, "Current aspect:", currentAspect)
 
-            console.log("Changed advanced starter signal", signalId, "to", signal.currentAspect)
+        if (!dbManager || !dbManager.isConnected) {
+            console.warn("Database not connected - cannot update signal")
+            return
+        }
 
-            // Trigger refresh
-            signalRefreshTrigger = signalRefreshTrigger + 1
+        var signalData = dbManager.getSignalById(signalId)
+        if (!signalData || !signalData.possibleAspects) {
+            console.error("Could not get signal data for", signalId)
+            return
+        }
+
+        var possibleAspects = signalData.possibleAspects
+        var currentIndex = possibleAspects.indexOf(currentAspect)
+        var nextIndex = (currentIndex + 1) % possibleAspects.length
+        var nextAspect = possibleAspects[nextIndex]
+
+        console.log("Changing advanced starter signal", signalId, "from", currentAspect, "to", nextAspect)
+
+        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        if (success) {
+            console.log("Advanced starter signal aspect updated successfully")
+        } else {
+            console.error("Failed to update advanced starter signal aspect")
+        }
+    }
+
+    // ✅ NEW: Initialize data when component loads or database connects
+    Component.onCompleted: {
+        console.log("StationLayout: Component completed")
+        if (dbManager && dbManager.isConnected) {
+            refreshAllData()
+        } else {
+            console.log("Database not ready yet - will load data when connected")
+        }
+    }
+
+    // ✅ NEW: Watch for database connection and data changes
+    Connections {
+        target: dbManager
+
+        function onConnectionStateChanged(isConnected) {
+            console.log("StationLayout: Database connection state changed:", isConnected)
+            if (isConnected) {
+                refreshAllData()
+            } else {
+                console.log("Database disconnected - clearing data models")
+                trackSegmentsModel = []
+                outerSignalsModel = []
+                homeSignalsModel = []
+                starterSignalsModel = []
+                advanceStarterSignalsModel = []
+                pointMachinesModel = []
+                textLabelsModel = []
+            }
+        }
+
+        // ✅ Handle database polling updates
+        function onDataUpdated() {
+            console.log("StationLayout: Database data updated (polling)")
+            refreshAllData()
+        }
+
+        // ✅ Handle real-time notifications (if available)
+        function onTrackSegmentUpdated(segmentId) {
+            console.log("StationLayout: Track segment updated:", segmentId)
+            refreshTrackData()
+        }
+
+        function onSignalUpdated(signalId) {
+            console.log("StationLayout: Signal updated:", signalId)
+            refreshSignalData()
+        }
+
+        function onPointMachineUpdated(machineId) {
+            console.log("StationLayout: Point machine updated:", machineId)
+            refreshPointMachineData()
+        }
+
+        // ✅ Handle batch updates
+        function onTrackSegmentsChanged() {
+            console.log("StationLayout: Track segments changed")
+            refreshTrackData()
+        }
+
+        function onSignalsChanged() {
+            console.log("StationLayout: Signals changed")
+            refreshSignalData()
+        }
+
+        function onPointMachinesChanged() {
+            console.log("StationLayout: Point machines changed")
+            refreshPointMachineData()
+        }
+
+        function onTextLabelsChanged() {
+            console.log("StationLayout: Text labels changed")
+            refreshTextLabelData()
         }
     }
 
@@ -131,9 +330,9 @@ Rectangle {
         gridSize: stationLayout.cellSize
         showGrid: stationLayout.showGrid
 
-        // Track segments - core layout structure
+        // ✅ UPDATED: Track segments from database
         Repeater {
-            model: StationData.trackSegments
+            model: trackSegmentsModel
 
             TrackSegment {
                 segmentId: modelData.id
@@ -142,151 +341,20 @@ Rectangle {
                 endRow: modelData.endRow
                 endCol: modelData.endCol
                 cellSize: stationLayout.cellSize
-
-                isOccupied: {
-                    if (!stationLayout.dbManager) return modelData.occupied
-                    return modelData.occupied
-                }
-
-                isAssigned: {
-                    if (!stationLayout.dbManager) return modelData.assigned
-                    return modelData.assigned
-                }
-
-                onTrackClicked: stationLayout.handleTrackClick(segmentId, currentState)
+                isOccupied: modelData.occupied
+                isAssigned: modelData.assigned
+                onTrackClicked: stationLayout.handleTrackClick(segmentId, isOccupied)
             }
         }
 
-        // **LAYER 2: Point Machines** (middle layer)
+        // ✅ UPDATED: Point machines from database
         Repeater {
-            model: StationData.pointMachines
-            PointMachine {
-                machineId: modelData.id
-                position: {
-                    stationLayout.signalRefreshTrigger
-                    var pm = StationData.getPointMachineById(modelData.id)
-                    return pm ? pm.position : "NORMAL"
-                }
-                operatingStatus: {
-                    stationLayout.signalRefreshTrigger
-                    var pm = StationData.getPointMachineById(modelData.id)
-                    return pm ? pm.operatingStatus : "CONNECTED"
-                }
-                junctionPoint: modelData.junctionPoint
-                rootTrack: modelData.rootTrack
-                normalTrack: modelData.normalTrack
-                reverseTrack: modelData.reverseTrack
-                cellSize: stationLayout.cellSize
-            }
-        }
-
-        // Outer Signals Rendering Block
-        Repeater {
-            model: StationData.getAllOuterSignals()
-
-            OuterSignal {
-                x: modelData.col * stationLayout.cellSize
-                y: modelData.row * stationLayout.cellSize
-                signalId: modelData.id
-                signalName: modelData.name
-                currentAspect: {
-                    stationLayout.signalRefreshTrigger  // Depend on this value
-                    var signal = StationData.getOuterSignalById(signalId)
-                    return signal ? signal.currentAspect : "RED"
-                }
-                direction: modelData.direction
-                isActive: modelData.isActive
-                cellSize: stationLayout.cellSize
-
-                onSignalClicked: {
-                    console.log("Outer signal control:", signalId, currentAspect)
-                    // TODO: Add signal control logic here
-                    stationLayout.handleOuterSignalClick(signalId, currentAspect)
-                }
-            }
-        }
-
-        // Basic signals
-
-
-        // Text labels
-        Repeater {
-            model: StationData.textLabels
-
-            Text {
-                x: modelData.col * stationLayout.cellSize
-                y: modelData.row * stationLayout.cellSize
-                text: modelData.text
-                color: "#ffffff"
-                font.pixelSize: modelData.fontSize || 12
-                font.family: "Arial"
-            }
-        }
-
-        Repeater {
-            model: StationData.getAllHomeSignals()
-
-            HomeSignal {
-                x: modelData.col * stationLayout.cellSize
-                y: modelData.row * stationLayout.cellSize
-                signalId: modelData.id
-                signalName: modelData.name
-                currentAspect: {
-                    stationLayout.signalRefreshTrigger  // Depend on refresh trigger
-                    var signal = StationData.getHomeSignalById(signalId)
-                    return signal ? signal.currentAspect : "RED"
-                }
-                direction: modelData.direction
-                isActive: modelData.isActive
-                cellSize: stationLayout.cellSize
-
-                onSignalClicked: {
-                    console.log("Home signal control:", signalId, currentAspect)
-                    stationLayout.handleHomeSignalClick(signalId, currentAspect)
-                }
-            }
-        }
-
-        Repeater {
-            model: StationData.getAllStarterSignals()
-
-            StarterSignal {
-                x: modelData.col * stationLayout.cellSize
-                y: modelData.row * stationLayout.cellSize
-                signalId: modelData.id
-                signalName: modelData.name
-                currentAspect: {
-                    stationLayout.signalRefreshTrigger  // Depend on refresh trigger
-                    var signal = StationData.getStarterSignalById(signalId)
-                    return signal ? signal.currentAspect : "RED"
-                }
-                aspectCount: modelData.aspectCount
-                direction: modelData.direction
-                isActive: modelData.isActive
-                cellSize: stationLayout.cellSize
-
-                onSignalClicked: {
-                    console.log("Starter signal control:", signalId, currentAspect)
-                    stationLayout.handleStarterSignalClick(signalId, currentAspect)
-                }
-            }
-        }
-
-        Repeater {
-            model: StationData.getAllPointMachines()
+            model: pointMachinesModel
 
             PointMachine {
                 machineId: modelData.id
-                position: {
-                    stationLayout.signalRefreshTrigger  // Trigger refresh
-                    var pm = StationData.getPointMachineById(modelData.id)
-                    return pm ? pm.position : "NORMAL"
-                }
-                operatingStatus: {
-                    stationLayout.signalRefreshTrigger  // Trigger refresh
-                    var pm = StationData.getPointMachineById(modelData.id)
-                    return pm ? pm.operatingStatus : "CONNECTED"
-                }
+                position: modelData.position
+                operatingStatus: modelData.operatingStatus
                 junctionPoint: modelData.junctionPoint
                 rootTrack: modelData.rootTrack
                 normalTrack: modelData.normalTrack
@@ -294,82 +362,129 @@ Rectangle {
                 cellSize: stationLayout.cellSize
 
                 onPointMachineClicked: function(machineId, currentPosition) {
-                    console.log("Point machine operation requested:", machineId, currentPosition)
                     stationLayout.handlePointMachineClick(machineId, currentPosition)
                 }
             }
         }
 
+        // ✅ UPDATED: Outer signals from database
         Repeater {
-            model: StationData.getAllAdvanceStarterSignals()
+            model: outerSignalsModel
+
+            OuterSignal {
+                x: modelData.col * stationLayout.cellSize
+                y: modelData.row * stationLayout.cellSize
+                signalId: modelData.id
+                signalName: modelData.name
+                currentAspect: modelData.currentAspect
+                direction: modelData.direction
+                isActive: modelData.isActive
+                cellSize: stationLayout.cellSize
+                onSignalClicked: stationLayout.handleOuterSignalClick(signalId, currentAspect)
+            }
+        }
+
+        // ✅ UPDATED: Home signals from database
+        Repeater {
+            model: homeSignalsModel
+
+            HomeSignal {
+                x: modelData.col * stationLayout.cellSize
+                y: modelData.row * stationLayout.cellSize
+                signalId: modelData.id
+                signalName: modelData.name
+                currentAspect: modelData.currentAspect
+                direction: modelData.direction
+                isActive: modelData.isActive
+                cellSize: stationLayout.cellSize
+                onSignalClicked: stationLayout.handleHomeSignalClick(signalId, currentAspect)
+            }
+        }
+
+        // ✅ UPDATED: Starter signals from database
+        Repeater {
+            model: starterSignalsModel
+
+            StarterSignal {
+                x: modelData.col * stationLayout.cellSize
+                y: modelData.row * stationLayout.cellSize
+                signalId: modelData.id
+                signalName: modelData.name
+                currentAspect: modelData.currentAspect
+                aspectCount: modelData.aspectCount
+                direction: modelData.direction
+                isActive: modelData.isActive
+                cellSize: stationLayout.cellSize
+                onSignalClicked: stationLayout.handleStarterSignalClick(signalId, currentAspect)
+            }
+        }
+
+        // ✅ UPDATED: Advanced starter signals from database
+        Repeater {
+            model: advanceStarterSignalsModel
 
             AdvanceStarterSignal {
                 x: modelData.col * stationLayout.cellSize
                 y: modelData.row * stationLayout.cellSize
                 signalId: modelData.id
                 signalName: modelData.name
-                currentAspect: {
-                    stationLayout.signalRefreshTrigger  // Depend on refresh trigger
-                    var signal = StationData.getAdvanceStarterSignalById(signalId)
-                    return signal ? signal.currentAspect : "RED"
-                }
+                currentAspect: modelData.currentAspect
                 direction: modelData.direction
                 isActive: modelData.isActive
                 cellSize: stationLayout.cellSize
+                onSignalClicked: stationLayout.handleAdvanceStarterSignalClick(signalId, currentAspect)
+            }
+        }
 
-                onSignalClicked: {
-                    console.log("Advanced starter signal control:", signalId, currentAspect)
-                    stationLayout.handleAdvanceStarterSignalClick(signalId, currentAspect)
-                }
+        // ✅ UPDATED: Text labels from database
+        Repeater {
+            model: textLabelsModel
+
+            Text {
+                x: modelData.col * stationLayout.cellSize
+                y: modelData.row * stationLayout.cellSize
+                text: modelData.text
+                color: modelData.color || "#ffffff"
+                font.pixelSize: modelData.fontSize || 12
+                font.family: modelData.fontFamily || "Arial"
+                visible: modelData.isVisible !== false
             }
         }
     }
 
+    // Uptime timer (unchanged)
     Timer {
         id: uptimeTimer
-        interval: 1000  // Update every second
-        running: true   // Start immediately
-        repeat: true    // Keep running
+        interval: 1000
+        running: true
+        repeat: true
 
         onTriggered: {
             var currentTime = new Date()
             var uptimeMs = currentTime.getTime() - stationLayout.appStartTime.getTime()
-
-            // Convert milliseconds to hours:minutes:seconds
             var totalSeconds = Math.floor(uptimeMs / 1000)
             var hours = Math.floor(totalSeconds / 3600)
             var minutes = Math.floor((totalSeconds % 3600) / 60)
             var seconds = totalSeconds % 60
-
-            // Format with leading zeros
             var hoursStr = hours.toString().padStart(2, '0')
             var minutesStr = minutes.toString().padStart(2, '0')
             var secondsStr = seconds.toString().padStart(2, '0')
-
-            // Update the uptime display
             stationLayout.appUptime = hoursStr + ":" + minutesStr + ":" + secondsStr
         }
     }
 
-    // **ENHANCED EXPANDABLE STATUS PANEL** with Dynamic Grid + Resize
+    // ✅ ENHANCED: Status panel with database integration
     Rectangle {
         id: statusPanel
         anchors.bottom: parent.bottom
         anchors.right: parent.right
         anchors.margins: 10
 
-        // **EXPANDABLE PROPERTIES**
         property bool isExpanded: false
         property int collapsedWidth: 220
         property int collapsedHeight: 60
         property int expandedWidth: 400
         property int expandedHeight: 350
-
-        // **RESIZABLE PROPERTIES**
-        property int minWidth: 300
-        property int maxWidth: 600
-        property int minHeight: 250
-        property int maxHeight: 500
 
         width: isExpanded ? expandedWidth : collapsedWidth
         height: isExpanded ? expandedHeight : collapsedHeight
@@ -379,26 +494,10 @@ Rectangle {
         border.width: 2
         radius: 6
 
-        // **SMOOTH ANIMATIONS**
-        Behavior on width {
-            NumberAnimation {
-                duration: 300
-                easing.type: Easing.OutQuart
-            }
-        }
+        Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutQuart } }
+        Behavior on height { NumberAnimation { duration: 300; easing.type: Easing.OutQuart } }
+        Behavior on border.color { ColorAnimation { duration: 300 } }
 
-        Behavior on height {
-            NumberAnimation {
-                duration: 300
-                easing.type: Easing.OutQuart
-            }
-        }
-
-        Behavior on border.color {
-            ColorAnimation { duration: 300 }
-        }
-
-        // **EXPAND/COLLAPSE BUTTON** - Top-left corner
         Rectangle {
             id: expandButton
             anchors.top: parent.top
@@ -419,73 +518,46 @@ Rectangle {
                 font.bold: true
             }
 
-            Behavior on color {
-                ColorAnimation { duration: 150 }
-            }
-
-            Behavior on scale {
-                NumberAnimation { duration: 100 }
-            }
-
             MouseArea {
                 id: expandButtonMouse
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-
-                onClicked: {
-                    console.log("Status panel", statusPanel.isExpanded ? "collapsing" : "expanding")
-                    statusPanel.isExpanded = !statusPanel.isExpanded
-                }
-
-                onPressed: expandButton.scale = 0.9
-                onReleased: expandButton.scale = 1.0
+                onClicked: statusPanel.isExpanded = !statusPanel.isExpanded
             }
         }
 
-        // **PANEL TITLE**
         Text {
             id: panelTitle
             anchors.top: parent.top
             anchors.left: expandButton.right
             anchors.right: parent.right
             anchors.margins: 8
-            text: statusPanel.isExpanded ? "Railway Control Panel - Extended" : "Controls"
+            text: statusPanel.isExpanded ? "Railway Control Panel - Database Mode" : "Controls"
             color: "#ffffff"
             font.pixelSize: statusPanel.isExpanded ? 14 : 12
             font.weight: Font.Bold
             horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
             height: 24
         }
 
-        // **DYNAMIC GRID LAYOUT** for sections
         Grid {
             id: sectionsGrid
             anchors.top: panelTitle.bottom
             anchors.left: parent.left
-            anchors.right: resizeHandleRight.left
-            anchors.bottom: resizeHandleBottom.top
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
             anchors.margins: 12
             visible: statusPanel.isExpanded
 
-            // **DYNAMIC LAYOUT CALCULATION**
-            property real aspectRatio: width / height
-            property int optimalColumns: {
-                if (aspectRatio > 2.0) return 3      // Very wide: 4x1
-                else if (aspectRatio > 1.0) return 2 // Wide: 2x2
-                else return 1                        // Tall: 1x4
-            }
-            property int optimalRows: Math.ceil(3 / optimalColumns)
-
-            columns: optimalColumns
-            rows: optimalRows
+            columns: 2
+            rows: 2
             spacing: 8
 
-            // **SECTION 1: SYSTEM INFO**
+            // ✅ UPDATED: Database-aware system info
             Rectangle {
-                width: (sectionsGrid.width - (sectionsGrid.columns - 1) * sectionsGrid.spacing) / sectionsGrid.columns
-                height: (sectionsGrid.height - (sectionsGrid.rows - 1) * sectionsGrid.spacing) / sectionsGrid.rows
+                width: (sectionsGrid.width - sectionsGrid.spacing) / 2
+                height: (sectionsGrid.height - sectionsGrid.spacing) / 2
                 color: "#374151"
                 radius: 4
                 border.color: "#4a5568"
@@ -497,7 +569,7 @@ Rectangle {
                     spacing: 4
 
                     Text {
-                        text: "System Info"
+                        text: "Database Status"
                         color: "#ffffff"
                         font.pixelSize: 11
                         font.weight: Font.Bold
@@ -506,30 +578,14 @@ Rectangle {
                     Row {
                         width: parent.width
                         Text {
-                            text: "Grid:"
+                            text: "Connection:"
                             color: "#a0aec0"
                             font.pixelSize: 9
-                            width: 50
+                            width: 60
                         }
                         Text {
-                            text: cellSize + "px"
-                            color: "#ffffff"
-                            font.pixelSize: 9
-                            font.weight: Font.Bold
-                        }
-                    }
-
-                    Row {
-                        width: parent.width
-                        Text {
-                            text: "Layout:"
-                            color: "#a0aec0"
-                            font.pixelSize: 9
-                            width: 50
-                        }
-                        Text {
-                            text: "360×200"
-                            color: "#ffffff"
+                            text: dbManager && dbManager.isConnected ? "Connected" : "Offline"
+                            color: dbManager && dbManager.isConnected ? "#38a169" : "#ef4444"
                             font.pixelSize: 9
                             font.weight: Font.Bold
                         }
@@ -541,10 +597,43 @@ Rectangle {
                             text: "Tracks:"
                             color: "#a0aec0"
                             font.pixelSize: 9
-                            width: 50
+                            width: 60
                         }
                         Text {
-                            text: StationData.trackSegments.length.toString()
+                            text: trackSegmentsModel.length.toString()
+                            color: "#38a169"
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        Text {
+                            text: "Signals:"
+                            color: "#a0aec0"
+                            font.pixelSize: 9
+                            width: 60
+                        }
+                        Text {
+                            text: (outerSignalsModel.length + homeSignalsModel.length +
+                                  starterSignalsModel.length + advanceStarterSignalsModel.length).toString()
+                            color: "#38a169"
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        Text {
+                            text: "Points:"
+                            color: "#a0aec0"
+                            font.pixelSize: 9
+                            width: 60
+                        }
+                        Text {
+                            text: pointMachinesModel.length.toString()
                             color: "#38a169"
                             font.pixelSize: 9
                             font.weight: Font.Bold
@@ -553,10 +642,10 @@ Rectangle {
                 }
             }
 
-            // **SECTION 2: VIEW CONTROLS**
+            // View controls section
             Rectangle {
-                width: (sectionsGrid.width - (sectionsGrid.columns - 1) * sectionsGrid.spacing) / sectionsGrid.columns
-                height: (sectionsGrid.height - (sectionsGrid.rows - 1) * sectionsGrid.spacing) / sectionsGrid.rows
+                width: (sectionsGrid.width - sectionsGrid.spacing) / 2
+                height: (sectionsGrid.height - sectionsGrid.spacing) / 2
                 color: "#374151"
                 radius: 4
                 border.color: "#4a5568"
@@ -594,37 +683,37 @@ Rectangle {
                         }
                     }
 
+                    // ✅ NEW: Manual refresh button
                     Rectangle {
                         width: parent.width - 10
-                        height: 18
-                        color: "#4a5568"
-                        border.color: "#666666"
-                        border.width: 1
-                        radius: 2
+                        height: 20
+                        color: refreshMouse.pressed ? "#2c5aa0" : "#3182ce"
+                        radius: 3
 
                         Text {
                             anchors.centerIn: parent
-                            text: Math.round(canvas.gridOpacity * 100) + "%"
+                            text: "🔄 Refresh Data"
                             color: "#ffffff"
                             font.pixelSize: 9
+                            font.weight: Font.Bold
                         }
 
                         MouseArea {
+                            id: refreshMouse
                             anchors.fill: parent
                             onClicked: {
-                                if (canvas.gridOpacity <= 0.2) canvas.gridOpacity = 0.6
-                                else if (canvas.gridOpacity <= 0.6) canvas.gridOpacity = 0.9
-                                else canvas.gridOpacity = 0.2
+                                console.log("Manual data refresh requested")
+                                stationLayout.refreshAllData()
                             }
                         }
                     }
                 }
             }
 
-            // **SECTION 4: ADVANCED CONTROLS** - Updated version
+            // Data source info section
             Rectangle {
-                width: (sectionsGrid.width - (sectionsGrid.columns - 1) * sectionsGrid.spacing) / sectionsGrid.columns
-                height: (sectionsGrid.height - (sectionsGrid.rows - 1) * sectionsGrid.spacing) / sectionsGrid.rows
+                width: (sectionsGrid.width - sectionsGrid.spacing) / 2
+                height: (sectionsGrid.height - sectionsGrid.spacing) / 2
                 color: "#374151"
                 radius: 4
                 border.color: "#4a5568"
@@ -636,209 +725,151 @@ Rectangle {
                     spacing: 4
 
                     Text {
-                        text: "Advanced"
+                        text: "Data Source"
                         color: "#ffffff"
                         font.pixelSize: 11
                         font.weight: Font.Bold
                     }
 
-                    // **DATABASE CONNECTION STATUS**
                     Row {
                         width: parent.width
                         Rectangle {
                             width: 8
                             height: 8
                             radius: 4
-                            color: dbManager ? "#38a169" : "#ef4444"
+                            color: "#3182ce"
                         }
                         Text {
-                            text: dbManager ? "Connected" : "Offline"
-                            color: dbManager ? "#38a169" : "#ef4444"
-                            font.pixelSize: 9
-                            leftPadding: 6
-                        }
-                    }
-
-                    // **APP UPTIME DISPLAY** - Simplified property access
-                    Row {
-                        width: parent.width
-                        Rectangle {
-                            width: 8
-                            height: 8
-                            radius: 4
-                            color: "#3182ce"  // Blue indicator
-                        }
-                        Text {
-                            text: "Uptime: " + stationLayout.appUptime  // ✅ Direct access to stationLayout
+                            text: "PostgreSQL Database"
                             color: "#a0aec0"
                             font.pixelSize: 9
                             leftPadding: 6
                         }
                     }
-                }
-            }
-        }
 
-        // **RESIZE HANDLE - RIGHT EDGE**
-        Rectangle {
-            id: resizeHandleRight
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.right: parent.right
-            width: 6
-            color: "transparent"
-            visible: statusPanel.isExpanded
+                    Row {
+                        width: parent.width
+                        Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: "#38a169"
+                        }
+                        Text {
+                            text: "Polling: 50s interval"
+                            color: "#a0aec0"
+                            font.pixelSize: 9
+                            leftPadding: 6
+                        }
+                    }
 
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.SizeHorCursor
-                hoverEnabled: true
+                    Row {
+                        width: parent.width
+                        Rectangle {
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: "#f6ad55"
+                        }
+                        Text {
+                            text: "Real-time updates"
+                            color: "#a0aec0"
+                            font.pixelSize: 9
+                            leftPadding: 6
+                        }
+                    }
 
-                property bool dragging: false
-                property real startX: 0
-
-                onPressed: {
-                    dragging = true
-                    startX = mouse.x
-                }
-
-                onPositionChanged: {
-                    if (dragging) {
-                        let newWidth = statusPanel.expandedWidth + (startX - mouse.x)
-                        statusPanel.expandedWidth = Math.max(statusPanel.minWidth, Math.min(statusPanel.maxWidth, newWidth))
+                    Row {
+                        width: parent.width
+                        Text {
+                            text: "Uptime:"
+                            color: "#a0aec0"
+                            font.pixelSize: 9
+                            width: 40
+                        }
+                        Text {
+                            text: stationLayout.appUptime
+                            color: "#ffffff"
+                            font.pixelSize: 9
+                            font.weight: Font.Bold
+                        }
                     }
                 }
-
-                onReleased: {
-                    dragging = false
-                }
             }
 
-            // **VISUAL INDICATOR**
+            // Database controls section
             Rectangle {
-                anchors.centerIn: parent
-                width: 2
-                height: parent.height * 0.3
-                color: parent.children[0].containsMouse ? "#3182ce" : "#666666"
-                radius: 1
-            }
-        }
+                width: (sectionsGrid.width - sectionsGrid.spacing) / 2
+                height: (sectionsGrid.height - sectionsGrid.spacing) / 2
+                color: "#374151"
+                radius: 4
+                border.color: "#4a5568"
+                border.width: 1
 
-        // **RESIZE HANDLE - BOTTOM EDGE**
-        Rectangle {
-            id: resizeHandleBottom
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: 6
-            color: "transparent"
-            visible: statusPanel.isExpanded
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    spacing: 4
 
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.SizeVerCursor
-                hoverEnabled: true
-
-                property bool dragging: false
-                property real startY: 0
-
-                onPressed: {
-                    dragging = true
-                    startY = mouse.y
-                }
-
-                onPositionChanged: {
-                    if (dragging) {
-                        let newHeight = statusPanel.expandedHeight + (startY - mouse.y)
-                        statusPanel.expandedHeight = Math.max(statusPanel.minHeight, Math.min(statusPanel.maxHeight, newHeight))
+                    Text {
+                        text: "Database Controls"
+                        color: "#ffffff"
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
                     }
-                }
 
-                onReleased: {
-                    dragging = false
-                }
-            }
-
-            // **VISUAL INDICATOR**
-            Rectangle {
-                anchors.centerIn: parent
-                width: parent.width * 0.3
-                height: 2
-                color: parent.children[0].containsMouse ? "#3182ce" : "#666666"
-                radius: 1
-            }
-        }
-
-        // **RESIZE HANDLE - CORNER (BOTH DIRECTIONS)**
-        Rectangle {
-            id: resizeHandleCorner
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            width: 12
-            height: 12
-            color: "transparent"
-            visible: statusPanel.isExpanded
-
-            MouseArea {
-                anchors.fill: parent
-                cursorShape: Qt.SizeFDiagCursor
-                hoverEnabled: true
-
-                property bool dragging: false
-                property real startX: 0
-                property real startY: 0
-
-                onPressed: {
-                    dragging = true
-                    startX = mouse.x
-                    startY = mouse.y
-                }
-
-                onPositionChanged: {
-                    if (dragging) {
-                        let newWidth = statusPanel.expandedWidth + (startX - mouse.x)
-                        let newHeight = statusPanel.expandedHeight + (startY - mouse.y)
-                        statusPanel.expandedWidth = Math.max(statusPanel.minWidth, Math.min(statusPanel.maxWidth, newWidth))
-                        statusPanel.expandedHeight = Math.max(statusPanel.minHeight, Math.min(statusPanel.maxHeight, newHeight))
-                    }
-                }
-
-                onReleased: {
-                    dragging = false
-                }
-            }
-
-            // **CORNER GRIP LINES**
-            Column {
-                anchors.bottom: parent.bottom
-                anchors.right: parent.right
-                anchors.margins: 2
-                spacing: 1
-
-                Repeater {
-                    model: 3
                     Rectangle {
-                        width: 8 - (index * 2)
-                        height: 1
-                        color: parent.parent.children[0].containsMouse ? "#3182ce" : "#666666"
+                        width: parent.width - 10
+                        height: 18
+                        color: testConnectionMouse.pressed ? "#2c5aa0" : "#3182ce"
+                        radius: 3
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Test Connection"
+                            color: "#ffffff"
+                            font.pixelSize: 8
+                            font.weight: Font.Bold
+                        }
+
+                        MouseArea {
+                            id: testConnectionMouse
+                            anchors.fill: parent
+                            onClicked: {
+                                console.log("Testing database connection...")
+                                if (globalDatabaseInitializer) {
+                                    globalDatabaseInitializer.testConnection()
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: parent.width - 10
+                        height: 20
+                        color: resetButtonMouse.pressed ? "#c53030" : "#e53e3e"
+                        radius: 3
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "⚠️ Reset Database"
+                            color: "#ffffff"
+                            font.pixelSize: 8
+                            font.weight: Font.Bold
+                        }
+
+                        MouseArea {
+                            id: resetButtonMouse
+                            anchors.fill: parent
+                            onClicked: {
+                                console.log("Database reset requested from status panel")
+                                // This should open the reset dialog in Main.qml
+                                // You might need to emit a signal or call a parent function
+                            }
+                        }
                     }
                 }
             }
-        }
-
-        // **LAYOUT INFO** (top-right corner, for debugging)
-        Text {
-            anchors.top: parent.top
-            anchors.right: resizeHandleRight.left
-            anchors.margins: 4
-            text: sectionsGrid.columns + "×" + sectionsGrid.rows
-            color: "#666666"
-            font.pixelSize: 8
-            visible: statusPanel.isExpanded
         }
     }
 }
-
-
-
-
