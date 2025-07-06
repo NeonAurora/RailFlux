@@ -110,6 +110,20 @@ Rectangle {
         }
     }
 
+    function handleAdvanceStarterSignalClick(signalId, currentAspect) {
+        // Update the JavaScript data
+        var signal = StationData.getAdvanceStarterSignalById(signalId)
+        if (signal) {
+            // Toggle between RED and GREEN (only 2 aspects)
+            signal.currentAspect = (currentAspect === "RED") ? "GREEN" : "RED"
+
+            console.log("Changed advanced starter signal", signalId, "to", signal.currentAspect)
+
+            // Trigger refresh
+            signalRefreshTrigger = signalRefreshTrigger + 1
+        }
+    }
+
     // Main grid canvas
     GridCanvas {
         id: canvas
@@ -277,6 +291,30 @@ Rectangle {
                 onPointMachineClicked: function(machineId, currentPosition) {
                     console.log("Point machine operation requested:", machineId, currentPosition)
                     stationLayout.handlePointMachineClick(machineId, currentPosition)
+                }
+            }
+        }
+
+        Repeater {
+            model: StationData.getAllAdvanceStarterSignals()
+
+            AdvanceStarterSignal {
+                x: modelData.col * stationLayout.cellSize
+                y: modelData.row * stationLayout.cellSize
+                signalId: modelData.id
+                signalName: modelData.name
+                currentAspect: {
+                    stationLayout.signalRefreshTrigger  // Depend on refresh trigger
+                    var signal = StationData.getAdvanceStarterSignalById(signalId)
+                    return signal ? signal.currentAspect : "RED"
+                }
+                direction: modelData.direction
+                isActive: modelData.isActive
+                cellSize: stationLayout.cellSize
+
+                onSignalClicked: {
+                    console.log("Advanced starter signal control:", signalId, currentAspect)
+                    stationLayout.handleAdvanceStarterSignalClick(signalId, currentAspect)
                 }
             }
         }

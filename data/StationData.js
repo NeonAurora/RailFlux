@@ -8,22 +8,22 @@ var trackSegments = [
     { id: "T1S2",  startRow: 110, startCol: 13, endRow: 110, endCol: 34, occupied: false },
     { id: "T1S3",  startRow: 110, startCol: 35, endRow: 110, endCol: 67, occupied: false },
     { id: "T1S4",  startRow: 110, startCol: 68, endRow: 110, endCol: 90, occupied: false },
-    { id: "T1S5",  startRow: 110, startCol: 99, endRow: 110, endCol: 153, occupied: false },
+    { id: "T1S5",  startRow: 110, startCol: 101, endRow: 110, endCol: 153, occupied: false },
     { id: "T1S6",  startRow: 110, startCol: 154, endRow: 110, endCol: 232, occupied: false },
     { id: "T1S7",  startRow: 110, startCol: 233, endRow: 110, endCol: 277, occupied: false },
-    { id: "T1S8",  startRow: 110, startCol: 281, endRow: 110, endCol: 305, occupied: false },
+    { id: "T1S8",  startRow: 110, startCol: 287, endRow: 110, endCol: 305, occupied: false },
     { id: "T1S9",  startRow: 110, startCol: 306, endRow: 110, endCol: 338, occupied: false },
     { id: "T1S10", startRow: 110, startCol: 339, endRow: 110, endCol: 358, occupied: false },
     { id: "T1S11", startRow: 110, startCol: 359, endRow: 110, endCol: 369, occupied: false },
 
     // T4 Track segments
-    { id: "T4S1", startRow: 88, startCol: 100, endRow: 88, endCol: 112, occupied: false },
-    { id: "T4S2", startRow: 88, startCol: 116, endRow: 88, endCol: 259, occupied: false },
-    { id: "T4S3", startRow: 88, startCol: 263, endRow: 88, endCol: 270, occupied: false },
+    { id: "T4S1", startRow: 88, startCol: 98, endRow: 88, endCol: 110, occupied: false },
+    { id: "T4S2", startRow: 88, startCol: 120, endRow: 88, endCol: 255, occupied: false },
+    { id: "T4S3", startRow: 88, startCol: 265, endRow: 88, endCol: 281, occupied: false },
 
     // Connection tracks
-    { id: "T5S1", startRow: 107, startCol: 97, endRow: 92, endCol: 112, occupied: false },
-    { id: "T6S1", startRow: 92, startCol: 263, endRow: 107, endCol: 279, occupied: false },
+    { id: "T5S1", startRow: 106, startCol: 98, endRow: 92, endCol: 112, occupied: false },
+    { id: "T6S1", startRow: 92, startCol: 263, endRow: 105, endCol: 277, occupied: false },
 ];
 
 // Text labels from your text_config.txt
@@ -137,7 +137,7 @@ var starterSignals = [
         possibleAspects: ["RED", "YELLOW", "GREEN"],
         currentAspect: "YELLOW",
         direction: "UP",
-        row: 105,
+        row: 103,
         col: 245,
         isActive: true,
         location: "Platform_A_Main_Departure"
@@ -163,7 +163,7 @@ var starterSignals = [
         possibleAspects: ["RED", "YELLOW", "GREEN"],
         currentAspect: "YELLOW",
         direction: "DOWN",
-        row: 115,
+        row: 113,
         col: 125,
         isActive: true,
         location: "Platform_A_Main_Departure"
@@ -177,23 +177,23 @@ var pointMachines = [
         type: "POINT_MACHINE",
 
         // **JUNCTION GEOMETRY** - Where all tracks meet
-        junctionPoint: { row: 110.8, col: 94.5 },
+        junctionPoint: { row: 110, col: 94.2 },
 
         // **TRACK CONNECTIONS** - Define relationships with offsets
         rootTrack: {
             trackId: "T1S4",           // The "common" track
             connectionEnd: "END",       // Which end connects to junction
-            offset: { row: 0.8, col: 0 } // ✅ NEW: Offset for proper alignment
+            offset: { row: 0, col: 0 } // ✅ NEW: Offset for proper alignment
         },
         normalTrack: {                 // Straight-through path
             trackId: "T1S5",
             connectionEnd: "START",
-            offset: { row: 0.8, col: 0 } // ✅ NEW: Offset to align with track thickness
+            offset: { row: 0, col: 0 } // ✅ NEW: Offset to align with track thickness
         },
         reverseTrack: {                // Diverging path
             trackId: "T5S1",
             connectionEnd: "START",
-            offset: { row: 0.5, col: 0.5 } // ✅ NEW: Offset for diagonal alignment
+            offset: { row: 0, col: 0 } // ✅ NEW: Offset for diagonal alignment
         },
 
         // **OPERATIONAL STATE**
@@ -203,9 +203,141 @@ var pointMachines = [
         // **PHYSICAL PROPERTIES**
         location: { row: 110, col: 95 },
         motorPosition: "BELOW",        // Visual placement of motor indicator
-        transitionTime: 3000           // Milliseconds for switching
-    }
+    },
+    {
+        id: "PM002",
+        name: "Junction B",
+        type: "POINT_MACHINE",
+
+        // **JUNCTION GEOMETRY** - Where all tracks meet
+        junctionPoint: { row: 88, col: 116 },
+
+        // **TRACK CONNECTIONS** - Define relationships with offsets
+        rootTrack: {
+            trackId: "T4S2",           // The "common" track
+            connectionEnd: "START",    // Which end connects to junction
+            offset: { row: 0, col: 0 } //  NEW: Offset for proper alignment
+        },
+        normalTrack: {                 // Straight-through path
+            trackId: "T4S1",
+            connectionEnd: "END",
+            offset: { row: 0, col: 0 } //  NEW: Offset to align with track thickness
+        },
+        reverseTrack: {                // Diverging path
+            trackId: "T5S1",
+            connectionEnd: "END",
+            offset: { row: 0, col: 0 } //  NEW: Offset for diagonal alignment
+        },
+
+        // **OPERATIONAL STATE**
+        position: "REVERSE",            // "NORMAL" or "REVERSE"
+        operatingStatus: "CONNECTED",  // "CONNECTED" or "IN_TRANSITION"
+
+        // **PHYSICAL PROPERTIES**
+        location: { row: 88, col: 114 },
+        motorPosition: "BELOW",        // Visual placement of motor indicator
+    },
+    {
+        id: "PM003",
+        name: "Junction C",
+        type: "POINT_MACHINE",
+
+        // **JUNCTION GEOMETRY** - Where all tracks meet
+        junctionPoint: { row: 88, col: 258.7 },
+
+        // **TRACK CONNECTIONS** - Define relationships with offsets
+        rootTrack: {
+            trackId: "T4S2",           // The "common" track
+            connectionEnd: "END",    // Which end connects to junction
+            offset: { row: 0, col: 0 } //  NEW: Offset for proper alignment
+        },
+        normalTrack: {                 // Straight-through path
+            trackId: "T4S3",
+            connectionEnd: "START",
+            offset: { row: 0, col: 0 } //  NEW: Offset to align with track thickness
+        },
+        reverseTrack: {                // Diverging path
+            trackId: "T6S1",
+            connectionEnd: "START",
+            offset: { row: 0, col: 0 } //  NEW: Offset for diagonal alignment
+        },
+
+        // **OPERATIONAL STATE**
+        position: "REVERSE",            // "NORMAL" or "REVERSE"
+        operatingStatus: "CONNECTED",  // "CONNECTED" or "IN_TRANSITION"
+
+        // **PHYSICAL PROPERTIES**
+        location: { row: 88, col: 261 },
+        motorPosition: "BELOW",        // Visual placement of motor indicator
+    },
+    {
+        id: "PM004",
+        name: "Junction D",
+        type: "POINT_MACHINE",
+
+        // **JUNCTION GEOMETRY** - Where all tracks meet
+        junctionPoint: { row: 110, col: 282.5 },
+
+        // **TRACK CONNECTIONS** - Define relationships with offsets
+        rootTrack: {
+            trackId: "T1S8",           // The "common" track
+            connectionEnd: "START",    // Which end connects to junction
+            offset: { row: 0, col: 0 } //  NEW: Offset for proper alignment
+        },
+        normalTrack: {                 // Straight-through path
+            trackId: "T1S7",
+            connectionEnd: "END",
+            offset: { row: 0, col: 0 } //  NEW: Offset to align with track thickness
+        },
+        reverseTrack: {                // Diverging path
+            trackId: "T6S1",
+            connectionEnd: "END",
+            offset: { row: 0, col: 0 } //  NEW: Offset for diagonal alignment
+        },
+
+        // **OPERATIONAL STATE**
+        position: "REVERSE",            // "NORMAL" or "REVERSE"
+        operatingStatus: "CONNECTED",  // "CONNECTED" or "IN_TRANSITION"
+
+        // **PHYSICAL PROPERTIES**
+        location: { row: 110, col: 281 },
+        motorPosition: "BELOW",        // Visual placement of motor indicator
+    },
 ];
+
+// Add this to the data arrays section
+var advanceStarterSignals = [
+    {
+        id: "AS001",
+        name: "Advanced Starter A1",
+        type: "ADVANCED_STARTER",
+        aspectCount: 2,
+        possibleAspects: ["RED", "GREEN"],
+        currentAspect: "RED",
+        direction: "UP",
+        row: 102,
+        col: 302,
+        isActive: true,
+        location: "Advanced_Departure_A"
+    },
+    {
+        id: "AS002",
+        name: "Advanced Starter A2",
+        type: "ADVANCED_STARTER",
+        aspectCount: 2,
+        possibleAspects: ["RED", "GREEN"],
+        currentAspect: "GREEN",
+        direction: "DOWN",
+        row: 115,
+        col: 56,
+        isActive: true,
+        location: "Advanced_Departure_B"
+    },
+];
+
+// Add these functions at the end of the file, after the existing signal functions
+
+
 
 var levelCrossings = [
     { id: "LC001", row: 87, col: 36, state: "OPEN", name: "LC_GATE1" },
@@ -559,6 +691,7 @@ function operatePointMachine(machineId, newPosition) {
     }
 
     // Begin transition
+    // THE TRAMSITION DURATION IS FOR DEMONSTRATION PURPOSES ONLY. UNDER REAL ENVIRONMENT THIS WILL BE REMOVED
     pm.operatingStatus = "IN_TRANSITION";
     console.log("Point machine", machineId, "starting transition to", newPosition);
 
@@ -587,6 +720,77 @@ function completePointMachineOperation(machineId, newPosition) {
     pm.operatingStatus = "CONNECTED";
     console.log("Point machine", machineId, "operation complete:", newPosition);
     return true;
+}
+
+// ============================================================================
+// ADVANCED STARTER SIGNAL FUNCTIONS
+// ============================================================================
+
+/**
+ * Retrieves an advanced starter signal by its unique identifier
+ * @param {String} signalId - Unique identifier for the advanced starter signal (e.g., "AS001")
+ * @returns {Object|undefined} - Advanced starter signal object or undefined if not found
+ * @example
+ * var signal = getAdvanceStarterSignalById("AS001");
+ * if (signal) console.log("Found signal:", signal.name);
+ */
+function getAdvanceStarterSignalById(signalId) {
+    return advanceStarterSignals.find(signal => signal.id === signalId);
+}
+
+/**
+ * Returns all advanced starter signals in the system
+ * @returns {Array} - Array of all advanced starter signal objects
+ * @example
+ * var allAdvanced = getAllAdvanceStarterSignals();
+ * console.log("Total advanced starter signals:", allAdvanced.length);
+ */
+function getAllAdvanceStarterSignals() {
+    return advanceStarterSignals;
+}
+
+/**
+ * Filters advanced starter signals by their directional operation
+ * @param {String} direction - Direction filter ("UP" or "DOWN")
+ * @returns {Array} - Array of advanced starter signal objects matching the direction
+ * @example
+ * var upSignals = getAdvanceStarterSignalsByDirection("UP");
+ * var downSignals = getAdvanceStarterSignalsByDirection("DOWN");
+ */
+function getAdvanceStarterSignalsByDirection(direction) {
+    return advanceStarterSignals.filter(signal => signal.direction === direction);
+}
+
+/**
+ * Validates if an aspect change is permitted for an advanced starter signal
+ * @param {String} signalId - Unique identifier of the advanced starter signal
+ * @param {String} newAspect - Proposed new aspect ("RED" or "GREEN")
+ * @returns {Boolean} - True if aspect change is valid, false otherwise
+ * @example
+ * if (isValidAdvanceStarterAspectChange("AS001", "GREEN")) {
+ *     // Proceed with aspect change
+ * }
+ */
+function isValidAdvanceStarterAspectChange(signalId, newAspect) {
+    const signal = getAdvanceStarterSignalById(signalId);
+    if (!signal) return false;
+    return signal.possibleAspects.includes(newAspect);
+}
+
+/**
+ * Returns the standard color code for an advanced starter signal aspect
+ * @param {String} aspect - Signal aspect ("RED" or "GREEN")
+ * @returns {String} - Hexadecimal color code for the aspect
+ * @example
+ * var redColor = getAdvanceStarterAspectColor("RED"); // Returns "#ff0000"
+ * var greenColor = getAdvanceStarterAspectColor("GREEN"); // Returns "#00ff00"
+ */
+function getAdvanceStarterAspectColor(aspect) {
+    switch(aspect) {
+        case "RED": return "#ff0000";
+        case "GREEN": return "#00ff00";
+        default: return "#ff0000"; // Safe default to RED
+    }
 }
 
 // ============================================================================
