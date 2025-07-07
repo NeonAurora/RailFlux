@@ -3,14 +3,22 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QThread>
+#include <QProcess>
+#include <QFile>
+#include <QFileInfo>
 
 DatabaseManager::DatabaseManager(QObject* parent)
     : QObject(parent)
     , pollingTimer(std::make_unique<QTimer>(this))
     , connected(false)
+    , m_connectionTimer(std::make_unique<QTimer>(this))
+    , m_statePollingTimer(std::make_unique<QTimer>(this))
 {
     connect(pollingTimer.get(), &QTimer::timeout, this, &DatabaseManager::pollDatabase);
     pollingTimer->setInterval(POLLING_INTERVAL_MS);
+
+    m_connectionTimer->setInterval(5000);  // Check every 5 seconds
+    m_statePollingTimer->setInterval(200); // Poll every 200ms
 }
 
 DatabaseManager::~DatabaseManager() {
@@ -18,33 +26,241 @@ DatabaseManager::~DatabaseManager() {
     if (db.isOpen()) {
         db.close();
     }
+    cleanup();
+    qDebug() << "DatabaseManager destroyed";
 }
 
-bool DatabaseManager::connectToDatabase() {
+bool DatabaseManager::connectToDatabase()
+{
+    // Try system PostgreSQL first
+    if (connectToSystemPostgreSQL()) {
+        qDebug() << "✅ Connected to system PostgreSQL";
+        enableRealTimeUpdates();  // ✅ Enable LISTEN/NOTIFY
+        return true;
+    }
+
+    qDebug() << "🔄 System PostgreSQL unavailable, starting portable mode...";
+
+    // Fall back to portable PostgreSQL
+    if (startPortableMode()) {
+        qDebug() << "✅ Connected to portable PostgreSQL";
+        enableRealTimeUpdates();  // ✅ Enable LISTEN/NOTIFY
+        return true;
+    }
+
+    // ✅ Set disconnected state and emit signal
+    connected = false;
+    m_isConnected = false;
+    emit connectionStateChanged(connected);
+    emit errorOccurred("Failed to connect to any PostgreSQL instance");
+    return false;
+}
+
+bool DatabaseManager::connectToSystemPostgreSQL()
+{
+    try {
+        // ✅ Remove existing connection if it exists
+        if (QSqlDatabase::contains("system_connection")) {
+            QSqlDatabase::removeDatabase("system_connection");
+        }
+
+        db = QSqlDatabase::addDatabase("QPSQL", "system_connection");
+        db.setHostName("localhost");
+        db.setPort(m_systemPort);
+        db.setDatabaseName("railway_control_system");
+        db.setUserName("postgres");
+        db.setPassword("qwerty");
+
+        if (db.open()) {
+            connected = true;
+            m_isConnected = true;
+            emit connectionStateChanged(connected);
+            qDebug() << "✅ Connected to system PostgreSQL (postgres/qwerty)";
+            return true;
+        }
+    } catch (...) {
+        qDebug() << "❌ System PostgreSQL connection failed";
+    }
+
     if (db.isOpen()) {
         db.close();
     }
 
-    // Create a unique connection for the manager
-    db = QSqlDatabase::addDatabase("QPSQL");
-    db.setHostName("localhost");
-    db.setDatabaseName("railway_control_system");
-    db.setUserName("postgres");
-    db.setPassword("qwerty"); // TODO: Move to config
-    db.setPort(5432);
+    connected = false;
+    m_isConnected = false;
+    emit connectionStateChanged(connected);
+    return false;
+}
 
-    if (!db.open()) {
-        logError("Database connection", db.lastError());
-        connected = false;
-    } else {
-        connected = true;
-        qDebug() << "✅ SAFETY: Database connected successfully - NO CACHING";
-        setupDatabase();
-        enableRealTimeUpdates();
+bool DatabaseManager::startPortableMode()
+{
+    m_appDirectory = getApplicationDirectory();
+    m_postgresPath = m_appDirectory + "/database/postgresql";
+    m_dataPath = m_appDirectory + "/database/data";
+
+    // Initialize database if needed
+    if (!QDir(m_dataPath).exists()) {
+        if (!initializePortableDatabase()) {
+            return false;
+        }
     }
 
+    // ✅ Check if server is already running before starting
+    if (!isPortableServerRunning()) {
+        if (!startPortablePostgreSQL()) {
+            return false;
+        }
+        // Wait for server to start
+        // QThread::sleep(1);
+    } else {
+        qDebug() << "✅ Portable PostgreSQL server already running";
+    }
+
+    // ✅ Remove existing connection if it exists
+    if (QSqlDatabase::contains("portable_connection")) {
+        QSqlDatabase::removeDatabase("portable_connection");
+    }
+
+    try {
+        db = QSqlDatabase::addDatabase("QPSQL", "portable_connection");
+        db.setHostName("localhost");
+        db.setPort(m_portablePort);
+        db.setDatabaseName("railway_control_system");
+        db.setUserName("postgres");
+        db.setPassword("qwerty");
+
+        if (db.open()) {
+            connected = true;
+            m_isConnected = true;
+            m_connectionStatus = "Connected to Portable PostgreSQL";
+
+            setupDatabase();  // ✅ This will create the schema/tables
+            emit connectionStateChanged(connected);
+            qDebug() << "✅ Portable PostgreSQL connected with schema created";
+            return true;
+        }
+    } catch (const std::exception& e) {
+        qDebug() << "❌ Portable PostgreSQL connection failed:" << e.what();
+    }
+
+    connected = false;
+    m_isConnected = false;
     emit connectionStateChanged(connected);
-    return connected;
+    return false;
+}
+
+bool DatabaseManager::initializePortableDatabase()
+{
+    QString initdbPath = m_postgresPath + "/bin/initdb.exe";
+
+    if (!QFile::exists(initdbPath)) {
+        qDebug() << "❌ PostgreSQL binaries not found at:" << m_postgresPath;
+        return false;
+    }
+
+    QProcess initProcess;
+    QStringList arguments;
+    arguments << "-D" << m_dataPath
+              << "-U" << "postgres"      // ✅ CHANGED: Use postgres user
+              << "-A" << "trust"         // ✅ Start with trust, convert later
+              << "-E" << "UTF8";
+
+    qDebug() << "🔧 Initializing portable database with postgres user...";
+    initProcess.start(initdbPath, arguments);
+
+    if (!initProcess.waitForFinished(100)) {
+        qDebug() << "❌ Database initialization timed out";
+        return false;
+    }
+
+    if (initProcess.exitCode() != 0) {
+        qDebug() << "❌ Database initialization failed:" << initProcess.readAllStandardError();
+        return false;
+    }
+
+    qDebug() << "✅ Portable database initialized with postgres user";
+    return true;
+}
+
+bool DatabaseManager::startPortablePostgreSQL()
+{
+    QString pgCtlPath = m_postgresPath + "/bin/pg_ctl.exe";
+    QString logPath = m_appDirectory + "/database/logs/postgresql.log";
+
+    // Ensure logs directory exists
+    QDir().mkpath(QFileInfo(logPath).path());
+
+    if (m_postgresProcess) {
+        delete m_postgresProcess;
+    }
+
+    m_postgresProcess = new QProcess(this);
+
+    QStringList arguments;
+    arguments << "-D" << m_dataPath
+              << "-l" << logPath
+              << "start";  // ✅ REMOVED: -o port argument (port is in postgresql.conf)
+
+    qDebug() << "🚀 Starting portable PostgreSQL server...";
+    qDebug() << "Command:" << pgCtlPath << arguments.join(" ");
+
+    m_postgresProcess->start(pgCtlPath, arguments);
+
+    if (!m_postgresProcess->waitForFinished(100)) {  // ✅ Increased timeout
+        qDebug() << "❌ Failed to start PostgreSQL server (timeout)";
+        return false;
+    }
+
+    if (m_postgresProcess->exitCode() != 0) {
+        QString errorOutput = m_postgresProcess->readAllStandardError();
+        QString standardOutput = m_postgresProcess->readAllStandardOutput();
+        qDebug() << "❌ PostgreSQL server start failed with exit code:" << m_postgresProcess->exitCode();
+        qDebug() << "Error output:" << errorOutput;
+        qDebug() << "Standard output:" << standardOutput;
+        return false;
+    }
+
+    qDebug() << "✅ Portable PostgreSQL server started on port" << m_portablePort;
+    return true;
+}
+
+QString DatabaseManager::getApplicationDirectory()
+{
+    // Go up one level from app/ to get to the root project directory
+    QDir appDir(QCoreApplication::applicationDirPath());
+    appDir.cdUp();  // Go from "app/" to root directory
+    return appDir.absolutePath();
+}
+
+void DatabaseManager::cleanup()
+{
+    if (m_postgresProcess) {
+        stopPortablePostgreSQL();
+        delete m_postgresProcess;
+        m_postgresProcess = nullptr;
+    }
+}
+
+bool DatabaseManager::stopPortablePostgreSQL()
+{
+    if (!m_postgresProcess) return true;
+
+    QString pgCtlPath = m_postgresPath + "/bin/pg_ctl.exe";
+
+    QProcess stopProcess;
+    QStringList arguments;
+    arguments << "-D" << m_dataPath << "stop";
+
+    qDebug() << "🛑 Stopping portable PostgreSQL server...";
+    stopProcess.start(pgCtlPath, arguments);
+
+    if (stopProcess.waitForFinished(5000)) {
+        qDebug() << "✅ PostgreSQL server stopped successfully";
+        return true;
+    }
+
+    qDebug() << "⚠️ PostgreSQL server stop timed out";
+    return false;
 }
 
 void DatabaseManager::enableRealTimeUpdates() {
@@ -143,6 +359,24 @@ void DatabaseManager::detectAndEmitChanges() {
             emit trackCircuitStateChanged(segmentId.toInt(), isOccupied);
         }
     }
+}
+
+bool DatabaseManager::isPortableServerRunning()
+{
+    QString pgCtlPath = m_postgresPath + "/bin/pg_ctl.exe";
+
+    QProcess checkProcess;
+    QStringList arguments;
+    arguments << "-D" << m_dataPath << "status";
+
+    checkProcess.start(pgCtlPath, arguments);
+    checkProcess.waitForFinished(100);
+
+    // If exit code is 0, server is running
+    bool isRunning = (checkProcess.exitCode() == 0);
+    qDebug() << "🔍 Portable PostgreSQL server running check:" << isRunning;
+
+    return isRunning;
 }
 
 // ✅ SAFETY: Direct database queries - NO CACHING
@@ -645,7 +879,89 @@ QString DatabaseManager::getPointPosition(int machineId) {
 }
 
 bool DatabaseManager::setupDatabase() {
-    // Basic setup - tables should already exist from DatabaseInitializer
+    if (!connected) return false;
+
+    qDebug() << "🔧 Setting up railway control schema...";
+
+    QSqlQuery query(db);
+
+    // ✅ Create railway_control schema if it doesn't exist
+    if (!query.exec("CREATE SCHEMA IF NOT EXISTS railway_control")) {
+        qDebug() << "❌ Failed to create railway_control schema:" << query.lastError().text();
+        return false;
+    }
+
+    // ✅ Create track_segments table
+    QString createTrackSegments = R"(
+        CREATE TABLE IF NOT EXISTS railway_control.track_segments (
+            segment_id SERIAL PRIMARY KEY,
+            segment_name VARCHAR(100) NOT NULL,
+            start_row INTEGER,
+            start_col INTEGER,
+            end_row INTEGER,
+            end_col INTEGER,
+            track_type VARCHAR(50),
+            is_occupied BOOLEAN DEFAULT FALSE,
+            is_assigned BOOLEAN DEFAULT FALSE,
+            occupied_by VARCHAR(100),
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    )";
+
+    if (!query.exec(createTrackSegments)) {
+        qDebug() << "❌ Failed to create track_segments table:" << query.lastError().text();
+        return false;
+    }
+
+    // ✅ Create signals table
+    QString createSignals = R"(
+        CREATE TABLE IF NOT EXISTS railway_control.signals (
+            signal_id SERIAL PRIMARY KEY,
+            signal_name VARCHAR(100) NOT NULL,
+            current_aspect_id INTEGER DEFAULT 1,
+            position_row INTEGER,
+            position_col INTEGER,
+            signal_type VARCHAR(50),
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    )";
+
+    if (!query.exec(createSignals)) {
+        qDebug() << "❌ Failed to create signals table:" << query.lastError().text();
+        return false;
+    }
+
+    // ✅ Create point_machines table
+    QString createPointMachines = R"(
+        CREATE TABLE IF NOT EXISTS railway_control.point_machines (
+            machine_id SERIAL PRIMARY KEY,
+            machine_name VARCHAR(100) NOT NULL,
+            current_position VARCHAR(20) DEFAULT 'NORMAL',
+            position_row INTEGER,
+            position_col INTEGER,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    )";
+
+    if (!query.exec(createPointMachines)) {
+        qDebug() << "❌ Failed to create point_machines table:" << query.lastError().text();
+        return false;
+    }
+
+    // ✅ Insert some test data
+    query.exec("INSERT INTO railway_control.track_segments (segment_name, start_row, start_col, end_row, end_col, track_type) "
+               "VALUES ('Track 1', 0, 0, 0, 10, 'MAIN') ON CONFLICT DO NOTHING");
+
+    query.exec("INSERT INTO railway_control.signals (signal_name, current_aspect_id, position_row, position_col, signal_type) "
+               "VALUES ('Signal A1', 1, 0, 5, 'HOME') ON CONFLICT DO NOTHING");
+
+    qDebug() << "✅ Railway control schema and tables created successfully";
     return true;
 }
 

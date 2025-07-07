@@ -1,8 +1,9 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QIcon>
 #include "database/DatabaseManager.h"
-#include "database/DatabaseInitializer.h"  // Add this
+#include "database/DatabaseInitializer.h"
 
 int main(int argc, char *argv[])
 {
@@ -10,7 +11,11 @@ int main(int argc, char *argv[])
 
     // Register C++ types with QML
     qmlRegisterType<DatabaseManager>("RailFlux.Database", 1, 0, "DatabaseManager");
-    qmlRegisterType<DatabaseInitializer>("RailFlux.Database", 1, 0, "DatabaseInitializer");  // Add this
+    qmlRegisterType<DatabaseInitializer>("RailFlux.Database", 1, 0, "DatabaseInitializer");
+
+    app.setWindowIcon(QIcon(":/icons/railway-icon.ico"));
+    qDebug() << "Icon exists??" << QFile(":/icons/railway-icon.ico").exists();
+
 
     QQmlApplicationEngine engine;
 
@@ -19,8 +24,15 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("globalDatabaseManager", dbManager);
 
     // Create global database initializer instance
-    DatabaseInitializer* dbInitializer = new DatabaseInitializer(&app);  // Add this
-    engine.rootContext()->setContextProperty("globalDatabaseInitializer", dbInitializer);  // Add this
+    DatabaseInitializer* dbInitializer = new DatabaseInitializer(&app);
+    engine.rootContext()->setContextProperty("globalDatabaseInitializer", dbInitializer);
+
+    // ✅ ADD: Cleanup on application exit
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, [dbManager]() {
+        qDebug() << "🧹 Application shutting down, cleaning up database...";
+        dbManager->cleanup();
+        dbManager->stopPolling();
+    });
 
     QObject::connect(
         &engine,
@@ -34,6 +46,7 @@ int main(int argc, char *argv[])
     // Start database connection and polling
     if (dbManager->connectToDatabase()) {
         dbManager->startPolling();
+        dbManager->enableRealTimeUpdates();  // ✅ Enable LISTEN/NOTIFY
     } else {
         qWarning() << "Failed to connect to database";
     }

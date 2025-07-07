@@ -10,6 +10,7 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(appRailFlux
     main.cpp
+    resources.qrc
 )
 
 qt_add_qml_module(appRailFlux
@@ -19,43 +20,31 @@ qt_add_qml_module(appRailFlux
     QML_FILES
         Main.qml
         components/TrackSegment.qml
-
         components/LevelCrossingGate.qml
         components/GridCanvas.qml
         layouts/StationLayout.qml
         data/StationData.js
+        components/OuterSignal.qml
+        components/HomeSignal.qml
+        components/StarterSignal.qml
+        components/PointMachine.qml
+        components/AdvanceStarterSignal.qml
 
     SOURCES
         database/databasemanager.h
         database/databasemanager.cpp
-        QML_FILES components/OuterSignal.qml
-        QML_FILES components/HomeSignal.qml
-        QML_FILES components/StarterSignal.qml
-        QML_FILES components/PointMachine.qml
-        QML_FILES components/AdvanceStarterSignal.qml
-        SOURCES
-        SOURCES database/databaseinitializer.h database/databaseinitializer.cpp
-        RESOURCES sql/sql_coomands_railflux.sql
+        database/databaseinitializer.h
+        database/databaseinitializer.cpp
+
+    RESOURCES
+        sql/sql_coomands_railflux.sql
 )
 
-# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
-# If you are developing for iOS or macOS you should consider setting an
-# explicit, fixed bundle identifier manually though.
 set_target_properties(appRailFlux PROPERTIES
-#    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appRailFlux
-    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
     MACOSX_BUNDLE TRUE
     WIN32_EXECUTABLE TRUE
 )
 
 target_link_libraries(appRailFlux
     PRIVATE Qt6::Quick Qt6::Sql
-)
-
-include(GNUInstallDirs)
-install(TARGETS appRailFlux
-    BUNDLE DESTINATION .
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

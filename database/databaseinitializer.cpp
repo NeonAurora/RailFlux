@@ -17,27 +17,83 @@ DatabaseInitializer::~DatabaseInitializer() {
         db.close();
     }
 }
-
 bool DatabaseInitializer::connectToDatabase() {
     if (db.isOpen()) {
         db.close();
     }
 
-    // Create a unique connection for the initializer
-    db = QSqlDatabase::addDatabase("QPSQL", "initializer_connection");
-    db.setHostName("localhost");
-    db.setDatabaseName("railway_control_system");
-    db.setUserName("postgres");
-    db.setPassword("qwerty"); // TODO: Move to config
-    db.setPort(5432);
-
-    if (!db.open()) {
-        setError(QString("Database connection failed: %1").arg(db.lastError().text()));
-        return false;
+    // ✅ Try system PostgreSQL first (will fail due to wrong port, same as DatabaseManager)
+    if (connectToSystemPostgreSQL()) {
+        qDebug() << "✅ DatabaseInitializer: Connected to system PostgreSQL";
+        return true;
     }
 
-    qDebug() << "DatabaseInitializer: Connected successfully";
-    return true;
+    qDebug() << "🔄 DatabaseInitializer: System PostgreSQL unavailable, trying portable mode...";
+
+    // ✅ Fall back to portable PostgreSQL
+    if (connectToPortablePostgreSQL()) {
+        qDebug() << "✅ DatabaseInitializer: Connected to portable PostgreSQL";
+        return true;
+    }
+
+    setError("Failed to connect to any PostgreSQL instance");
+    return false;
+}
+
+bool DatabaseInitializer::connectToSystemPostgreSQL() {
+    try {
+        // ✅ Remove existing connection if it exists
+        if (QSqlDatabase::contains("initializer_system_connection")) {
+            QSqlDatabase::removeDatabase("initializer_system_connection");
+        }
+
+        db = QSqlDatabase::addDatabase("QPSQL", "initializer_system_connection");
+        db.setHostName("localhost");
+        db.setPort(m_systemPort);  // ✅ Same intentionally wrong port as DatabaseManager
+        db.setDatabaseName("railway_control_system");
+        db.setUserName("postgres");
+        db.setPassword("qwerty");
+
+        if (db.open()) {
+            qDebug() << "✅ DatabaseInitializer: Connected to system PostgreSQL";
+            return true;
+        }
+    } catch (...) {
+        qDebug() << "❌ DatabaseInitializer: System PostgreSQL connection failed";
+    }
+
+    if (db.isOpen()) {
+        db.close();
+    }
+    return false;
+}
+
+bool DatabaseInitializer::connectToPortablePostgreSQL() {
+    try {
+        // ✅ Remove existing connection if it exists
+        if (QSqlDatabase::contains("initializer_portable_connection")) {
+            QSqlDatabase::removeDatabase("initializer_portable_connection");
+        }
+
+        db = QSqlDatabase::addDatabase("QPSQL", "initializer_portable_connection");
+        db.setHostName("localhost");
+        db.setPort(m_portablePort);  // ✅ 5433 - same as DatabaseManager
+        db.setDatabaseName("railway_control_system");
+        db.setUserName("postgres");
+        db.setPassword("qwerty");
+
+        if (db.open()) {
+            qDebug() << "✅ DatabaseInitializer: Connected to portable PostgreSQL on port" << m_portablePort;
+            return true;
+        }
+    } catch (...) {
+        qDebug() << "❌ DatabaseInitializer: Portable PostgreSQL connection failed";
+    }
+
+    if (db.isOpen()) {
+        db.close();
+    }
+    return false;
 }
 
 void DatabaseInitializer::resetDatabaseAsync() {
@@ -164,6 +220,30 @@ bool DatabaseInitializer::verifySchemas() {
 
     qDebug() << "All required schemas verified successfully";
     return true;
+}
+
+void DatabaseInitializer::testConnectionAsync() {
+    bool success = false;
+    QString message;
+
+    try {
+        if (connectToDatabase()) {
+            QSqlQuery query(db);
+            if (query.exec("SELECT version()") && query.next()) {
+                QString version = query.value(0).toString();
+                success = true;
+                message = QString("Connection successful!\nPostgreSQL version: %1").arg(version);
+            } else {
+                message = "Connected but failed to query version";
+            }
+        } else {
+            message = "Failed to connect to any PostgreSQL instance";
+        }
+    } catch (...) {
+        message = "Connection test failed with exception";
+    }
+
+    emit connectionTestCompleted(success, message);
 }
 
 bool DatabaseInitializer::executeSchemaScript() {
@@ -1558,14 +1638,6 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"callingOnAspect", "WHITE"}, {"loopAspect", "DARK"}, {"loopSignalConfiguration", "UR"},
             {"isActive", true}, {"location", "Platform_A_Exit"}
-        },
-        QJsonObject{
-            {"id", "HM003"}, {"name", "Home A3"}, {"type", "HOME"},
-            {"row", 160}, {"col", 200}, {"direction", "UP"},
-            {"currentAspect", "RED"}, {"aspectCount", 3},
-            {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
-            {"callingOnAspect", "WHITE"}, {"loopAspect", "INACTIVE"}, {"loopSignalConfiguration", "UR"},
-            {"isActive", true}, {"location", "Platform_A_Entry"}
         },
     };
 }

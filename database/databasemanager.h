@@ -13,6 +13,9 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <memory>
+#include <QProcess>
+#include <QFile>
+#include <QFileInfo>
 
 class DatabaseManager : public QObject {
     Q_OBJECT
@@ -29,6 +32,7 @@ public:
     ~DatabaseManager();
 
     Q_INVOKABLE bool connectToDatabase();
+    Q_INVOKABLE bool connectToSystemPostgreSQL();
     Q_INVOKABLE void startPolling();
     Q_INVOKABLE void stopPolling();
     Q_INVOKABLE bool isConnected() const;
@@ -65,12 +69,16 @@ public:
     // ✅ NEW: Real-time notification handling
     Q_INVOKABLE void enableRealTimeUpdates();
 
+    Q_INVOKABLE bool startPortableMode();
+    Q_INVOKABLE void cleanup();
+
 signals:
     void signalStateChanged(int signalId, const QString& newState);
     void trackCircuitStateChanged(int circuitId, bool isOccupied);
     void pointMachineStateChanged(int machineId, const QString& newPosition);
     void connectionStateChanged(bool connected);
     void dataUpdated();
+    void errorOccurred(const QString& error);
 
     // ✅ NEW: Specific data change signals
     void trackSegmentsChanged();
@@ -95,6 +103,18 @@ private:
     std::unique_ptr<QTimer> pollingTimer;
     bool connected;
 
+    QString m_connectionStatus = "Not Connected";
+    bool m_isConnected = false;
+    std::unique_ptr<QTimer> m_connectionTimer;
+    std::unique_ptr<QTimer> m_statePollingTimer;
+
+    QProcess* m_postgresProcess = nullptr;
+    QString m_appDirectory;
+    QString m_postgresPath;
+    QString m_dataPath;
+    int m_portablePort = 5433;
+    int m_systemPort = 5432;
+
     // ✅ FIXED: Added missing state tracking variables
     QHash<int, QString> lastSignalStates;
     QHash<int, bool> lastTrackStates;
@@ -104,6 +124,11 @@ private:
     void detectAndEmitChanges();
     bool setupDatabase();
     void logError(const QString& operation, const QSqlError& error);
+    bool startPortablePostgreSQL();
+    bool stopPortablePostgreSQL();
+    bool initializePortableDatabase();
+    bool isPortableServerRunning();
+    QString getApplicationDirectory();
 
     // ✅ Row conversion helpers
     QVariantMap convertSignalRowToVariant(const QSqlQuery& query);

@@ -17,57 +17,58 @@ ApplicationWindow {
         target: globalDatabaseManager
 
         function onConnectionStateChanged(isConnected) {
-            console.log("Database connection changed:", isConnected)
-            connectionStatus.text = isConnected ? "Connected" : "Disconnected"
-            connectionStatus.color = isConnected ? theme.successGreen : theme.dangerRed
+            console.log("🔗 Connection state changed to:", isConnected)
+            console.log("🔗 globalDatabaseManager.isConnected:", globalDatabaseManager.isConnected)
 
-            // ✅ NEW: Refresh all data when connection is established
+            // ✅ DIRECT property update
+            connectionStatus.connected = isConnected
+
             if (isConnected) {
-                console.log("Database connected - refreshing all station data")
+                console.log("✅ Database connected - refreshing all station data")
                 stationLayout.refreshAllData()
+            } else {
+                console.log("❌ Database disconnected")
             }
         }
 
         function onDataUpdated() {
-            console.log("Database data updated - refreshing UI")
+            console.log("📊 Database data updated - refreshing UI")
             stationLayout.refreshAllData()
         }
 
-        // ✅ NEW: Handle specific entity updates for better performance
         function onSignalUpdated(signalId) {
-            console.log("Signal updated:", signalId)
+            console.log("🚦 Signal updated:", signalId)
             stationLayout.refreshSignalData()
         }
 
         function onPointMachineUpdated(machineId) {
-            console.log("Point machine updated:", machineId)
+            console.log("🔄 Point machine updated:", machineId)
             stationLayout.refreshPointMachineData()
         }
 
         function onTrackSegmentUpdated(segmentId) {
-            console.log("Track segment updated:", segmentId)
+            console.log("🛤️ Track segment updated:", segmentId)
             stationLayout.refreshTrackData()
         }
 
-        // ✅ NEW: Handle batch data changes
         function onTrackSegmentsChanged() {
-            console.log("Track segments data changed")
             stationLayout.refreshTrackData()
         }
 
         function onSignalsChanged() {
-            console.log("Signals data changed")
             stationLayout.refreshSignalData()
         }
 
         function onPointMachinesChanged() {
-            console.log("Point machines data changed")
             stationLayout.refreshPointMachineData()
         }
 
         function onTextLabelsChanged() {
-            console.log("Text labels data changed")
             stationLayout.refreshTextLabelData()
+        }
+
+        function onErrorOccurred(error) {
+            console.log("❌ Database error:", error)
         }
     }
 
@@ -129,17 +130,23 @@ ApplicationWindow {
 
     // ✅ NEW: Application initialization
     Component.onCompleted: {
-        console.log("RailFlux application starting up")
+        console.log("🚀 RailFlux application starting up")
 
         // Initialize database connection if not already connected
         if (globalDatabaseManager && !globalDatabaseManager.isConnected) {
-            console.log("Initializing database connection")
+            console.log("🔌 Initializing database connection")
             globalDatabaseManager.connectToDatabase()
             globalDatabaseManager.startPolling()
         }
 
+        // ✅ ADD: Update UI connection state immediately
+        if (globalDatabaseManager) {
+            connectionStatus.connected = globalDatabaseManager.isConnected
+        }
+
         // Initialize data once database is ready
         if (globalDatabaseManager && globalDatabaseManager.isConnected) {
+            console.log("✅ Loading initial data")
             stationLayout.refreshAllData()
         }
     }
@@ -552,21 +559,21 @@ ApplicationWindow {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            // ✅ ENHANCED: Connection status with real-time indicator
+            // ✅ FIXED: Connection status with local state management
             Row {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 6
 
                 Rectangle {
+                    id: connectionIndicator
                     width: 12
                     height: 12
                     radius: 6
-                    color: globalDatabaseManager && globalDatabaseManager.isConnected ? theme.successGreen : theme.dangerRed
+                    color: connectionStatus.connected ? theme.successGreen : theme.dangerRed
                     anchors.verticalCenter: parent.verticalCenter
 
-                    // Subtle pulsing animation for connected state
                     SequentialAnimation on opacity {
-                        running: globalDatabaseManager && globalDatabaseManager.isConnected
+                        running: connectionStatus.connected
                         loops: Animation.Infinite
                         NumberAnimation { to: 0.5; duration: 1000 }
                         NumberAnimation { to: 1.0; duration: 1000 }
@@ -575,10 +582,17 @@ ApplicationWindow {
 
                 Text {
                     id: connectionStatus
-                    text: globalDatabaseManager && globalDatabaseManager.isConnected ? "Database Connected" : "Database Disconnected"
+                    property bool connected: false  // ✅ LOCAL STATE VARIABLE
+
+                    text: connected ? "Database Connected" : "Database Disconnected"
                     font.pixelSize: 14
-                    color: globalDatabaseManager && globalDatabaseManager.isConnected ? theme.successGreen : theme.dangerRed
+                    color: connected ? theme.successGreen : theme.dangerRed
                     anchors.verticalCenter: parent.verticalCenter
+
+                    // ✅ Debug output
+                    onConnectedChanged: {
+                        console.log("🔗 ConnectionStatus.connected changed to:", connected)
+                    }
                 }
             }
 
@@ -597,25 +611,21 @@ ApplicationWindow {
             }
         }
 
-        // ✅ NEW: Right side header controls
         Row {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             anchors.rightMargin: theme.spacingMedium
             spacing: theme.spacingSmall
 
-            // Quick refresh button
             Button {
                 width: 32
                 height: 32
                 text: "🔄"
-
                 ToolTip.text: "Refresh all data from database"
                 ToolTip.visible: hovered
-                ToolTip.delay: 1000
 
                 onClicked: {
-                    console.log("Manual data refresh requested")
+                    console.log("🔄 Manual data refresh requested")
                     if (globalDatabaseManager && globalDatabaseManager.isConnected) {
                         stationLayout.refreshAllData()
                     }
@@ -636,12 +646,10 @@ ApplicationWindow {
                 }
             }
 
-            // Database management button
             Button {
                 width: 80
                 height: 32
                 text: "Database"
-
                 onClicked: databaseResetDialog.open()
 
                 background: Rectangle {

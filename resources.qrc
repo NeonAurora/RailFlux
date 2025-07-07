@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/railway-icon.ico</file>
+    </qresource>
+</RCC>

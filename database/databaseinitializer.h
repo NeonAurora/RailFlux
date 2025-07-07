@@ -37,6 +37,10 @@ public:
     Q_INVOKABLE QVariantMap getDatabaseStatus();
     Q_INVOKABLE void testConnection();
 
+public slots:
+    // ✅ ADD: Test connection method
+    Q_INVOKABLE void testConnectionAsync();
+
 signals:
     void isRunningChanged();
     void progressChanged();
@@ -52,6 +56,8 @@ private:
     // Properties
     bool m_isRunning = false;
     int m_progress = 0;
+    int m_portablePort = 5433;
+    int m_systemPort = 5432;
     QString m_currentOperation;
     QString m_lastError;
 
@@ -61,6 +67,8 @@ private:
 
     // Core operations
     bool connectToDatabase();
+    bool connectToSystemPostgreSQL();
+    bool connectToPortablePostgreSQL();
     bool dropExistingSchemas();
     bool createSchemas();
     bool populateConfigurationData();
