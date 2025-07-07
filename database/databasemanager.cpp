@@ -4,7 +4,6 @@
 #include <QCoreApplication>
 #include <QThread>
 
-// ✅ UPDATED: Constructor
 DatabaseManager::DatabaseManager(QObject* parent)
     : QObject(parent)
     , pollingTimer(std::make_unique<QTimer>(this))
@@ -39,11 +38,8 @@ bool DatabaseManager::connectToDatabase() {
         connected = false;
     } else {
         connected = true;
-        qDebug() << "Database connected successfully";
+        qDebug() << "✅ SAFETY: Database connected successfully - NO CACHING";
         setupDatabase();
-
-        // ✅ NEW: Initialize caches and real-time updates
-        refreshDataCaches();
         enableRealTimeUpdates();
     }
 
@@ -51,8 +47,6 @@ bool DatabaseManager::connectToDatabase() {
     return connected;
 }
 
-// ✅ FIXED: Simplified real-time updates with better error handling
-// ✅ FIXED: Simplified real-time updates with better error handling
 void DatabaseManager::enableRealTimeUpdates() {
     if (!connected) {
         qDebug() << "Cannot enable real-time updates - database not connected";
@@ -64,7 +58,6 @@ void DatabaseManager::enableRealTimeUpdates() {
     if (query.exec("LISTEN railway_changes")) {
         qDebug() << "PostgreSQL LISTEN enabled for real-time updates";
 
-        // ✅ FIXED: Use lambda to adapt the 3-parameter signal to our 2-parameter slot
         QObject::connect(db.driver(), &QSqlDriver::notification,
                          this, [this](const QString& name, QSqlDriver::NotificationSource /*source*/, const QVariant& payload) {
                              this->handleDatabaseNotification(name, payload);
@@ -74,7 +67,7 @@ void DatabaseManager::enableRealTimeUpdates() {
         qWarning() << "Error:" << query.lastError().text();
     }
 }
-// ✅ FIXED: Simplified notification handler
+
 void DatabaseManager::handleDatabaseNotification(const QString& name, const QVariant& payload) {
     if (name == "railway_changes") {
         QJsonDocument doc = QJsonDocument::fromJson(payload.toString().toUtf8());
@@ -84,19 +77,16 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
         QString operation = obj["operation"].toString();
         QString entityId = obj["entity_id"].toString();
 
-        qDebug() << "Real-time notification:" << table << operation << entityId;
+        qDebug() << "🔔 REAL-TIME notification:" << table << operation << entityId;
 
-        // Refresh relevant caches and emit signals
+        // ✅ SAFETY: No cache refreshing - just emit signals for UI updates
         if (table == "signals") {
-            refreshSignalCache();
             emit signalsChanged();
             emit signalUpdated(entityId);
         } else if (table == "point_machines") {
-            refreshPointMachineCache();
             emit pointMachinesChanged();
             emit pointMachineUpdated(entityId);
         } else if (table == "track_segments") {
-            refreshDataCaches();
             emit trackSegmentsChanged();
             emit trackSegmentUpdated(entityId);
         }
@@ -108,7 +98,7 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
 void DatabaseManager::startPolling() {
     if (connected) {
         pollingTimer->start();
-        qDebug() << "Database polling started (interval:" << POLLING_INTERVAL_MS << "ms)";
+        qDebug() << "🔍 SAFETY: Database polling started (interval:" << POLLING_INTERVAL_MS << "ms) - DIRECT QUERIES ONLY";
     }
 }
 
@@ -124,7 +114,7 @@ bool DatabaseManager::isConnected() const {
 void DatabaseManager::pollDatabase() {
     if (!connected) return;
 
-    qDebug() << "Polling database for changes...";
+    qDebug() << "🔍 SAFETY POLLING: Direct database state check";
     detectAndEmitChanges();
     emit dataUpdated(); // Trigger QML property updates
 }
@@ -155,32 +145,128 @@ void DatabaseManager::detectAndEmitChanges() {
     }
 }
 
-// ✅ NEW: Get all track segments
+// ✅ SAFETY: Direct database queries - NO CACHING
 QVariantList DatabaseManager::getTrackSegmentsList() {
     if (!connected) return QVariantList();
 
-    if (cachedTrackSegments.isEmpty()) {
-        refreshDataCaches();
+    qDebug() << "🔍 SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY";
+
+    QVariantList tracks;
+    QSqlQuery trackQuery(db);
+    QString trackSql = "SELECT segment_id, segment_name, start_row, start_col, end_row, end_col, track_type, is_occupied, is_assigned, occupied_by, is_active FROM railway_control.track_segments ORDER BY segment_id";
+
+    if (trackQuery.exec(trackSql)) {
+        while (trackQuery.next()) {
+            tracks.append(convertTrackRowToVariant(trackQuery));
+        }
+    } else {
+        qWarning() << "❌ SAFETY CRITICAL: Track query failed:" << trackQuery.lastError().text();
     }
 
-    return cachedTrackSegments;
+    return tracks;
 }
 
-// ✅ NEW: Get all signals combined
 QVariantList DatabaseManager::getAllSignalsList() {
     if (!connected) return QVariantList();
 
-    if (cachedSignals.isEmpty()) {
-        refreshDataCaches();
+    qDebug() << "🔍 SAFETY: getAllSignalsList() - DIRECT DATABASE QUERY";
+
+    // ✅ FIXED: Changed from 'signals' to 'signalsList' (signals is a Qt keyword)
+    QVariantList signalsList;
+
+    QSqlQuery signalQuery(db);
+    QString signalSql = R"(
+        SELECT s.signal_id, s.signal_name, st.type_code as signal_type,
+               s.location_row as row, s.location_col as col, s.direction,
+               sa.aspect_code as current_aspect, s.calling_on_aspect, s.loop_aspect,
+               s.loop_signal_configuration, s.aspect_count, s.possible_aspects,
+               s.is_active, s.location_description as location
+        FROM railway_control.signals s
+        JOIN railway_config.signal_types st ON s.signal_type_id = st.id
+        LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id
+        ORDER BY s.signal_id
+    )";
+
+    if (signalQuery.exec(signalSql)) {
+        qDebug() << "📊 SAFETY: REAL-TIME signal query executed successfully";
+        while (signalQuery.next()) {
+            QString signalId = signalQuery.value("signal_id").toString();
+            QString currentAspect = signalQuery.value("current_aspect").toString();
+
+            // ✅ SAFETY: Log every signal state from database
+            qDebug() << "🚦 REAL-TIME:" << signalId << "=" << currentAspect;
+
+            // ✅ FIXED: Use signalsList instead of signals
+            signalsList.append(convertSignalRowToVariant(signalQuery));
+        }
+    } else {
+        qWarning() << "❌ SAFETY CRITICAL: Signal query failed:" << signalQuery.lastError().text();
     }
 
-    return cachedSignals;
+    // ✅ FIXED: Use signalsList instead of signals
+    qDebug() << "✅ SAFETY: Returning" << signalsList.size() << "signals from DIRECT database query";
+    return signalsList;
 }
 
-// ✅ NEW: Get signals by type
+QVariantList DatabaseManager::getAllPointMachinesList() {
+    if (!connected) return QVariantList();
+
+    qDebug() << "🔍 SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY";
+
+    QVariantList points;
+    QSqlQuery pointQuery(db);
+    QString pointSql = R"(
+        SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
+               pm.root_track_connection, pm.normal_track_connection, pm.reverse_track_connection,
+               pp.position_code as position, pm.operating_status, pm.transition_time_ms
+        FROM railway_control.point_machines pm
+        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
+        ORDER BY pm.machine_id
+    )";
+
+    if (pointQuery.exec(pointSql)) {
+        while (pointQuery.next()) {
+            points.append(convertPointMachineRowToVariant(pointQuery));
+        }
+    } else {
+        qWarning() << "❌ SAFETY CRITICAL: Point machine query failed:" << pointQuery.lastError().text();
+    }
+
+    return points;
+}
+
+QVariantList DatabaseManager::getTextLabelsList() {
+    if (!connected) return QVariantList();
+
+    qDebug() << "🔍 SAFETY: getTextLabelsList() - DIRECT DATABASE QUERY";
+
+    QVariantList labels;
+    QSqlQuery labelQuery(db);
+    QString labelSql = "SELECT label_text, position_row, position_col, font_size, color, font_family, is_visible, label_type FROM railway_control.text_labels ORDER BY id";
+
+    if (labelQuery.exec(labelSql)) {
+        while (labelQuery.next()) {
+            QVariantMap label;
+            label["text"] = labelQuery.value("label_text").toString();
+            label["row"] = labelQuery.value("position_row").toDouble();
+            label["col"] = labelQuery.value("position_col").toDouble();
+            label["fontSize"] = labelQuery.value("font_size").toInt();
+            label["color"] = labelQuery.value("color").toString();
+            label["fontFamily"] = labelQuery.value("font_family").toString();
+            label["isVisible"] = labelQuery.value("is_visible").toBool();
+            label["type"] = labelQuery.value("label_type").toString();
+            labels.append(label);
+        }
+    } else {
+        qWarning() << "❌ SAFETY CRITICAL: Text label query failed:" << labelQuery.lastError().text();
+    }
+
+    return labels;
+}
+
 QVariantList DatabaseManager::getOuterSignalsList() {
     QVariantList result;
-    QVariantList allSignals = getAllSignalsList();
+    QVariantList allSignals = getAllSignalsList();  // This is fine
 
     for (const auto& signalVar : allSignals) {
         QVariantMap signal = signalVar.toMap();
@@ -194,7 +280,7 @@ QVariantList DatabaseManager::getOuterSignalsList() {
 
 QVariantList DatabaseManager::getHomeSignalsList() {
     QVariantList result;
-    QVariantList allSignals = getAllSignalsList();
+    QVariantList allSignals = getAllSignalsList();  // This is fine
 
     for (const auto& signalVar : allSignals) {
         QVariantMap signal = signalVar.toMap();
@@ -208,7 +294,7 @@ QVariantList DatabaseManager::getHomeSignalsList() {
 
 QVariantList DatabaseManager::getStarterSignalsList() {
     QVariantList result;
-    QVariantList allSignals = getAllSignalsList();
+    QVariantList allSignals = getAllSignalsList();  // This is fine
 
     for (const auto& signalVar : allSignals) {
         QVariantMap signal = signalVar.toMap();
@@ -222,7 +308,7 @@ QVariantList DatabaseManager::getStarterSignalsList() {
 
 QVariantList DatabaseManager::getAdvanceStarterSignalsList() {
     QVariantList result;
-    QVariantList allSignals = getAllSignalsList();
+    QVariantList allSignals = getAllSignalsList();  // This is fine
 
     for (const auto& signalVar : allSignals) {
         QVariantMap signal = signalVar.toMap();
@@ -234,33 +320,11 @@ QVariantList DatabaseManager::getAdvanceStarterSignalsList() {
     return result;
 }
 
-// ✅ NEW: Get all point machines
-QVariantList DatabaseManager::getAllPointMachinesList() {
-    if (!connected) return QVariantList();
-
-    if (cachedPointMachines.isEmpty()) {
-        refreshDataCaches();
-    }
-
-    return cachedPointMachines;
-}
-
-// ✅ NEW: Get text labels
-QVariantList DatabaseManager::getTextLabelsList() {
-    if (!connected) return QVariantList();
-
-    if (cachedTextLabels.isEmpty()) {
-        refreshDataCaches();
-    }
-
-    return cachedTextLabels;
-}
-
-// ✅ NEW: Get individual objects
+// ✅ SAFETY: Individual object queries - DIRECT DATABASE
 QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
-    if (signalCache.contains(signalId)) {
-        return signalCache[signalId];
-    }
+    if (!connected) return QVariantMap();
+
+    qDebug() << "🔍 SAFETY: getSignalById(" << signalId << ") - DIRECT DATABASE QUERY";
 
     QSqlQuery query(db);
     query.prepare(R"(
@@ -277,15 +341,18 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
     query.addBindValue(signalId);
 
     if (query.exec() && query.next()) {
-        QVariantMap result = convertSignalRowToVariant(query);
-        signalCache[signalId] = result;
-        return result;
+        return convertSignalRowToVariant(query);
     }
 
+    qWarning() << "❌ SAFETY: Signal" << signalId << "not found in database";
     return QVariantMap();
 }
 
 QVariantMap DatabaseManager::getTrackSegmentById(const QString& segmentId) {
+    if (!connected) return QVariantMap();
+
+    qDebug() << "🔍 SAFETY: getTrackSegmentById(" << segmentId << ") - DIRECT DATABASE QUERY";
+
     QSqlQuery query(db);
     query.prepare(R"(
         SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
@@ -299,13 +366,14 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& segmentId) {
         return convertTrackRowToVariant(query);
     }
 
+    qWarning() << "❌ SAFETY: Track segment" << segmentId << "not found in database";
     return QVariantMap();
 }
 
 QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
-    if (pointMachineCache.contains(machineId)) {
-        return pointMachineCache[machineId];
-    }
+    if (!connected) return QVariantMap();
+
+    qDebug() << "🔍 SAFETY: getPointMachineById(" << machineId << ") - DIRECT DATABASE QUERY";
 
     QSqlQuery query(db);
     query.prepare(R"(
@@ -319,17 +387,18 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
     query.addBindValue(machineId);
 
     if (query.exec() && query.next()) {
-        QVariantMap result = convertPointMachineRowToVariant(query);
-        pointMachineCache[machineId] = result;
-        return result;
+        return convertPointMachineRowToVariant(query);
     }
 
+    qWarning() << "❌ SAFETY: Point machine" << machineId << "not found in database";
     return QVariantMap();
 }
 
-// ✅ NEW: Update operations
+// ✅ SAFETY: Update operations - NO CACHE INVALIDATION
 bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString& newAspect) {
     if (!connected) return false;
+
+    qDebug() << "🔄 SAFETY: Updating signal:" << signalId << "to aspect:" << newAspect;
 
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_signal_aspect(?, ?, 'HMI_USER')");
@@ -338,14 +407,25 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString&
 
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
+        qDebug() << "✅ SAFETY: Database function returned:" << success;
+
         if (success) {
-            // Invalidate cache
-            signalCache.remove(signalId);
-            refreshSignalCache();
+            // ✅ SAFETY: Verify the change actually happened
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT current_aspect_id FROM railway_control.signals WHERE signal_id = ?");
+            verifyQuery.addBindValue(signalId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                int currentAspectId = verifyQuery.value(0).toInt();
+                qDebug() << "🔍 SAFETY: Signal" << signalId << "now has aspect_id:" << currentAspectId;
+            }
+
+            // ✅ SAFETY: No cache invalidation - just emit signals
             emit signalUpdated(signalId);
             emit signalsChanged();
         }
         return success;
+    } else {
+        qDebug() << "❌ SAFETY CRITICAL: Database query failed:" << query.lastError().text();
     }
 
     return false;
@@ -353,6 +433,8 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString&
 
 bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const QString& newPosition) {
     if (!connected) return false;
+
+    qDebug() << "🔄 SAFETY: Updating point machine:" << machineId << "to position:" << newPosition;
 
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_point_position(?, ?, 'HMI_USER')");
@@ -362,20 +444,21 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            // Invalidate cache
-            pointMachineCache.remove(machineId);
-            refreshPointMachineCache();
+            // ✅ SAFETY: No cache invalidation - just emit signals
             emit pointMachineUpdated(machineId);
             emit pointMachinesChanged();
         }
         return success;
     }
 
+    qWarning() << "❌ SAFETY CRITICAL: Point machine update failed:" << query.lastError().text();
     return false;
 }
 
 bool DatabaseManager::updateTrackOccupancy(const QString& segmentId, bool isOccupied) {
     if (!connected) return false;
+
+    qDebug() << "🔄 SAFETY: Updating track occupancy:" << segmentId << "to" << isOccupied;
 
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_track_occupancy(?, ?, NULL, 'HMI_USER')");
@@ -385,18 +468,21 @@ bool DatabaseManager::updateTrackOccupancy(const QString& segmentId, bool isOccu
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            refreshDataCaches();
+            // ✅ SAFETY: No cache invalidation - just emit signals
             emit trackSegmentUpdated(segmentId);
             emit trackSegmentsChanged();
         }
         return success;
     }
 
+    qWarning() << "❌ SAFETY CRITICAL: Track occupancy update failed:" << query.lastError().text();
     return false;
 }
 
 bool DatabaseManager::updateTrackAssignment(const QString& segmentId, bool isAssigned) {
     if (!connected) return false;
+
+    qDebug() << "🔄 SAFETY: Updating track assignment:" << segmentId << "to" << isAssigned;
 
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_track_assignment(?, ?, 'HMI_USER')");
@@ -406,93 +492,18 @@ bool DatabaseManager::updateTrackAssignment(const QString& segmentId, bool isAss
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            refreshDataCaches();
+            // ✅ SAFETY: No cache invalidation - just emit signals
             emit trackSegmentUpdated(segmentId);
             emit trackSegmentsChanged();
         }
         return success;
     }
 
+    qWarning() << "❌ SAFETY CRITICAL: Track assignment update failed:" << query.lastError().text();
     return false;
 }
 
-// ✅ NEW: Cache management methods
-void DatabaseManager::refreshDataCaches() {
-    if (!connected) return;
-
-    qDebug() << "Refreshing data caches from database";
-
-    // Refresh track segments
-    cachedTrackSegments.clear();
-    QSqlQuery trackQuery("SELECT segment_id, segment_name, start_row, start_col, end_row, end_col, track_type, is_occupied, is_assigned, occupied_by, is_active FROM railway_control.track_segments ORDER BY segment_id", db);
-    while (trackQuery.next()) {
-        cachedTrackSegments.append(convertTrackRowToVariant(trackQuery));
-    }
-
-    // Refresh signals
-    cachedSignals.clear();
-    QSqlQuery signalQuery(R"(
-        SELECT s.signal_id, s.signal_name, st.type_code as signal_type,
-               s.location_row as row, s.location_col as col, s.direction,
-               sa.aspect_code as current_aspect, s.calling_on_aspect, s.loop_aspect,
-               s.loop_signal_configuration, s.aspect_count, s.possible_aspects,
-               s.is_active, s.location_description as location
-        FROM railway_control.signals s
-        JOIN railway_config.signal_types st ON s.signal_type_id = st.id
-        LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id
-        ORDER BY s.signal_id
-    )", db);
-    while (signalQuery.next()) {
-        cachedSignals.append(convertSignalRowToVariant(signalQuery));
-    }
-
-    // Refresh point machines
-    cachedPointMachines.clear();
-    QSqlQuery pointQuery(R"(
-        SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
-               pm.root_track_connection, pm.normal_track_connection, pm.reverse_track_connection,
-               pp.position_code as position, pm.operating_status, pm.transition_time_ms
-        FROM railway_control.point_machines pm
-        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
-        ORDER BY pm.machine_id
-    )", db);
-    while (pointQuery.next()) {
-        cachedPointMachines.append(convertPointMachineRowToVariant(pointQuery));
-    }
-
-    // Refresh text labels
-    cachedTextLabels.clear();
-    QSqlQuery labelQuery("SELECT label_text, position_row, position_col, font_size, color, font_family, is_visible, label_type FROM railway_control.text_labels ORDER BY id", db);
-    while (labelQuery.next()) {
-        QVariantMap label;
-        label["text"] = labelQuery.value("label_text").toString();
-        label["row"] = labelQuery.value("position_row").toDouble();
-        label["col"] = labelQuery.value("position_col").toDouble();
-        label["fontSize"] = labelQuery.value("font_size").toInt();
-        label["color"] = labelQuery.value("color").toString();
-        label["fontFamily"] = labelQuery.value("font_family").toString();
-        label["isVisible"] = labelQuery.value("is_visible").toBool();
-        label["type"] = labelQuery.value("label_type").toString();
-        cachedTextLabels.append(label);
-    }
-
-    qDebug() << "Cache refresh completed - Tracks:" << cachedTrackSegments.size()
-             << "Signals:" << cachedSignals.size()
-             << "Points:" << cachedPointMachines.size()
-             << "Labels:" << cachedTextLabels.size();
-}
-
-void DatabaseManager::refreshSignalCache() {
-    signalCache.clear();
-    // Will be populated on-demand
-}
-
-void DatabaseManager::refreshPointMachineCache() {
-    pointMachineCache.clear();
-    // Will be populated on-demand
-}
-
-// ✅ NEW: Row conversion helpers
+// ✅ SAFETY: Row conversion helpers (unchanged)
 QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
     QVariantMap signal;
     signal["id"] = query.value("signal_id").toString();

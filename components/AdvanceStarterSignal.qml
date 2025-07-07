@@ -1,24 +1,26 @@
 // components/AdvanceStarterSignal.qml
 import QtQuick
-import "../data/StationData.js" as StationData
 
 Item {
     id: advanceStarterSignal
 
+    // ============================================================================
+    // COMPONENT PROPERTIES
+    // ============================================================================
     property string signalId: ""
     property string signalName: ""
-    property string currentAspect: {
-        var signal = StationData.getAdvanceStarterSignalById(signalId)
-        return signal ? signal.currentAspect : "RED"
-    }
+    property string currentAspect: "RED"
+    property int aspectCount: 2                     // ✅ NEW: Always 2-aspect (RED/GREEN)
+    property var possibleAspects: []               // ✅ NEW: Valid aspects from database
     property string direction: "UP"
-    property bool isActive: true
+    property bool isActive: true                   // ✅ NEW: Signal active status from database
+    property string locationDescription: ""        // ✅ NEW: Location info from database (not rendered)
     property int cellSize: 20
 
     // ============================================================================
     // PARENT DIMENSIONS - Master sizing control
     // ============================================================================
-    property real scalingConstant: 15  // Smaller than outer signals since only 2 aspects
+    property real scalingConstant: 15
     property real scalingFactor: 0.46875
     property real parentWidth: cellSize * scalingConstant
     property real parentHeight: parentWidth * scalingFactor
@@ -39,9 +41,9 @@ Item {
     property real armHeight: parentHeight * 0.053
 
     // ============================================================================
-    // SIGNAL CIRCLE GROUP VARIABLES (Only 2 circles)
+    // SIGNAL CIRCLE GROUP VARIABLES
     // ============================================================================
-    property real circleWidth: parentWidth * 0.15625  // Slightly larger since only 2 circles
+    property real circleWidth: parentWidth * 0.15625
     property real circleHeight: parentHeight * 0.333
     property real circleSpacing: 0
 
@@ -52,11 +54,13 @@ Item {
     property color borderColor: "#b3b3b3"
 
     // ============================================================================
-    // BASE COLOR GROUP
+    // ✅ ENHANCED: BASE COLOR GROUP WITH INACTIVE SUPPORT
     // ============================================================================
     property color mastColor: "#ffffff"
     property color armColor: "#ffffff"
     property color lampOffColor: "#404040"
+    property color inactiveColor: "#606060"
+    property color inactiveMastColor: "#888888"
 
     // ============================================================================
     // SIGNAL COLOR GROUP (Only RED and GREEN for Advanced Starter)
@@ -64,10 +68,53 @@ Item {
     property color redAspectColor: "#ff0000"
     property color greenAspectColor: "#00ff00"
 
+    // ============================================================================
+    // ✅ NEW: INACTIVE SIGNAL PROPERTIES
+    // ============================================================================
+    readonly property real inactiveOpacity: 0.5
+    readonly property color inactiveBorderColor: "#ff6600"
+    readonly property real inactiveBorderWidth: 2
+
     signal signalClicked(string signalId, string currentAspect)
 
     // ============================================================================
-    // UP SIGNAL LAYOUT: mast → arm → circles
+    // ✅ NEW: DATABASE VALIDATION FUNCTIONS
+    // ============================================================================
+    function isValidAspect(aspect) {
+        if (possibleAspects.length === 0) return true;
+        return possibleAspects.indexOf(aspect) !== -1;
+    }
+
+    function isOperational() {
+        return isActive && isValidAspect(currentAspect);
+    }
+
+    // ============================================================================
+    // ✅ NEW: ENHANCED COLOR FUNCTIONS WITH VALIDATION
+    // ============================================================================
+    function getMastColor() {
+        return isActive ? mastColor : inactiveMastColor;
+    }
+
+    function getArmColor() {
+        return isActive ? armColor : inactiveMastColor;
+    }
+
+    function getLampColor(aspectToCheck) {
+        if (!isActive) return inactiveColor;
+
+        switch(aspectToCheck) {
+            case "RED":
+                return currentAspect === "RED" ? redAspectColor : lampOffColor;
+            case "GREEN":
+                return currentAspect === "GREEN" ? greenAspectColor : lampOffColor;
+            default:
+                return lampOffColor;
+        }
+    }
+
+    // ============================================================================
+    // UP SIGNAL LAYOUT: mast → arm → circles (RED, GREEN)
     // ============================================================================
     Row {
         id: upSignalLayout
@@ -75,52 +122,45 @@ Item {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         spacing: 0
+        opacity: isActive ? 1.0 : inactiveOpacity
 
-        // **MAST**
         Rectangle {
             id: upMast
             width: mastWidth
             height: mastHeight
-            color: mastColor
+            color: getMastColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **ARM**
         Rectangle {
             id: upArm
             width: armWidth
             height: armHeight
-            color: armColor
+            color: getArmColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **SIGNAL CIRCLES** - Only RED and GREEN
+        // **✅ UP SEQUENCE: RED (Left), GREEN (Right)**
         Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: circleSpacing
 
-            // **RED CIRCLE** (Left)
+            // **UP LAMP 1: RED (Left)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "RED") return redAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("RED")
                 border.color: borderColor
                 border.width: borderWidth
             }
 
-            // **GREEN CIRCLE** (Right)
+            // **UP LAMP 2: GREEN (Right)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "GREEN") return greenAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("GREEN")
                 border.color: borderColor
                 border.width: borderWidth
             }
@@ -128,7 +168,7 @@ Item {
     }
 
     // ============================================================================
-    // DOWN SIGNAL LAYOUT: circles → arm → mast
+    // DOWN SIGNAL LAYOUT: circles → arm → mast (GREEN, RED) - MIRRORED
     // ============================================================================
     Row {
         id: downSignalLayout
@@ -137,70 +177,107 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         layoutDirection: Qt.RightToLeft
         spacing: 0
+        opacity: isActive ? 1.0 : inactiveOpacity
 
-        // **MAST**
         Rectangle {
             id: downMast
             width: mastWidth
             height: mastHeight
-            color: mastColor
+            color: getMastColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **ARM**
         Rectangle {
             id: downArm
             width: armWidth
             height: armHeight
-            color: armColor
+            color: getArmColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **SIGNAL CIRCLES** - Only RED and GREEN
+        // **✅ DOWN SEQUENCE: GREEN (Left visually), RED (Right visually)**
         Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: circleSpacing
 
-            // **RED CIRCLE** (Left when reversed)
+            // **DOWN LAMP 1: GREEN (Left visually)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "RED") return redAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("GREEN")
                 border.color: borderColor
                 border.width: borderWidth
             }
 
-            // **GREEN CIRCLE** (Right when reversed)
+            // **DOWN LAMP 2: RED (Right visually)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "GREEN") return greenAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("RED")
                 border.color: borderColor
                 border.width: borderWidth
             }
         }
     }
 
+    // ✅ NEW: INACTIVE SIGNAL OVERLAY
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        border.color: inactiveBorderColor
+        border.width: inactiveBorderWidth
+        radius: 4
+        visible: !isActive
+        opacity: 0.7
+
+        Rectangle {
+            width: parent.width * 1.414
+            height: 1
+            color: inactiveBorderColor
+            anchors.centerIn: parent
+            rotation: 45
+            opacity: 0.6
+        }
+        Rectangle {
+            width: parent.width * 1.414
+            height: 1
+            color: inactiveBorderColor
+            anchors.centerIn: parent
+            rotation: -45
+            opacity: 0.6
+        }
+    }
+
     // ============================================================================
-    // INTERACTION
+    // ✅ ENHANCED: INTERACTION WITH DATABASE VALIDATION
     // ============================================================================
     MouseArea {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
         onClicked: {
+            if (!isOperational()) {
+                console.log("Advanced starter signal operation blocked:", signalId, "Active:", isActive)
+                return
+            }
+
             console.log("Advanced starter signal clicked:", signalId, "Current aspect:", currentAspect, "Direction:", direction)
             advanceStarterSignal.signalClicked(signalId, currentAspect)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: isOperational() ? "white" : "red"
+            opacity: parent.containsMouse ? 0.1 : 0
+            radius: 4
+
+            Behavior on opacity {
+                NumberAnimation { duration: 150 }
+            }
         }
     }
 }

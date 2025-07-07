@@ -105,7 +105,7 @@ var homeSignals = [
         possibleAspects: ["RED", "YELLOW", "GREEN"],
         currentAspect: "GREEN",
         callingOnAspect: "WHITE",
-        loopAspect: "ON",
+        loopAspect: "DARK",
         loopSignalConfiguration: "UR",
         direction: "DOWN",
         row: 115,

@@ -1,24 +1,20 @@
 // components/StarterSignal.qml
 import QtQuick
-import "../data/StationData.js" as StationData
 
 Item {
     id: starterSignal
 
+    // ============================================================================
+    // COMPONENT PROPERTIES
+    // ============================================================================
     property string signalId: ""
     property string signalName: ""
-    property string currentAspect: {
-        var signal = StationData.getStarterSignalById(signalId)
-        return signal ? signal.currentAspect : "RED"
-    }
-
-    property int aspectCount: {
-        var signal = StationData.getStarterSignalById(signalId)
-        return signal ? signal.aspectCount : 2  // Default to 2-aspect
-    }
-
+    property string currentAspect: "RED"
+    property int aspectCount: 2                     // ✅ 2 or 3-aspect from database
+    property var possibleAspects: []               // ✅ NEW: Valid aspects from database
     property string direction: "UP"
-    property bool isActive: true
+    property bool isActive: true                   // ✅ NEW: Signal active status from database
+    property string locationDescription: ""        // ✅ NEW: Location info from database (not rendered)
     property int cellSize: 20
 
     // ============================================================================
@@ -47,7 +43,7 @@ Item {
     // ============================================================================
     // SIGNAL CIRCLE GROUP VARIABLES
     // ============================================================================
-    property real circleWidth: parentWidth * (aspectCount === 2 ? 0.16 : 0.16)  // Larger for 2-aspect
+    property real circleWidth: parentWidth * (aspectCount === 2 ? 0.16 : 0.16)
     property real circleHeight: parentHeight * 0.333
     property real circleSpacing: 0
 
@@ -58,11 +54,13 @@ Item {
     property color borderColor: "#b3b3b3"
 
     // ============================================================================
-    // BASE COLOR GROUP
+    // ✅ ENHANCED: BASE COLOR GROUP WITH INACTIVE SUPPORT
     // ============================================================================
     property color mastColor: "#ffffff"
     property color armColor: "#ffffff"
     property color lampOffColor: "#404040"
+    property color inactiveColor: "#606060"
+    property color inactiveMastColor: "#888888"
 
     // ============================================================================
     // SIGNAL COLOR GROUP
@@ -71,10 +69,55 @@ Item {
     property color yellowAspectColor: "#ffff00"
     property color greenAspectColor: "#00ff00"
 
+    // ============================================================================
+    // ✅ NEW: INACTIVE SIGNAL PROPERTIES
+    // ============================================================================
+    readonly property real inactiveOpacity: 0.5
+    readonly property color inactiveBorderColor: "#ff6600"
+    readonly property real inactiveBorderWidth: 2
+
     signal signalClicked(string signalId, string currentAspect)
 
     // ============================================================================
-    // UP SIGNAL LAYOUT: mast → arm → circles
+    // ✅ NEW: DATABASE VALIDATION FUNCTIONS
+    // ============================================================================
+    function isValidAspect(aspect) {
+        if (possibleAspects.length === 0) return true;
+        return possibleAspects.indexOf(aspect) !== -1;
+    }
+
+    function isOperational() {
+        return isActive && isValidAspect(currentAspect);
+    }
+
+    // ============================================================================
+    // ✅ NEW: ENHANCED COLOR FUNCTIONS WITH VALIDATION
+    // ============================================================================
+    function getMastColor() {
+        return isActive ? mastColor : inactiveMastColor;
+    }
+
+    function getArmColor() {
+        return isActive ? armColor : inactiveMastColor;
+    }
+
+    function getLampColor(aspectToCheck) {
+        if (!isActive) return inactiveColor;
+
+        switch(aspectToCheck) {
+            case "RED":
+                return currentAspect === "RED" ? redAspectColor : lampOffColor;
+            case "YELLOW":
+                return currentAspect === "YELLOW" ? yellowAspectColor : lampOffColor;
+            case "GREEN":
+                return currentAspect === "GREEN" ? greenAspectColor : lampOffColor;
+            default:
+                return lampOffColor;
+        }
+    }
+
+    // ============================================================================
+    // UP SIGNAL LAYOUT: mast → arm → circles (RED, YELLOW, GREEN)
     // ============================================================================
     Row {
         id: upSignalLayout
@@ -82,66 +125,56 @@ Item {
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         spacing: 0
+        opacity: isActive ? 1.0 : inactiveOpacity
 
-        // **MAST**
         Rectangle {
             id: upMast
             width: mastWidth
             height: mastHeight
-            color: mastColor
+            color: getMastColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **ARM**
         Rectangle {
             id: upArm
             width: armWidth
             height: armHeight
-            color: armColor
+            color: getArmColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **SIGNAL CIRCLES** - Dynamic count based on aspectCount
+        // **✅ UP SEQUENCE: RED (Left), YELLOW (Center), GREEN (Right)**
         Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: circleSpacing
 
-            // **RED CIRCLE** - Always present
+            // **UP LAMP 1: RED (Left)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "RED") return redAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("RED")
                 border.color: borderColor
                 border.width: borderWidth
             }
 
-            // **YELLOW CIRCLE** - Always present
+            // **UP LAMP 2: YELLOW (Center)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "YELLOW") return yellowAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("YELLOW")
                 border.color: borderColor
                 border.width: borderWidth
             }
 
-            // **GREEN CIRCLE** - Only for 3-aspect signals
+            // **UP LAMP 3: GREEN (Right) - Only for 3-aspect**
             Rectangle {
-                visible: aspectCount === 3
+                visible: aspectCount >= 3
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "GREEN") return greenAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("GREEN")
                 border.color: borderColor
                 border.width: borderWidth
             }
@@ -149,7 +182,7 @@ Item {
     }
 
     // ============================================================================
-    // DOWN SIGNAL LAYOUT: circles → arm → mast
+    // DOWN SIGNAL LAYOUT: circles → arm → mast (GREEN, YELLOW, RED) - MIRRORED
     // ============================================================================
     Row {
         id: downSignalLayout
@@ -158,84 +191,118 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         layoutDirection: Qt.RightToLeft
         spacing: 0
+        opacity: isActive ? 1.0 : inactiveOpacity
 
-        // **MAST**
         Rectangle {
             id: downMast
             width: mastWidth
             height: mastHeight
-            color: mastColor
+            color: getMastColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **ARM**
         Rectangle {
             id: downArm
             width: armWidth
             height: armHeight
-            color: armColor
+            color: getArmColor()
             anchors.verticalCenter: parent.verticalCenter
         }
 
-        // **SIGNAL CIRCLES** - Dynamic count based on aspectCount
+        // **✅ DOWN SEQUENCE: GREEN (Left visually), YELLOW (Center), RED (Right visually)**
         Row {
             anchors.verticalCenter: parent.verticalCenter
             spacing: circleSpacing
 
-            // **RED CIRCLE** - Always present
+            // **DOWN LAMP 1: GREEN (Left visually due to RightToLeft)**
             Rectangle {
+                visible: aspectCount >= 3
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "RED") return redAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("GREEN")
                 border.color: borderColor
                 border.width: borderWidth
             }
 
-            // **YELLOW CIRCLE** - Always present
+            // **DOWN LAMP 2: YELLOW (Center)**
             Rectangle {
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "YELLOW") return yellowAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("YELLOW")
                 border.color: borderColor
                 border.width: borderWidth
             }
 
-            // **GREEN CIRCLE** - Only for 3-aspect signals
+            // **DOWN LAMP 3: RED (Right visually due to RightToLeft)**
             Rectangle {
-                visible: aspectCount === 3
                 width: circleWidth
                 height: circleHeight
                 radius: width / 2
-                color: {
-                    if (currentAspect === "GREEN") return greenAspectColor
-                    return lampOffColor
-                }
+                color: getLampColor("RED")
                 border.color: borderColor
                 border.width: borderWidth
             }
         }
     }
 
+    // ✅ NEW: INACTIVE SIGNAL OVERLAY
+    Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        border.color: inactiveBorderColor
+        border.width: inactiveBorderWidth
+        radius: 4
+        visible: !isActive
+        opacity: 0.7
+
+        Rectangle {
+            width: parent.width * 1.414
+            height: 1
+            color: inactiveBorderColor
+            anchors.centerIn: parent
+            rotation: 45
+            opacity: 0.6
+        }
+        Rectangle {
+            width: parent.width * 1.414
+            height: 1
+            color: inactiveBorderColor
+            anchors.centerIn: parent
+            rotation: -45
+            opacity: 0.6
+        }
+    }
+
     // ============================================================================
-    // INTERACTION
+    // ✅ ENHANCED: INTERACTION WITH DATABASE VALIDATION
     // ============================================================================
     MouseArea {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
         onClicked: {
-            console.log("Starter signal clicked:", signalId, "Current aspect:", currentAspect, "Aspect count:", aspectCount, "Direction:", direction)
+            if (!isOperational()) {
+                console.log("Starter signal operation blocked:", signalId, "Active:", isActive)
+                return
+            }
+
+            console.log("Starter signal clicked:", signalId, "Current aspect:", currentAspect, "Direction:", direction, "Aspect count:", aspectCount)
             starterSignal.signalClicked(signalId, currentAspect)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: isOperational() ? "white" : "red"
+            opacity: parent.containsMouse ? 0.1 : 0
+            radius: 4
+
+            Behavior on opacity {
+                NumberAnimation { duration: 150 }
+            }
         }
     }
 }

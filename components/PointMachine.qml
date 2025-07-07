@@ -1,6 +1,5 @@
 // components/PointMachine.qml
 import QtQuick
-import "../data/StationData.js" as StationData
 
 Item {
     id: pointMachine
@@ -9,82 +8,75 @@ Item {
     // COMPONENT PROPERTIES
     // ============================================================================
     property string machineId: ""
-    property string position: "NORMAL"              // "NORMAL" or "REVERSE"
-    property string operatingStatus: "CONNECTED"    // "CONNECTED" or "IN_TRANSITION"
+    property string machineName: ""                     // ✅ NEW
+    property string position: "NORMAL"                  // "NORMAL" or "REVERSE" (converted from 1/2)
+    property string operatingStatus: "CONNECTED"       // "CONNECTED" or "IN_TRANSITION"
     property var junctionPoint: ({ row: 0, col: 0 })
     property var rootTrack: ({})
     property var normalTrack: ({})
     property var reverseTrack: ({})
     property int cellSize: 20
-    property int transitionTime: 100
+    property int transitionTime: 3000                   // ✅ NEW
+    property bool isLocked: false                       // ✅ NEW
+    property string lockReason: ""                      // ✅ NEW
+
+    // ✅ NEW: Track data lookup function (passed from parent)
+    property var trackDataLookup: null
 
     // ============================================================================
-    // VISUAL CONFIGURATION CONSTANTS
+    // VISUAL CONFIGURATION CONSTANTS (unchanged)
     // ============================================================================
-
-    // **CONTAINER SIZING**
-    readonly property real containerSizeMultiplier: 10.0        // cellSize * 10
-
-    // **TRACK CONNECTION VISUAL PROPERTIES**
-    readonly property real trackThickness: 8                    // Height of track rectangles
-    readonly property real trackRadius: 2                       // Corner radius for tracks
-    readonly property real railLineThickness: 1                 // Height of rail detail lines
-    readonly property real railLineMargin: 1                    // Margin from track edges
-
-    // **JUNCTION CONNECTION PROPERTIES**
-    readonly property real junctionOverlapLength: 3            // How far to extend for overlap
-    readonly property real junctionCapRadius: trackThickness * 1  // Junction cap size
+    readonly property real containerSizeMultiplier: 10.0
+    readonly property real trackThickness: 8
+    readonly property real trackRadius: 2
+    readonly property real railLineThickness: 1
+    readonly property real railLineMargin: 1
+    readonly property real junctionOverlapLength: 3
+    readonly property real junctionCapRadius: trackThickness * 1
 
     // **TRACK CONNECTION COLORS**
-    readonly property color rootConnectionColor: "#00aa00"      // Green for root track
-    readonly property color railLineColor: "#a6a6a6"           // Gray for rail details
-    readonly property color junctionCapColor: "#2d3748"        // Dark gray for junction cap
+    readonly property color rootConnectionColor: "#00aa00"
+    readonly property color railLineColor: "#a6a6a6"
+    readonly property color junctionCapColor: "#2d3748"
 
     // **ACTIVE TRACK STATUS COLORS**
-    readonly property color normalPositionColor: "#00ff00"     // Bright green for normal
-    readonly property color reversePositionColor: "#ffaa00"    // Orange for reverse
-    readonly property color transitionColor: "#ff6600"         // Orange-red for moving
-    readonly property color errorColor: "#aa0000"              // Dark red for errors
+    readonly property color normalPositionColor: "#00ff00"
+    readonly property color reversePositionColor: "#ffaa00"
+    readonly property color transitionColor: "#ff6600"
+    readonly property color errorColor: "#aa0000"
+    readonly property color lockedColor: "#ff0000"      // ✅ NEW
 
     // **MOTOR INDICATOR SIZING**
-    readonly property real motorSizeMultiplier: 0.6            // Motor size relative to cellSize
-    readonly property real motorInnerSizeMultiplier: 0.4       // Inner indicator size relative to motor
-    readonly property real motorBorderWidth: 2                 // Motor border thickness
-    readonly property real motorRingBorderNormal: 1            // Normal status ring thickness
-    readonly property real motorRingBorderActive: 3            // Transition status ring thickness
+    readonly property real motorSizeMultiplier: 0.6
+    readonly property real motorInnerSizeMultiplier: 0.4
+    readonly property real motorBorderWidth: 2
+    readonly property real motorRingBorderNormal: 1
+    readonly property real motorRingBorderActive: 3
 
     // **MOTOR INDICATOR COLORS**
-    readonly property color motorColorNormal: "#2d3748"        // Dark gray for normal operation
-    readonly property color motorColorTransition: "#ff6600"    // Orange for transition
-    readonly property color motorColorError: "#aa0000"         // Red for error
-    readonly property color motorBorderColor: "#ffffff"        // White borders
-    readonly property color motorInnerColor: "#ffffff"         // White inner indicator
+    readonly property color motorColorNormal: "#2d3748"
+    readonly property color motorColorTransition: "#ff6600"
+    readonly property color motorColorError: "#aa0000"
+    readonly property color motorColorLocked: "#ff0000" // ✅ NEW
+    readonly property color motorBorderColor: "#ffffff"
+    readonly property color motorInnerColor: "#ffffff"
 
     // **MOTOR POSITION ANGLES**
-    readonly property real normalPositionAngle: 0              // 0 degrees for normal
-    readonly property real reversePositionAngle: 45            // 45 degrees for reverse
+    readonly property real normalPositionAngle: 0
+    readonly property real reversePositionAngle: 45
 
     // **ANIMATION TIMING**
-    readonly property int quickAnimationDuration: 100          // Fast animations (hover, etc.)
-    readonly property int normalAnimationDuration: 300         // Standard animations
-    readonly property int colorAnimationDuration: 150          // Color transition animations
+    readonly property int quickAnimationDuration: 100
+    readonly property int normalAnimationDuration: 300
+    readonly property int colorAnimationDuration: 150
 
     // **INTERACTION VISUAL PROPERTIES**
-    readonly property real hoverOpacity: 0.1                   // Hover effect opacity
-    readonly property real hoverRadius: 6                      // Hover effect corner radius
-
-    // **TEXT AND LABELING**
-    readonly property real labelFontSize: 8                    // Main label font size
-    readonly property real statusFontSize: 7                   // Status text font size
-    readonly property real textMargin: 4                       // Margin around text elements
-    readonly property color textColor: "#ffffff"               // White text color
-    readonly property string textFontFamily: "Arial"           // Professional font family
+    readonly property real hoverOpacity: 0.1
+    readonly property real hoverRadius: 6
 
     // ============================================================================
-    // POSITIONING AND SIZING
+    // POSITIONING AND SIZING (unchanged)
     // ============================================================================
-
-    // Position at junction point
     x: junctionPoint.col * cellSize - width / 2
     y: junctionPoint.row * cellSize - height / 2
     width: cellSize * containerSizeMultiplier
@@ -93,17 +85,23 @@ Item {
     signal pointMachineClicked(string machineId, string currentPosition)
 
     // ============================================================================
-    // HELPER FUNCTIONS
+    // ✅ UPDATED: HELPER FUNCTIONS (database-aware)
     // ============================================================================
 
     function getRootTrackData() {
-        return StationData.getTrackById(rootTrack.trackId);
+        if (!trackDataLookup || !rootTrack.trackId) return null;
+        return trackDataLookup(rootTrack.trackId);
     }
 
     function getRootEndpoint() {
         var trackData = getRootTrackData();
         if (!trackData) return { row: 0, col: 0 };
-        return StationData.getTrackEndpoint(trackData, rootTrack.connectionEnd);
+
+        if (rootTrack.connectionEnd === "START") {
+            return { row: trackData.startRow, col: trackData.startCol };
+        } else {
+            return { row: trackData.endRow, col: trackData.endCol };
+        }
     }
 
     function getJunctionPixel() {
@@ -129,14 +127,20 @@ Item {
 
     function getActiveTrackData() {
         var activeInfo = getActiveTrackInfo();
-        return StationData.getTrackById(activeInfo.trackId);
+        if (!trackDataLookup || !activeInfo.trackId) return null;
+        return trackDataLookup(activeInfo.trackId);
     }
 
     function getActiveEndpoint() {
         var trackData = getActiveTrackData();
         var activeInfo = getActiveTrackInfo();
         if (!trackData) return { row: 0, col: 0 };
-        return StationData.getTrackEndpoint(trackData, activeInfo.connectionEnd);
+
+        if (activeInfo.connectionEnd === "START") {
+            return { row: trackData.startRow, col: trackData.startCol };
+        } else {
+            return { row: trackData.endRow, col: trackData.endCol };
+        }
     }
 
     function getActivePixel() {
@@ -151,6 +155,8 @@ Item {
     }
 
     function getActiveColor() {
+        if (isLocked) return lockedColor;
+
         switch(operatingStatus) {
             case "CONNECTED":
                 return position === "NORMAL" ? normalPositionColor : reversePositionColor;
@@ -162,6 +168,8 @@ Item {
     }
 
     function getMotorColor() {
+        if (isLocked) return motorColorLocked;
+
         switch(operatingStatus) {
             case "CONNECTED": return motorColorNormal;
             case "IN_TRANSITION": return motorColorTransition;
@@ -170,49 +178,37 @@ Item {
     }
 
     // ============================================================================
-    // VISUAL COMPONENTS
+    // VISUAL COMPONENTS (unchanged structure, updated colors)
     // ============================================================================
 
-    // **ROOT TRACK CONNECTION** - Extended for overlap
+    // **ROOT TRACK CONNECTION**
     Rectangle {
         id: rootConnection
 
         x: {
             var rootPx = getRootPixel();
             var junctionPx = getJunctionPixel();
-
-            // Calculate direction vector for extension
             var deltaX = junctionPx.x - rootPx.x;
             var deltaY = junctionPx.y - rootPx.y;
             var length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            // Extend beyond junction for overlap
             var extensionLength = junctionOverlapLength;
             var extendedX = rootPx.x - (deltaX / length) * extensionLength;
-
             return extendedX - pointMachine.x;
         }
         y: {
             var rootPx = getRootPixel();
             var junctionPx = getJunctionPixel();
-
-            // Calculate direction vector for extension
             var deltaX = junctionPx.x - rootPx.x;
             var deltaY = junctionPx.y - rootPx.y;
             var length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            // Extend beyond junction for overlap
             var extensionLength = junctionOverlapLength;
             var extendedY = rootPx.y - (deltaY / length) * extensionLength;
-
             return extendedY - pointMachine.y;
         }
         width: {
             var junctionPx = getJunctionPixel();
             var rootPx = getRootPixel();
             var baseLength = Math.sqrt(Math.pow(junctionPx.x - rootPx.x, 2) + Math.pow(junctionPx.y - rootPx.y, 2));
-
-            // Add extension for overlap
             return baseLength + junctionOverlapLength;
         }
         height: trackThickness
@@ -227,7 +223,6 @@ Item {
         color: rootConnectionColor
         radius: trackRadius
 
-        // **RAIL LINES**
         Rectangle {
             width: parent.width
             height: railLineThickness
@@ -245,46 +240,34 @@ Item {
         }
     }
 
-    // **ACTIVE TRACK CONNECTION** - Extended for overlap
+    // **ACTIVE TRACK CONNECTION**
     Rectangle {
         id: activeConnection
 
         x: {
             var junctionPx = getJunctionPixel();
             var activePx = getActivePixel();
-
-            // Calculate direction vector for extension
             var deltaX = activePx.x - junctionPx.x;
             var deltaY = activePx.y - junctionPx.y;
             var length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            // Extend backward beyond junction for overlap
             var extensionLength = junctionOverlapLength;
             var extendedX = junctionPx.x - (deltaX / length) * extensionLength;
-
             return extendedX - pointMachine.x;
         }
         y: {
             var junctionPx = getJunctionPixel();
             var activePx = getActivePixel();
-
-            // Calculate direction vector for extension
             var deltaX = activePx.x - junctionPx.x;
             var deltaY = activePx.y - junctionPx.y;
             var length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-            // Extend backward beyond junction for overlap
             var extensionLength = junctionOverlapLength;
             var extendedY = junctionPx.y - (deltaY / length) * extensionLength;
-
             return extendedY - pointMachine.y;
         }
         width: {
             var junctionPx = getJunctionPixel();
             var activePx = getActivePixel();
             var baseLength = Math.sqrt(Math.pow(activePx.x - junctionPx.x, 2) + Math.pow(activePx.y - junctionPx.y, 2));
-
-            // Add extension for overlap
             return baseLength + junctionOverlapLength;
         }
         height: trackThickness
@@ -299,7 +282,6 @@ Item {
         color: getActiveColor()
         radius: trackRadius
 
-        // **RAIL LINES**
         Rectangle {
             width: parent.width
             height: railLineThickness
@@ -316,12 +298,11 @@ Item {
             color: railLineColor
         }
 
-        // **SMOOTH TRANSITION ANIMATIONS**
         Behavior on rotation {
             RotationAnimation {
                 duration: operatingStatus === "IN_TRANSITION" ? transitionTime : normalAnimationDuration
                 easing.type: Easing.OutQuart
-                direction: RotationAnimation.Shortest  // Automatically chooses shortest path
+                direction: RotationAnimation.Shortest
             }
         }
 
@@ -339,7 +320,7 @@ Item {
         }
     }
 
-    // **JUNCTION CAP** - Seamless connection piece to eliminate gaps
+    // **JUNCTION CAP**
     Rectangle {
         id: junctionCap
 
@@ -347,7 +328,6 @@ Item {
         height: junctionCapRadius * 2
         radius: junctionCapRadius
 
-        // Position at exact junction point
         x: {
             var junctionPx = getJunctionPixel();
             return junctionPx.x - pointMachine.x - junctionCapRadius;
@@ -357,13 +337,9 @@ Item {
             return junctionPx.y - pointMachine.y - junctionCapRadius;
         }
 
-        // Use junction-specific color
         color: junctionCapColor
-
-        // Ensure it's above the track rectangles
         z: 1
 
-        // **JUNCTION CENTER INDICATOR**
         Rectangle {
             width: parent.width * 0.5
             height: parent.height * 0.5
@@ -379,7 +355,6 @@ Item {
             }
         }
 
-        // **SUBTLE JUNCTION BORDER**
         Rectangle {
             anchors.fill: parent
             color: "transparent"
@@ -390,7 +365,7 @@ Item {
         }
     }
 
-    // **MOTOR INDICATOR** - Enhanced with rail-style design
+    // **MOTOR INDICATOR**
     Rectangle {
         id: motorIndicator
         width: cellSize * motorSizeMultiplier
@@ -400,11 +375,27 @@ Item {
         border.color: motorBorderColor
         border.width: motorBorderWidth
         anchors.centerIn: parent
-
-        // Ensure motor is above junction cap
         z: 2
 
-        // **MOTOR POSITION INDICATOR**
+        // ✅ NEW: Lock indicator overlay
+        Rectangle {
+            anchors.centerIn: parent
+            width: parent.width * 0.8
+            height: parent.height * 0.8
+            radius: width / 2
+            color: "transparent"
+            border.color: "#ff0000"
+            border.width: 3
+            visible: isLocked
+
+            Text {
+                anchors.centerIn: parent
+                text: "🔒"
+                color: "#ff0000"
+                font.pixelSize: parent.width * 0.4
+            }
+        }
+
         Rectangle {
             width: parent.width * motorInnerSizeMultiplier
             height: parent.height * motorInnerSizeMultiplier
@@ -412,6 +403,7 @@ Item {
             color: motorInnerColor
             anchors.centerIn: parent
             rotation: position === "NORMAL" ? normalPositionAngle : reversePositionAngle
+            visible: !isLocked
 
             Behavior on rotation {
                 NumberAnimation {
@@ -421,7 +413,6 @@ Item {
             }
         }
 
-        // **STATUS INDICATOR RING**
         Rectangle {
             anchors.fill: parent
             color: "transparent"
@@ -439,22 +430,37 @@ Item {
         }
     }
 
+    // ✅ NEW: Machine name label
+    // Text {
+    //     anchors.bottom: parent.bottom
+    //     anchors.horizontalCenter: parent.horizontalCenter
+    //     anchors.bottomMargin: -20
+    //     text: machineName || machineId
+    //     color: "#ffffff"
+    //     font.pixelSize: 10
+    //     font.family: "Arial"
+    //     horizontalAlignment: Text.AlignHCenter
+    //     visible: machineName.length > 0
+    // }
+
     // **CLICKABLE AREA**
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: isLocked ? Qt.ForbiddenCursor : Qt.PointingHandCursor
+        enabled: !isLocked
 
         onClicked: {
-            console.log("Point machine clicked:", machineId, "Current position:", position, "Status:", operatingStatus)
-            pointMachine.pointMachineClicked(machineId, position)
+            console.log("Point machine clicked:", machineId, "Current position:", position, "Status:", operatingStatus, "Locked:", isLocked)
+            if (!isLocked) {
+                pointMachine.pointMachineClicked(machineId, position)
+            }
         }
 
-        // **HOVER EFFECT**
         Rectangle {
             anchors.fill: parent
             color: "white"
-            opacity: parent.containsMouse ? hoverOpacity : 0
+            opacity: parent.containsMouse && !isLocked ? hoverOpacity : 0
             radius: hoverRadius
 
             Behavior on opacity {

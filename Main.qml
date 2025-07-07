@@ -669,5 +669,9 @@ ApplicationWindow {
 
         // Pass database manager to station layout
         dbManager: globalDatabaseManager
+        onDatabaseResetRequested: {
+            console.log("Opening database reset dialog from status panel")
+            databaseResetDialog.open()
+        }
     }
 }

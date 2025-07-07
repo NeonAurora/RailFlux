@@ -1,10 +1,11 @@
 import QtQuick
 import "../components"
-// ✅ REMOVED: import "../data/StationData.js" as StationData
 
 Rectangle {
     id: stationLayout
     color: "#1e1e1e"
+
+    signal databaseResetRequested()
 
     property var dbManager
     property int cellSize: Math.floor(width / 320)
@@ -35,6 +36,25 @@ Rectangle {
         refreshSignalData()
         refreshPointMachineData()
         refreshTextLabelData()
+    }
+
+    function getTrackDataById(trackId) {
+        for (var i = 0; i < trackSegmentsModel.length; i++) {
+            if (trackSegmentsModel[i].id === trackId) {
+                return trackSegmentsModel[i];
+            }
+        }
+        return null;
+    }
+
+    // ✅ UPDATED: Position mapping function
+    function mapDatabasePosition(dbPosition) {
+        // Database returns "1" for NORMAL, "2" for REVERSE
+        if (dbPosition === "1") return "NORMAL";
+        if (dbPosition === "2") return "REVERSE";
+        // Fallback for string values
+        if (dbPosition === "NORMAL" || dbPosition === "REVERSE") return dbPosition;
+        return "NORMAL"; // Safe default
     }
 
     function refreshTrackData() {
@@ -196,6 +216,7 @@ Rectangle {
         }
     }
 
+    // ✅ FIXED: Handle point machine operation (keep as strings)
     function handlePointMachineClick(machineId, currentPosition) {
         console.log("Point machine operation requested:", machineId, "Current position:", currentPosition)
 
@@ -204,21 +225,20 @@ Rectangle {
             return
         }
 
-        // Determine target position
+        // ✅ FIXED: Toggle between string values, don't convert to numbers
         var targetPosition = (currentPosition === "NORMAL") ? "REVERSE" : "NORMAL"
 
         console.log("Operating point machine", machineId, "from", currentPosition, "to", targetPosition)
 
-        // Update in database - this will handle the transition logic
+        // ✅ FIXED: Send string position codes, not numbers
         var success = dbManager.updatePointMachinePosition(machineId, targetPosition)
         if (success) {
             console.log("Point machine operation initiated successfully")
-            // The database will handle the transition timing and state updates
-            // UI will be updated automatically via polling or notifications
         } else {
             console.error("Failed to operate point machine")
         }
     }
+
 
     function handleAdvanceStarterSignalClick(signalId, currentAspect) {
         console.log("Advanced starter signal control:", signalId, "Current aspect:", currentAspect)
@@ -243,7 +263,7 @@ Rectangle {
 
         var success = dbManager.updateSignalAspect(signalId, nextAspect)
         if (success) {
-            console.log("Advanced starter signal aspect updated successfully")
+            console.log("Advanced starter signal aspect updated successfully", nextAspect)
         } else {
             console.error("Failed to update advanced starter signal aspect")
         }
@@ -336,13 +356,17 @@ Rectangle {
 
             TrackSegment {
                 segmentId: modelData.id
+                segmentName: modelData.name || ""  // ✅ NEW
                 startRow: modelData.startRow
                 startCol: modelData.startCol
                 endRow: modelData.endRow
                 endCol: modelData.endCol
+                trackType: modelData.trackType || "STRAIGHT"  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 isOccupied: modelData.occupied
                 isAssigned: modelData.assigned
+                occupiedBy: modelData.occupiedBy || ""  // ✅ NEW
+                isActive: modelData.isActive !== false  // ✅ NEW
                 onTrackClicked: stationLayout.handleTrackClick(segmentId, isOccupied)
             }
         }
@@ -353,13 +377,20 @@ Rectangle {
 
             PointMachine {
                 machineId: modelData.id
-                position: modelData.position
+                machineName: modelData.name || ""
+                position: modelData.position // ✅ Convert 1/2 to NORMAL/REVERSE
                 operatingStatus: modelData.operatingStatus
                 junctionPoint: modelData.junctionPoint
                 rootTrack: modelData.rootTrack
                 normalTrack: modelData.normalTrack
                 reverseTrack: modelData.reverseTrack
+                transitionTime: modelData.transitionTime || 3000
+                isLocked: modelData.isLocked || false
+                lockReason: modelData.lockReason || ""
                 cellSize: stationLayout.cellSize
+
+                // ✅ CRITICAL: Pass track lookup function
+                trackDataLookup: stationLayout.getTrackDataById
 
                 onPointMachineClicked: function(machineId, currentPosition) {
                     stationLayout.handlePointMachineClick(machineId, currentPosition)
@@ -377,8 +408,11 @@ Rectangle {
                 signalId: modelData.id
                 signalName: modelData.name
                 currentAspect: modelData.currentAspect
+                aspectCount: modelData.aspectCount || 4  // ✅ NEW
+                possibleAspects: modelData.possibleAspects || []  // ✅ NEW
                 direction: modelData.direction
                 isActive: modelData.isActive
+                locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleOuterSignalClick(signalId, currentAspect)
             }
@@ -394,8 +428,14 @@ Rectangle {
                 signalId: modelData.id
                 signalName: modelData.name
                 currentAspect: modelData.currentAspect
+                aspectCount: modelData.aspectCount || 3  // ✅ NEW
+                possibleAspects: modelData.possibleAspects || []  // ✅ NEW
+                callingOnAspect: modelData.callingOnAspect
+                loopAspect: modelData.loopAspect
+                loopSignalConfiguration: modelData.loopSignalConfiguration
                 direction: modelData.direction
                 isActive: modelData.isActive
+                locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleHomeSignalClick(signalId, currentAspect)
             }
@@ -412,8 +452,10 @@ Rectangle {
                 signalName: modelData.name
                 currentAspect: modelData.currentAspect
                 aspectCount: modelData.aspectCount
+                possibleAspects: modelData.possibleAspects || []  // ✅ NEW
                 direction: modelData.direction
                 isActive: modelData.isActive
+                locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleStarterSignalClick(signalId, currentAspect)
             }
@@ -429,8 +471,11 @@ Rectangle {
                 signalId: modelData.id
                 signalName: modelData.name
                 currentAspect: modelData.currentAspect
+                aspectCount: modelData.aspectCount || 2  // Always 2 for advanced starter
+                possibleAspects: modelData.possibleAspects || []  // ✅ NEW
                 direction: modelData.direction
                 isActive: modelData.isActive
+                locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleAdvanceStarterSignalClick(signalId, currentAspect)
             }
@@ -863,8 +908,7 @@ Rectangle {
                             anchors.fill: parent
                             onClicked: {
                                 console.log("Database reset requested from status panel")
-                                // This should open the reset dialog in Main.qml
-                                // You might need to emit a signal or call a parent function
+                                stationLayout.databaseResetRequested()
                             }
                         }
                     }

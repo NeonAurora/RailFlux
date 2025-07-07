@@ -3,7 +3,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlError>
-#include <QSqlDriver>  // ✅ ADD: Include QSqlDriver for complete type info
+#include <QSqlDriver>
 #include <QTimer>
 #include <QHash>
 #include <QVariantMap>
@@ -87,33 +87,25 @@ private slots:
     void handleDatabaseNotification(const QString& name, const QVariant& payload);
 
 private:
+    // ✅ FIXED: Added missing constant
+    static constexpr int POLLING_INTERVAL_MS = 50000;  // 50 second polling interval
+
+    // ✅ Database connection
     QSqlDatabase db;
     std::unique_ptr<QTimer> pollingTimer;
     bool connected;
 
-    // ✅ NEW: Data caches for performance
-    QVariantList cachedTrackSegments;
-    QVariantList cachedSignals;
-    QVariantList cachedPointMachines;
-    QVariantList cachedTextLabels;
-    QHash<QString, QVariantMap> signalCache;
-    QHash<QString, QVariantMap> pointMachineCache;
-
-    // State caches for change detection
+    // ✅ FIXED: Added missing state tracking variables
     QHash<int, QString> lastSignalStates;
     QHash<int, bool> lastTrackStates;
     QHash<int, QString> lastPointStates;
 
-    static constexpr int POLLING_INTERVAL_MS = 50000;
-
+    // ✅ FIXED: Added missing private method declarations
     void detectAndEmitChanges();
     bool setupDatabase();
     void logError(const QString& operation, const QSqlError& error);
 
-    // ✅ NEW: Cache management
-    void refreshDataCaches();
-    void refreshSignalCache();
-    void refreshPointMachineCache();
+    // ✅ Row conversion helpers
     QVariantMap convertSignalRowToVariant(const QSqlQuery& query);
     QVariantMap convertTrackRowToVariant(const QSqlQuery& query);
     QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);

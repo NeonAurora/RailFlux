@@ -1556,9 +1556,17 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"row", 115}, {"col", 270}, {"direction", "DOWN"},
             {"currentAspect", "GREEN"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
-            {"callingOnAspect", "WHITE"}, {"loopAspect", "ON"}, {"loopSignalConfiguration", "UR"},
+            {"callingOnAspect", "WHITE"}, {"loopAspect", "DARK"}, {"loopSignalConfiguration", "UR"},
             {"isActive", true}, {"location", "Platform_A_Exit"}
-        }
+        },
+        QJsonObject{
+            {"id", "HM003"}, {"name", "Home A3"}, {"type", "HOME"},
+            {"row", 160}, {"col", 200}, {"direction", "UP"},
+            {"currentAspect", "RED"}, {"aspectCount", 3},
+            {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
+            {"callingOnAspect", "WHITE"}, {"loopAspect", "INACTIVE"}, {"loopSignalConfiguration", "UR"},
+            {"isActive", true}, {"location", "Platform_A_Entry"}
+        },
     };
 }
 
