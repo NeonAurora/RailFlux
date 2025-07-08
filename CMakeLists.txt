@@ -10,7 +10,6 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 qt_add_executable(appRailFlux
     main.cpp
-    resources.qrc
 )
 
 qt_add_qml_module(appRailFlux
@@ -38,6 +37,12 @@ qt_add_qml_module(appRailFlux
 
     RESOURCES
         sql/sql_coomands_railflux.sql
+)
+
+qt_add_resources(appRailFlux "app_resources"
+    PREFIX "/"
+    FILES
+        resources/icons/railway-icon.ico
 )
 
 set_target_properties(appRailFlux PROPERTIES

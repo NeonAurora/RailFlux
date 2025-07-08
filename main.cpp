@@ -13,7 +13,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<DatabaseManager>("RailFlux.Database", 1, 0, "DatabaseManager");
     qmlRegisterType<DatabaseInitializer>("RailFlux.Database", 1, 0, "DatabaseInitializer");
 
-    app.setWindowIcon(QIcon(":/icons/railway-icon.ico"));
+    app.setWindowIcon(QIcon(":/resources/icons/railway-icon.ico"));
     qDebug() << "Icon exists??" << QFile(":/icons/railway-icon.ico").exists();
 
 
