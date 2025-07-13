@@ -55,6 +55,8 @@ Item {
     readonly property real inactiveBorderWidth: 2
 
     signal signalClicked(string signalId, string currentAspect)
+    signal contextMenuRequested(string signalId, string signalName, string currentAspect,
+                              var possibleAspects, real x, real y)
 
     // ============================================================================
     // DATABASE VALIDATION FUNCTIONS (unchanged)
@@ -283,16 +285,31 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton  // ✅ Accept both buttons
         cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
-        onClicked: {
+        onClicked: function(mouse) {
             if (!isOperational()) {
                 console.log("Outer signal operation blocked:", signalId, "Active:", isActive)
                 return
             }
 
-            console.log("Outer signal clicked:", signalId, "Current aspect:", currentAspect, "Direction:", direction)
-            outerSignal.signalClicked(signalId, currentAspect)
+            if (mouse.button === Qt.LeftButton) {
+                // ✅ Original left-click behavior
+                console.log("Outer signal clicked:", signalId, "Current aspect:", currentAspect, "Direction:", direction)
+                outerSignal.signalClicked(signalId, currentAspect)
+            } else if (mouse.button === Qt.RightButton) {
+                // ✅ NEW: Right-click context menu
+                console.log("Outer signal right-clicked:", signalId, "Showing context menu")
+                console.log("DEBUG possibleAspects:", possibleAspects)
+                console.log("DEBUG possibleAspects type:", typeof possibleAspects)
+                console.log("DEBUG possibleAspects length:", possibleAspects.length)
+                for (var i = 0; i < possibleAspects.length; i++) {
+                    console.log("DEBUG aspect", i, ":", possibleAspects[i])
+                }
+                outerSignal.contextMenuRequested(signalId, signalName, currentAspect, possibleAspects,
+                                               mouse.x + outerSignal.x, mouse.y + outerSignal.y)
+            }
         }
 
         Rectangle {

@@ -130,18 +130,18 @@ Rectangle {
         console.log("Outer signal control:", signalId, "Current aspect:", currentAspect)
 
         if (!dbManager || !dbManager.isConnected) {
-            console.warn("Database not connected - cannot update signal")
+            showToast("Database Error", "Cannot update signal - database not connected",
+                     signalId, "DATABASE_DISCONNECTED")
             return
         }
 
-        // Get signal data from database to find possible aspects
         var signalData = dbManager.getSignalById(signalId)
         if (!signalData || !signalData.possibleAspects) {
-            console.error("Could not get signal data for", signalId)
+            showToast("Signal Error", "Could not get signal configuration data",
+                     signalId, "SIGNAL_DATA_NOT_FOUND")
             return
         }
 
-        // Calculate next aspect
         var possibleAspects = signalData.possibleAspects
         var currentIndex = possibleAspects.indexOf(currentAspect)
         var nextIndex = (currentIndex + 1) % possibleAspects.length
@@ -149,11 +149,8 @@ Rectangle {
 
         console.log("Changing outer signal", signalId, "from", currentAspect, "to", nextAspect)
 
-        // Update in database
         var success = dbManager.updateSignalAspect(signalId, nextAspect)
-        if (success) {
-            console.log("Outer signal aspect updated successfully")
-        } else {
+        if (!success) {
             console.error("Failed to update outer signal aspect")
         }
     }
@@ -269,6 +266,25 @@ Rectangle {
         }
     }
 
+    function updateSignalAspectDirect(signalId, targetAspect) {
+        console.log("Direct signal aspect change:", signalId, "to", targetAspect)
+
+        if (!dbManager || !dbManager.isConnected) {
+            showToast("Database Error", "Cannot update signal - database not connected",
+                     signalId, "DATABASE_DISCONNECTED")
+            return
+        }
+
+        var success = dbManager.updateSignalAspect(signalId, targetAspect)
+        if (!success) {
+            console.error("Failed to update signal aspect directly")
+        }
+    }
+
+    function showToast(title, message, signalId, reason) {
+        toastNotification.show(title, message, signalId, reason)
+    }
+
     // ✅ NEW: Initialize data when component loads or database connects
     Component.onCompleted: {
         console.log("StationLayout: Component completed")
@@ -297,6 +313,13 @@ Rectangle {
                 pointMachinesModel = []
                 textLabelsModel = []
             }
+        }
+
+        function onOperationBlocked(signalId, reason) {
+            console.log("🚫 Operation blocked signal received:", signalId, reason)
+            showToast("Signal Operation Blocked",
+                     "The requested signal operation could not be completed.",
+                     signalId, reason)
         }
 
         // ✅ Handle database polling updates
@@ -340,6 +363,22 @@ Rectangle {
         function onTextLabelsChanged() {
             console.log("StationLayout: Text labels changed")
             refreshTextLabelData()
+        }
+    }
+
+    ToastNotification {
+        id: toastNotification
+        anchors.fill: parent
+    }
+
+    SignalContextMenu {
+        id: signalContextMenu
+        anchors.fill: parent
+
+        onAspectSelected: function(signalId, selectedAspect) {
+            console.log("Context menu aspect selected:", signalId, "→", selectedAspect)
+            // Use existing update function
+            updateSignalAspectDirect(signalId, selectedAspect)
         }
     }
 
@@ -415,6 +454,10 @@ Rectangle {
                 locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleOuterSignalClick(signalId, currentAspect)
+
+                onContextMenuRequested: function(signalId, signalName, currentAspect, possibleAspects, x, y) {
+                    signalContextMenu.show(x, y, signalId, signalName, currentAspect, possibleAspects)
+                }
             }
         }
 

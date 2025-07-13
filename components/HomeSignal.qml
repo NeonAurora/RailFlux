@@ -5,34 +5,41 @@ Item {
     id: homeSignal
 
     // ============================================================================
-    // COMPONENT PROPERTIES
+    // COMPONENT PROPERTIES (unchanged)
     // ============================================================================
     property string signalId: ""
     property string signalName: ""
     property string currentAspect: "RED"
-    property int aspectCount: 3                     // ✅ NEW: Number of aspects from database
-    property var possibleAspects: []               // ✅ NEW: Valid aspects from database
+    property int aspectCount: 3
+    property var possibleAspects: []
     property string callingOnAspect: "OFF"         // "WHITE", "DARK", "OFF"
-    property string loopAspect: "OFF"              // ✅ UPDATED: "YELLOW", "DARK", "INACTIVE"
+    property string loopAspect: "OFF"              // "YELLOW", "DARK", "OFF"
     property string loopSignalConfiguration: "UR"
     property string direction: "UP"
-    property bool isActive: true                   // ✅ NEW: Signal active status from database
-    property string locationDescription: ""        // ✅ NEW: Location info from database (not rendered)
+    property bool isActive: true
+    property string locationDescription: ""
     property int cellSize: 20
 
     // ============================================================================
-    // PARSED CONFIGURATION PROPERTIES
+    // ✅ FIXED: CORRECT VISIBILITY AND ACTIVITY LOGIC
     // ============================================================================
-    property string loopMastDirection: loopSignalConfiguration.charAt(0)  // "U" or "D"
-    property string loopArmDirection: loopSignalConfiguration.charAt(1)   // "L" or "R"
+
+    // ✅ VISIBILITY: OFF = don't render, DARK/ACTIVE = render
+    property bool isLoopSignalVisible: loopAspect !== "OFF"
+    property bool isCallingOnVisible: callingOnAspect !== "OFF"
+
+    // ✅ ACTIVITY: Only signature color = active, DARK = inactive but visible
+    property bool isLoopSignalActive: loopAspect === "YELLOW"  // Signature color for loop
+    property bool isCallingOnActive: callingOnAspect === "WHITE"  // Signature color for calling-on
 
     // ============================================================================
-    // ✅ UPDATED: COMPUTED PROPERTIES WITH DATABASE SUPPORT
+    // PARSED CONFIGURATION PROPERTIES (unchanged)
     // ============================================================================
-    property bool isLoopSignalActive: loopAspect !== "INACTIVE"
+    property string loopMastDirection: loopSignalConfiguration.charAt(0)
+    property string loopArmDirection: loopSignalConfiguration.charAt(1)
 
     // ============================================================================
-    // PARENT DIMENSIONS - Master sizing control
+    // DIMENSIONS (unchanged)
     // ============================================================================
     property real scalingConstant: 15
     property real scalingFactor: 0.46875
@@ -42,79 +49,54 @@ Item {
     width: parentWidth
     height: parentHeight
 
-    // ============================================================================
-    // MAST GROUP VARIABLES - Two masts
-    // ============================================================================
+    // ... (dimension variables unchanged) ...
     property real mast1Width: parentWidth * 0.03125
     property real mast1Height: parentHeight * 0.4
     property real mast2Width: parentWidth * 0.025
     property real mast2Height: parentHeight * 0.43
-
-    // ============================================================================
-    // ARM GROUP VARIABLES - Three arm segments
-    // ============================================================================
     property real armSegment1Width: parentWidth * 0.1125
     property real armSegment2Width: parentWidth * 0.1125
     property real armSegment3Width: parentWidth * 0.08
     property real armHeight: parentHeight * 0.053
-
-    // ============================================================================
-    // CALLING-ON SIGNAL VARIABLES
-    // ============================================================================
     property real callingOnWidth: parentWidth * 0.15625 * 0.75
     property real callingOnHeight: parentHeight * 0.333 * 0.75
-
-    // ============================================================================
-    // LOOP SIGNAL VARIABLES
-    // ============================================================================
     property real loopWidth: parentWidth * 0.15625 * 0.7
     property real loopHeight: parentHeight * 0.333 * 0.7
-
-    // ============================================================================
-    // MAIN SIGNAL CIRCLE GROUP VARIABLES
-    // ============================================================================
     property real circleWidth: parentWidth * 0.15625
     property real circleHeight: parentHeight * 0.333
     property real circleSpacing: 0
-
-    // ============================================================================
-    // BORDER GROUP
-    // ============================================================================
     property real borderWidth: 0.5
     property color borderColor: "#b3b3b3"
 
     // ============================================================================
-    // ✅ ENHANCED: BASE COLOR GROUP WITH INACTIVE SUPPORT
+    // ✅ ENHANCED: COLOR PROPERTIES WITH DARK STATE SUPPORT
     // ============================================================================
     property color mastColor: "#ffffff"
     property color armColorActive: "#ffffff"
     property color armColorInactive: "#b3b3b3"
     property color lampOffColor: "#404040"
-    property color inactiveColor: "#606060"        // ✅ NEW: Color for inactive signals
-    property color inactiveMastColor: "#888888"    // ✅ NEW: Dimmed mast for inactive signals
+    property color darkStateColor: "#333333"        // ✅ NEW: Dark but visible
+    property color inactiveColor: "#606060"
+    property color inactiveMastColor: "#888888"
 
-    // ============================================================================
-    // SIGNAL COLOR GROUP
-    // ============================================================================
+    // Signal colors
     property color redAspectColor: "#ff0000"
     property color yellowAspectColor: "#ffff00"
     property color greenAspectColor: "#00ff00"
-    property color callingOnColor: "#f0f8ff"       // White color for calling-on
-    property color loopColor: "#ffff00"            // Yellow color for loop signal
+    property color callingOnColor: "#f0f8ff"        // WHITE
+    property color loopColor: "#ffff00"             // YELLOW
 
-    // ============================================================================
-    // ✅ NEW: INACTIVE SIGNAL PROPERTIES
-    // ============================================================================
+    // Inactive signal properties
     readonly property real inactiveOpacity: 0.5
     readonly property color inactiveBorderColor: "#ff6600"
     readonly property real inactiveBorderWidth: 2
 
     // ============================================================================
-    // ✅ ENHANCED: DYNAMIC COLOR LOGIC
+    // ✅ ENHANCED: DYNAMIC COLOR LOGIC WITH OFF/DARK/ACTIVE SUPPORT
     // ============================================================================
     property color currentArmColor: {
         if (!isActive) return inactiveMastColor;
-        return (callingOnAspect === "WHITE") ? armColorActive : armColorInactive;
+        return (isCallingOnVisible) ? armColorActive : armColorInactive;
     }
 
     function getMastColor() {
@@ -125,16 +107,22 @@ Item {
         if (!isActive) return inactiveColor;
 
         switch(loopAspect) {
-            case "YELLOW": return loopColor        // Yellow when active
-            case "DARK": return lampOffColor       // Dark/off color
-            case "INACTIVE": return lampOffColor   // Not visible anyway
-            default: return lampOffColor           // Safe default
+            case "YELLOW": return loopColor          // ✅ Active: Show signature color
+            case "DARK": return darkStateColor       // ✅ Dark: Visible but dark
+            case "OFF": return lampOffColor          // ✅ Off: Should not be visible anyway
+            default: return lampOffColor             // Safe default
         }
     }
 
     function getCallingOnColor() {
         if (!isActive) return inactiveColor;
-        return (callingOnAspect === "WHITE") ? callingOnColor : lampOffColor;
+
+        switch(callingOnAspect) {
+            case "WHITE": return callingOnColor      // ✅ Active: Show signature color
+            case "DARK": return darkStateColor       // ✅ Dark: Visible but dark
+            case "OFF": return lampOffColor          // ✅ Off: Should not be visible anyway
+            default: return lampOffColor             // Safe default
+        }
     }
 
     function getMainLampColor(aspectToCheck) {
@@ -152,10 +140,10 @@ Item {
     }
 
     // ============================================================================
-    // ✅ NEW: DATABASE VALIDATION FUNCTIONS
+    // DATABASE VALIDATION FUNCTIONS (unchanged)
     // ============================================================================
     function isValidAspect(aspect) {
-        if (possibleAspects.length === 0) return true; // No restriction
+        if (possibleAspects.length === 0) return true;
         return possibleAspects.indexOf(aspect) !== -1;
     }
 
@@ -186,14 +174,14 @@ Item {
     signal signalClicked(string signalId, string currentAspect)
 
     // ============================================================================
-    // UP SIGNAL LAYOUT: Dynamic loop configuration (RED, YELLOW, GREEN sequence)
+    // ✅ FIXED: UP SIGNAL LAYOUT WITH CORRECT VISIBILITY LOGIC
     // ============================================================================
     Item {
         id: upSignalLayout
         visible: direction === "UP"
         anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
-        opacity: isActive ? 1.0 : inactiveOpacity  // ✅ NEW: Dimmed when inactive
+        opacity: isActive ? 1.0 : inactiveOpacity
 
         Row {
             id: mainHorizontalLine
@@ -218,7 +206,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            // **STEP 3: CALLING-ON SIGNAL**
+            // **✅ STEP 3: CALLING-ON SIGNAL - CONDITIONAL VISIBILITY**
             Rectangle {
                 id: upCallingOnSignal
                 width: callingOnWidth
@@ -228,15 +216,16 @@ Item {
                 border.color: borderColor
                 border.width: borderWidth
                 anchors.verticalCenter: parent.verticalCenter
+                visible: isCallingOnVisible  // ✅ FIXED: Only render if not OFF
             }
 
-            // **STEP 4: ARM SEGMENT 2** (contains dynamic mast 2) - ✅ CONDITIONAL
+            // **✅ STEP 4: ARM SEGMENT 2 - CONDITIONAL VISIBILITY FOR LOOP**
             Item {
                 id: upArmSegment2Container
                 width: armSegment2Width
                 height: armHeight
                 anchors.verticalCenter: parent.verticalCenter
-                visible: isLoopSignalActive  // ✅ Hide when loop is inactive
+                visible: isLoopSignalVisible  // ✅ FIXED: Show if not OFF (even if DARK)
 
                 // Arm segment 2 background
                 Rectangle {
@@ -245,58 +234,54 @@ Item {
                     color: currentArmColor
                 }
 
-                // **DYNAMIC MAST 2** - ✅ CONDITIONAL Position based on loopMastDirection
+                // **DYNAMIC MAST 2**
                 Rectangle {
                     id: upMast2
                     width: mast2Width
                     height: mast2Height
                     color: getMastColor()
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: isLoopSignalActive
+                    visible: isLoopSignalVisible  // ✅ FIXED: Based on visibility, not activity
 
-                    // ✅ DYNAMIC MAST POSITIONING
                     anchors.bottom: loopMastDirection === "U" ? parent.top : undefined
                     anchors.top: loopMastDirection === "D" ? parent.bottom : undefined
                 }
 
-                // **DYNAMIC ARM SEGMENT 3** - ✅ CONDITIONAL Direction based on loopArmDirection
+                // **DYNAMIC ARM SEGMENT 3**
                 Rectangle {
                     id: upArmSegment3
                     width: armSegment3Width
                     height: armHeight
                     color: currentArmColor
-                    visible: isLoopSignalActive
+                    visible: isLoopSignalVisible  // ✅ FIXED: Based on visibility
 
-                    // ✅ DYNAMIC ARM POSITIONING
                     anchors.left: loopArmDirection === "R" ? upMast2.right : undefined
                     anchors.right: loopArmDirection === "L" ? upMast2.left : undefined
                     anchors.verticalCenter: loopMastDirection === "U" ? upMast2.top : upMast2.bottom
                 }
 
-                // **DYNAMIC LOOP SIGNAL** - ✅ CONDITIONAL Position based on arm direction
+                // **✅ DYNAMIC LOOP SIGNAL - ALWAYS VISIBLE IF CONTAINER IS VISIBLE**
                 Rectangle {
                     id: upLoopSignal
                     width: loopWidth
                     height: loopHeight
                     radius: width / 2
-                    color: getLoopSignalColor()
+                    color: getLoopSignalColor()  // ✅ Color shows state (YELLOW/DARK)
                     border.color: borderColor
                     border.width: borderWidth
-                    visible: isLoopSignalActive
+                    visible: isLoopSignalVisible  // ✅ FIXED: Always visible if not OFF
 
-                    // ✅ DYNAMIC LOOP POSITIONING
                     anchors.left: loopArmDirection === "R" ? upArmSegment3.right : undefined
                     anchors.right: loopArmDirection === "L" ? upArmSegment3.left : undefined
                     anchors.verticalCenter: upArmSegment3.verticalCenter
                 }
             }
 
-            // **STEP 5: MAIN HOME SIGNAL CIRCLES - UP SEQUENCE: RED, YELLOW, GREEN**
+            // **STEP 5: MAIN HOME SIGNAL CIRCLES** (unchanged)
             Row {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: circleSpacing
 
-                // **UP LAMP 1: RED (Left)**
                 Rectangle {
                     width: circleWidth
                     height: circleHeight
@@ -306,7 +291,6 @@ Item {
                     border.width: borderWidth
                 }
 
-                // **UP LAMP 2: YELLOW (Center)**
                 Rectangle {
                     width: circleWidth
                     height: circleHeight
@@ -314,10 +298,9 @@ Item {
                     color: getMainLampColor("YELLOW")
                     border.color: borderColor
                     border.width: borderWidth
-                    visible: aspectCount >= 2  // ✅ NEW: Only show if signal supports it
+                    visible: aspectCount >= 2
                 }
 
-                // **UP LAMP 3: GREEN (Right)**
                 Rectangle {
                     width: circleWidth
                     height: circleHeight
@@ -325,21 +308,21 @@ Item {
                     color: getMainLampColor("GREEN")
                     border.color: borderColor
                     border.width: borderWidth
-                    visible: aspectCount >= 3  // ✅ NEW: Only show if signal supports it
+                    visible: aspectCount >= 3
                 }
             }
         }
     }
 
     // ============================================================================
-    // DOWN SIGNAL LAYOUT: Dynamic loop configuration (GREEN, YELLOW, RED sequence)
+    // ✅ FIXED: DOWN SIGNAL LAYOUT (Same visibility logic as UP)
     // ============================================================================
     Item {
         id: downSignalLayout
         visible: direction === "DOWN"
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        opacity: isActive ? 1.0 : inactiveOpacity  // ✅ NEW: Dimmed when inactive
+        opacity: isActive ? 1.0 : inactiveOpacity
 
         Row {
             id: downMainHorizontalLine
@@ -348,7 +331,6 @@ Item {
             layoutDirection: Qt.RightToLeft
             spacing: 0
 
-            // **STEP 1: MAST 1 (rightmost)**
             Rectangle {
                 id: downMast1
                 width: mast1Width
@@ -357,7 +339,6 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            // **STEP 2: ARM SEGMENT 1**
             Rectangle {
                 id: downArmSegment1
                 width: armSegment1Width
@@ -366,7 +347,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
             }
 
-            // **STEP 3: CALLING-ON SIGNAL**
+            // **✅ CALLING-ON SIGNAL - CONDITIONAL VISIBILITY**
             Rectangle {
                 id: downCallingOnSignal
                 width: callingOnWidth
@@ -376,75 +357,69 @@ Item {
                 border.color: borderColor
                 border.width: borderWidth
                 anchors.verticalCenter: parent.verticalCenter
+                visible: isCallingOnVisible  // ✅ FIXED: Only render if not OFF
             }
 
-            // **STEP 4: ARM SEGMENT 2** (contains dynamic mast 2) - ✅ CONDITIONAL
+            // **✅ ARM SEGMENT 2 - CONDITIONAL VISIBILITY FOR LOOP**
             Item {
                 id: downArmSegment2Container
                 width: armSegment2Width
                 height: armHeight
                 anchors.verticalCenter: parent.verticalCenter
-                visible: isLoopSignalActive  // ✅ Hide when loop is inactive
+                visible: isLoopSignalVisible  // ✅ FIXED: Show if not OFF
 
-                // Arm segment 2 background
                 Rectangle {
                     id: downArmSegment2
                     anchors.fill: parent
                     color: currentArmColor
                 }
 
-                // **DYNAMIC MAST 2** - ✅ CONDITIONAL Position based on loopMastDirection
                 Rectangle {
                     id: downMast2
                     width: mast2Width
                     height: mast2Height
                     color: getMastColor()
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: isLoopSignalActive
+                    visible: isLoopSignalVisible
 
-                    // ✅ DYNAMIC MAST POSITIONING
                     anchors.bottom: loopMastDirection === "U" ? parent.top : undefined
                     anchors.top: loopMastDirection === "D" ? parent.bottom : undefined
                 }
 
-                // **DYNAMIC ARM SEGMENT 3** - ✅ CONDITIONAL Direction based on loopArmDirection (inverted for DOWN)
                 Rectangle {
                     id: downArmSegment3
                     width: armSegment3Width
                     height: armHeight
                     color: currentArmColor
-                    visible: isLoopSignalActive
+                    visible: isLoopSignalVisible
 
-                    // ✅ DYNAMIC ARM POSITIONING (inverted logic for DOWN direction)
                     anchors.left: loopArmDirection === "L" ? downMast2.right : undefined
                     anchors.right: loopArmDirection === "R" ? downMast2.left : undefined
                     anchors.verticalCenter: loopMastDirection === "U" ? downMast2.top : downMast2.bottom
                 }
 
-                // **DYNAMIC LOOP SIGNAL** - ✅ CONDITIONAL Position based on arm direction (inverted for DOWN)
+                // **✅ LOOP SIGNAL**
                 Rectangle {
                     id: downLoopSignal
                     width: loopWidth
                     height: loopHeight
                     radius: width / 2
-                    color: getLoopSignalColor()
+                    color: getLoopSignalColor()  // ✅ Color shows state
                     border.color: borderColor
                     border.width: borderWidth
-                    visible: isLoopSignalActive
+                    visible: isLoopSignalVisible  // ✅ FIXED: Always visible if not OFF
 
-                    // ✅ DYNAMIC LOOP POSITIONING (inverted logic for DOWN direction)
                     anchors.left: loopArmDirection === "L" ? downArmSegment3.right : undefined
                     anchors.right: loopArmDirection === "R" ? downArmSegment3.left : undefined
                     anchors.verticalCenter: downArmSegment3.verticalCenter
                 }
             }
 
-            // **STEP 5: MAIN HOME SIGNAL CIRCLES - DOWN SEQUENCE: GREEN, YELLOW, RED**
+            // **MAIN SIGNAL CIRCLES** (unchanged)
             Row {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: circleSpacing
 
-                // **DOWN LAMP 1: GREEN (Left when mirrored = rightmost visually)**
                 Rectangle {
                     width: circleWidth
                     height: circleHeight
@@ -452,10 +427,9 @@ Item {
                     color: getMainLampColor("GREEN")
                     border.color: borderColor
                     border.width: borderWidth
-                    visible: aspectCount >= 3  // ✅ NEW: Only show if signal supports it
+                    visible: aspectCount >= 3
                 }
 
-                // **DOWN LAMP 2: YELLOW (Center when mirrored)**
                 Rectangle {
                     width: circleWidth
                     height: circleHeight
@@ -463,10 +437,9 @@ Item {
                     color: getMainLampColor("YELLOW")
                     border.color: borderColor
                     border.width: borderWidth
-                    visible: aspectCount >= 2  // ✅ NEW: Only show if signal supports it
+                    visible: aspectCount >= 2
                 }
 
-                // **DOWN LAMP 3: RED (Right when mirrored = leftmost visually)**
                 Rectangle {
                     width: circleWidth
                     height: circleHeight
@@ -479,7 +452,9 @@ Item {
         }
     }
 
-    // ✅ NEW: INACTIVE SIGNAL OVERLAY
+    // ============================================================================
+    // INACTIVE SIGNAL OVERLAY AND INTERACTION (unchanged)
+    // ============================================================================
     Rectangle {
         anchors.fill: parent
         color: "transparent"
@@ -489,7 +464,6 @@ Item {
         visible: !isActive
         opacity: 0.7
 
-        // "X" pattern for inactive signals
         Rectangle {
             width: parent.width * 1.414
             height: 1
@@ -508,9 +482,6 @@ Item {
         }
     }
 
-    // ============================================================================
-    // ✅ ENHANCED: INTERACTION WITH DATABASE VALIDATION
-    // ============================================================================
     MouseArea {
         id: mouseArea
         anchors.fill: parent
@@ -528,18 +499,14 @@ Item {
             console.log("Home signal clicked:", signalId,
                        "Name:", signalName || "Unnamed",
                        "Main aspect:", currentAspect, "(" + getAspectDisplayName(currentAspect) + ")",
-                       "Calling-on:", callingOnAspect,
-                       "Loop:", loopAspect,
+                       "Calling-on:", callingOnAspect, "(visible:" + isCallingOnVisible + ")",
+                       "Loop:", loopAspect, "(visible:" + isLoopSignalVisible + ")",
                        "Loop config:", loopSignalConfiguration,
-                       "Loop active:", isLoopSignalActive,
                        "Direction:", direction,
-                       "Type:", getSignalTypeDescription(),
-                       "Valid aspects:", possibleAspects,
-                       "Next valid aspect:", getNextValidAspect())
+                       "Type:", getSignalTypeDescription())
             homeSignal.signalClicked(signalId, currentAspect)
         }
 
-        // ✅ ENHANCED: HOVER EFFECT WITH STATUS INDICATION
         Rectangle {
             anchors.fill: parent
             color: isOperational() ? "white" : "red"
