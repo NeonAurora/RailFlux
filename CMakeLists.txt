@@ -3,6 +3,8 @@ cmake_minimum_required(VERSION 3.16)
 project(RailFlux VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
+
 
 find_package(Qt6 REQUIRED COMPONENTS Quick Sql)
 
@@ -30,13 +32,19 @@ qt_add_qml_module(appRailFlux
         components/AdvanceStarterSignal.qml
 
     SOURCES
-        database/databasemanager.h
-        database/databasemanager.cpp
-        database/databaseinitializer.h
-        database/databaseinitializer.cpp
+    database/DatabaseManager.h
+        database/DatabaseManager.cpp
+        database/DatabaseInitializer.h
+        database/DatabaseInitializer.cpp
 
     RESOURCES
         sql/sql_coomands_railflux.sql
+        SOURCES
+        SOURCES
+        SOURCES interlocking/InterlockingService.h interlocking/InterlockingService.cpp
+        SOURCES interlocking/SignalBranch.h interlocking/SignalBranch.cpp
+        SOURCES interlocking/TrackCircuitBranch.h interlocking/TrackCircuitBranch.cpp
+        SOURCES interlocking/PointMachineBranch.h interlocking/PointMachineBranch.cpp
 )
 
 qt_add_resources(appRailFlux "app_resources"

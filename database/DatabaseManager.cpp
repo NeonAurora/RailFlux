@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QFile>
 #include <QFileInfo>
+#include "../interlocking/InterlockingService.h"
 
 DatabaseManager::DatabaseManager(QObject* parent)
     : QObject(parent)
@@ -632,8 +633,36 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
 bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString& newAspect) {
     if (!connected) return false;
 
+    QElapsedTimer timer;
+    timer.start();
+
     qDebug() << "🔄 SAFETY: Updating signal:" << signalId << "to aspect:" << newAspect;
 
+    // ✅ NEW: Get current aspect for interlocking validation
+    QString currentAspect = getCurrentSignalAspect(signalId);
+    if (currentAspect.isEmpty()) {
+        qWarning() << "❌ Could not get current aspect for signal:" << signalId;
+        emit operationBlocked(signalId, "Signal not found or invalid state");
+        return false;
+    }
+
+    // ✅ NEW: Interlocking validation (if service is available)
+    if (m_interlockingService) {
+        auto validation = m_interlockingService->validateSignalOperation(
+            signalId, currentAspect, newAspect, "HMI_USER");
+
+        if (!validation.isAllowed()) {
+            qDebug() << "🚨 Signal operation blocked by interlocking:" << validation.getReason();
+            emit operationBlocked(signalId, validation.getReason());
+            return false;
+        }
+
+        qDebug() << "✅ Interlocking validation passed for signal" << signalId;
+    } else {
+        qWarning() << "⚠️ Interlocking service not available - proceeding without validation";
+    }
+
+    // ✅ EXISTING: Original database update logic
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_signal_aspect(?, ?, 'HMI_USER')");
     query.addBindValue(signalId);
@@ -644,7 +673,7 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString&
         qDebug() << "✅ SAFETY: Database function returned:" << success;
 
         if (success) {
-            // ✅ SAFETY: Verify the change actually happened
+            // ✅ EXISTING: Verify the change actually happened
             QSqlQuery verifyQuery(db);
             verifyQuery.prepare("SELECT current_aspect_id FROM railway_control.signals WHERE signal_id = ?");
             verifyQuery.addBindValue(signalId);
@@ -653,9 +682,11 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString&
                 qDebug() << "🔍 SAFETY: Signal" << signalId << "now has aspect_id:" << currentAspectId;
             }
 
-            // ✅ SAFETY: No cache invalidation - just emit signals
+            // ✅ EXISTING: Emit signals
             emit signalUpdated(signalId);
             emit signalsChanged();
+
+            qDebug() << "✅ Signal operation completed in" << timer.elapsed() << "ms";
         }
         return success;
     } else {
@@ -670,6 +701,31 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
 
     qDebug() << "🔄 SAFETY: Updating point machine:" << machineId << "to position:" << newPosition;
 
+    // ✅ NEW: Get current position for interlocking validation
+    QString currentPosition = getCurrentPointPosition(machineId);
+    if (currentPosition.isEmpty()) {
+        qWarning() << "❌ Could not get current position for point machine:" << machineId;
+        emit operationBlocked(machineId, "Point machine not found or invalid state");
+        return false;
+    }
+
+    // ✅ NEW: Interlocking validation (if service is available)
+    if (m_interlockingService) {
+        auto validation = m_interlockingService->validatePointMachineOperation(
+            machineId, currentPosition, newPosition, "HMI_USER");
+
+        if (!validation.isAllowed()) {
+            qDebug() << "🚨 Point machine operation blocked by interlocking:" << validation.getReason();
+            emit operationBlocked(machineId, validation.getReason());
+            return false;
+        }
+
+        qDebug() << "✅ Interlocking validation passed for point machine" << machineId;
+    } else {
+        qWarning() << "⚠️ Interlocking service not available - proceeding without validation";
+    }
+
+    // ✅ EXISTING: Original database update logic
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_point_position(?, ?, 'HMI_USER')");
     query.addBindValue(machineId);
@@ -678,7 +734,6 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            // ✅ SAFETY: No cache invalidation - just emit signals
             emit pointMachineUpdated(machineId);
             emit pointMachinesChanged();
         }
@@ -688,6 +743,85 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
     qWarning() << "❌ SAFETY CRITICAL: Point machine update failed:" << query.lastError().text();
     return false;
 }
+
+QString DatabaseManager::getCurrentSignalAspect(const QString& signalId) {
+    if (!connected) {
+        qWarning() << "❌ Database not connected - cannot get signal aspect";
+        return QString();
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT sa.aspect_code
+        FROM railway_control.signals s
+        LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id
+        WHERE s.signal_id = ?
+    )");
+    query.addBindValue(signalId);
+
+    if (!query.exec()) {
+        qWarning() << "❌ Failed to get current aspect for signal" << signalId << ":" << query.lastError().text();
+        return QString();
+    }
+
+    if (query.next()) {
+        return query.value(0).toString();
+    }
+
+    qWarning() << "⚠️ Signal not found:" << signalId;
+    return QString();
+}
+
+QString DatabaseManager::getCurrentPointPosition(const QString& machineId) {
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT pp.position_code
+        FROM railway_control.point_machines pm
+        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
+        WHERE pm.machine_id = ?
+    )");
+    query.addBindValue(machineId);
+
+    if (query.exec() && query.next()) {
+        return query.value(0).toString();
+    }
+
+    return QString(); // Empty string indicates error
+}
+
+QStringList DatabaseManager::getProtectedTracks(const QString& signalId) {
+    QSqlQuery query(db);
+    query.prepare("SELECT protected_track_id FROM railway_control.signal_track_protection WHERE signal_id = ? AND is_active = TRUE");
+    query.addBindValue(signalId);
+
+    QStringList tracks;
+    if (query.exec()) {
+        while (query.next()) {
+            tracks.append(query.value(0).toString());
+        }
+    }
+
+    return tracks;
+}
+
+QStringList DatabaseManager::getInterlockedSignals(const QString& signalId) {
+    auto signalData = getSignalById(signalId);
+    if (!signalData.isEmpty()) {
+        return signalData["interlockedWith"].toStringList();
+    }
+    return QStringList();
+}
+
+void DatabaseManager::setInterlockingService(InterlockingService* service) {
+    m_interlockingService = service;
+    qDebug() << "✅ Interlocking service connected to DatabaseManager";
+}
+
+// ✅ ADD: Database access method for interlocking branches
+QSqlDatabase DatabaseManager::getDatabase() const {
+    return db;
+}
+
 
 bool DatabaseManager::updateTrackOccupancy(const QString& segmentId, bool isOccupied) {
     if (!connected) return false;

@@ -156,6 +156,11 @@ void DatabaseInitializer::performReset() {
             throw std::runtime_error("Failed to populate text labels");
         }
 
+        updateProgress(92, "Populating interlocking rules...");
+        if (!populateInterlockingRules()) {
+            throw std::runtime_error("Failed to populate interlocking rules");
+        }
+
         updateProgress(95, "Validating database...");
         if (!validateDatabase()) {
             throw std::runtime_error("Database validation failed");
@@ -327,6 +332,7 @@ bool DatabaseInitializer::executeSchemaScript() {
             length_meters NUMERIC(10,2),
             max_speed_kmh INTEGER,
             is_active BOOLEAN DEFAULT TRUE,
+            protecting_signals TEXT[],
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT chk_coordinates CHECK (
@@ -354,6 +360,8 @@ bool DatabaseInitializer::executeSchemaScript() {
             last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             last_changed_by VARCHAR(100),
             interlocked_with INTEGER[],
+            protected_tracks TEXT[],
+            manual_control_active BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
@@ -380,6 +388,7 @@ bool DatabaseInitializer::executeSchemaScript() {
             safety_interlocks INTEGER[],
             is_locked BOOLEAN DEFAULT FALSE,
             lock_reason TEXT,
+            protected_signals TEXT[],
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT chk_junction_location CHECK (junction_row >= 0 AND junction_col >= 0)
@@ -407,6 +416,39 @@ bool DatabaseInitializer::executeSchemaScript() {
             description TEXT,
             last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_by VARCHAR(100)
+        ))",
+
+        R"(CREATE TABLE railway_control.interlocking_rules (
+            id SERIAL PRIMARY KEY,
+            rule_name VARCHAR(100) NOT NULL,
+
+            source_entity_type VARCHAR(20) NOT NULL CHECK (source_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT')),
+            source_entity_id VARCHAR(20) NOT NULL,
+
+            target_entity_type VARCHAR(20) NOT NULL CHECK (target_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT')),
+            target_entity_id VARCHAR(20) NOT NULL,
+            target_constraint VARCHAR(50) NOT NULL,
+
+            rule_type VARCHAR(50) NOT NULL,
+            priority INTEGER DEFAULT 100,
+            is_active BOOLEAN DEFAULT TRUE,
+
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            CONSTRAINT chk_no_self_reference CHECK (
+                NOT (source_entity_type = target_entity_type AND source_entity_id = target_entity_id)
+            )
+        ))",
+        R"(CREATE TABLE railway_control.signal_track_protection (
+            id SERIAL PRIMARY KEY,
+            signal_id VARCHAR(20) NOT NULL,
+            protected_track_id VARCHAR(20) NOT NULL,
+            protection_type VARCHAR(50) DEFAULT 'APPROACH',
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            UNIQUE(signal_id, protected_track_id, protection_type)
         ))"
     };
 
@@ -616,6 +658,15 @@ bool DatabaseInitializer::executeSchemaScript() {
         "CREATE INDEX idx_event_log_safety ON railway_audit.event_log(safety_critical) WHERE safety_critical = TRUE",
         "CREATE INDEX idx_event_log_sequence ON railway_audit.event_log(sequence_number)",
         "CREATE INDEX idx_event_log_date ON railway_audit.event_log(event_date)"
+
+        // Add to existing basicIndexes QStringList:
+        "CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id)",
+        "CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id)",
+        "CREATE INDEX idx_signal_track_protection_signal ON railway_control.signal_track_protection(signal_id)",
+        "CREATE INDEX idx_signal_track_protection_track ON railway_control.signal_track_protection(protected_track_id)",
+        "CREATE INDEX idx_signals_protected_tracks ON railway_control.signals USING gin(protected_tracks)",
+        "CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals)",
+        "CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals)"
     };
 
     qDebug() << "Creating basic indexes...";
@@ -668,6 +719,7 @@ bool DatabaseInitializer::executeSchemaScript() {
 
     return true;
 }
+
 bool DatabaseInitializer::populateConfigurationData() {
     // Insert signal types
     int starterTypeId = insertSignalType("STARTER", "Starter Signal", 3);
@@ -889,6 +941,40 @@ bool DatabaseInitializer::populateTextLabels() {
 
         if (!executeQuery(insertQuery, params)) {
             return false;
+        }
+    }
+
+    return true;
+}
+
+bool DatabaseInitializer::populateInterlockingRules() {
+    // Insert basic interlocking rules
+    QStringList interlockingRules = {
+        R"(INSERT INTO railway_control.interlocking_rules (
+            rule_name, source_entity_type, source_entity_id,
+            target_entity_type, target_entity_id, target_constraint,
+            rule_type, priority
+        ) VALUES
+        ('Opposing Signals HM001-HM002', 'SIGNAL', 'HM001', 'SIGNAL', 'HM002', 'MUST_BE_RED', 'OPPOSING', 1000),
+        ('Opposing Signals HM002-HM001', 'SIGNAL', 'HM002', 'SIGNAL', 'HM001', 'MUST_BE_RED', 'OPPOSING', 1000),
+        ('Signal OT001 protects T1S3', 'SIGNAL', 'OT001', 'TRACK_SEGMENT', 'T1S3', 'MUST_BE_CLEAR', 'PROTECTING', 900),
+        ('Signal HM001 protects T1S4', 'SIGNAL', 'HM001', 'TRACK_SEGMENT', 'T1S4', 'MUST_BE_CLEAR', 'PROTECTING', 900)
+        ON CONFLICT DO NOTHING)",
+
+        R"(INSERT INTO railway_control.signal_track_protection (signal_id, protected_track_id, protection_type) VALUES
+        ('OT001', 'T1S3', 'APPROACH'),
+        ('HM001', 'T1S4', 'APPROACH'),
+        ('HM001', 'T1S5', 'CLEARING'),
+        ('ST001', 'T4S2', 'APPROACH'),
+        ('ST002', 'T1S6', 'CLEARING')
+        ON CONFLICT DO NOTHING)"
+    };
+
+    qDebug() << "Populating interlocking rules...";
+    for (const QString& query : interlockingRules) {
+        if (!executeQuery(query)) {
+            qWarning() << "Failed to insert interlocking rule:" << query.left(100) + "...";
+            // Continue with other rules
         }
     }
 
@@ -1607,14 +1693,14 @@ QJsonArray DatabaseInitializer::getOuterSignalsData() {
         QJsonObject{
             {"id", "OT001"}, {"name", "Outer A1"}, {"type", "OUTER"},
             {"row", 102}, {"col", 30}, {"direction", "UP"},
-            {"currentAspect", "DOUBLE_YELLOW"}, {"aspectCount", 4},
+            {"currentAspect", "RED"}, {"aspectCount", 4},
             {"possibleAspects", QJsonArray{"RED", "SINGLE_YELLOW", "DOUBLE_YELLOW", "GREEN"}},
             {"isActive", true}, {"location", "Approach_Block_1"}
         },
         QJsonObject{
             {"id", "OT002"}, {"name", "Outer A2"}, {"type", "OUTER"},
             {"row", 115}, {"col", 330}, {"direction", "DOWN"},
-            {"currentAspect", "DOUBLE_YELLOW"}, {"aspectCount", 4},
+            {"currentAspect", "RED"}, {"aspectCount", 4},
             {"possibleAspects", QJsonArray{"RED", "SINGLE_YELLOW", "DOUBLE_YELLOW", "GREEN"}},
             {"isActive", true}, {"location", "Approach_Block_2"}
         }
@@ -1628,15 +1714,15 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"row", 102}, {"col", 82}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
-            {"callingOnAspect", "DARK"}, {"loopAspect", "YELLOW"}, {"loopSignalConfiguration", "UR"},
+            {"callingOnAspect", "OFF"}, {"loopAspect", "OFF"}, {"loopSignalConfiguration", "UR"},
             {"isActive", true}, {"location", "Platform_A_Entry"}
         },
         QJsonObject{
             {"id", "HM002"}, {"name", "Home A2"}, {"type", "HOME"},
             {"row", 115}, {"col", 270}, {"direction", "DOWN"},
-            {"currentAspect", "GREEN"}, {"aspectCount", 3},
+            {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
-            {"callingOnAspect", "WHITE"}, {"loopAspect", "DARK"}, {"loopSignalConfiguration", "UR"},
+            {"callingOnAspect", "OFF"}, {"loopAspect", "OFF"}, {"loopSignalConfiguration", "UR"},
             {"isActive", true}, {"location", "Platform_A_Exit"}
         },
     };
@@ -1654,7 +1740,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
         QJsonObject{
             {"id", "ST002"}, {"name", "Starter A2"}, {"type", "STARTER"},
             {"row", 103}, {"col", 245}, {"direction", "UP"},
-            {"currentAspect", "YELLOW"}, {"aspectCount", 3},
+            {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         },
@@ -1668,7 +1754,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
         QJsonObject{
             {"id", "ST004"}, {"name", "Starter B2"}, {"type", "STARTER"},
             {"row", 113}, {"col", 125}, {"direction", "DOWN"},
-            {"currentAspect", "YELLOW"}, {"aspectCount", 3},
+            {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         }
@@ -1687,7 +1773,7 @@ QJsonArray DatabaseInitializer::getAdvancedStarterSignalsData() {
         QJsonObject{
             {"id", "AS002"}, {"name", "Advanced Starter A2"}, {"type", "ADVANCED_STARTER"},
             {"row", 115}, {"col", 56}, {"direction", "DOWN"},
-            {"currentAspect", "GREEN"}, {"aspectCount", 2},
+            {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "GREEN"}},
             {"isActive", true}, {"location", "Advanced_Departure_B"}
         }
@@ -1697,28 +1783,28 @@ QJsonArray DatabaseInitializer::getAdvancedStarterSignalsData() {
 QJsonArray DatabaseInitializer::getPointMachinesData() {
     return QJsonArray {
         QJsonObject{
-            {"id", "PM001"}, {"name", "Junction A"}, {"position", "REVERSE"}, {"operatingStatus", "CONNECTED"},
+            {"id", "PM001"}, {"name", "Junction A"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 94.2}}},
             {"rootTrack", QJsonObject{{"trackId", "T1S4"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrack", QJsonObject{{"trackId", "T1S5"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"reverseTrack", QJsonObject{{"trackId", "T5S1"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         },
         QJsonObject{
-            {"id", "PM002"}, {"name", "Junction B"}, {"position", "REVERSE"}, {"operatingStatus", "CONNECTED"},
+            {"id", "PM002"}, {"name", "Junction B"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 116}}},
             {"rootTrack", QJsonObject{{"trackId", "T4S2"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrack", QJsonObject{{"trackId", "T4S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"reverseTrack", QJsonObject{{"trackId", "T5S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         },
         QJsonObject{
-            {"id", "PM003"}, {"name", "Junction C"}, {"position", "REVERSE"}, {"operatingStatus", "CONNECTED"},
+            {"id", "PM003"}, {"name", "Junction C"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 258.7}}},
             {"rootTrack", QJsonObject{{"trackId", "T4S2"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrack", QJsonObject{{"trackId", "T4S3"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"reverseTrack", QJsonObject{{"trackId", "T6S1"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         },
         QJsonObject{
-            {"id", "PM004"}, {"name", "Junction D"}, {"position", "REVERSE"}, {"operatingStatus", "CONNECTED"},
+            {"id", "PM004"}, {"name", "Junction D"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 282.5}}},
             {"rootTrack", QJsonObject{{"trackId", "T1S8"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrack", QJsonObject{{"trackId", "T1S7"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},

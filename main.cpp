@@ -4,6 +4,7 @@
 #include <QIcon>
 #include "database/DatabaseManager.h"
 #include "database/DatabaseInitializer.h"
+#include "interlocking/InterlockingService.h"
 
 int main(int argc, char *argv[])
 {
@@ -12,6 +13,9 @@ int main(int argc, char *argv[])
     // Register C++ types with QML
     qmlRegisterType<DatabaseManager>("RailFlux.Database", 1, 0, "DatabaseManager");
     qmlRegisterType<DatabaseInitializer>("RailFlux.Database", 1, 0, "DatabaseInitializer");
+    qmlRegisterType<InterlockingService>("RailFlux.Interlocking", 1, 0, "InterlockingService");  // NEW
+    qmlRegisterType<ValidationResult>("RailFlux.Interlocking", 1, 0, "ValidationResult");        // NEW
+
 
     app.setWindowIcon(QIcon(":/resources/icons/railway-icon.ico"));
     qDebug() << "Icon exists??" << QFile(":/icons/railway-icon.ico").exists();
@@ -19,13 +23,23 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
-    // Create global database manager instance
+    // Create global instances
     DatabaseManager* dbManager = new DatabaseManager(&app);
-    engine.rootContext()->setContextProperty("globalDatabaseManager", dbManager);
-
-    // Create global database initializer instance
     DatabaseInitializer* dbInitializer = new DatabaseInitializer(&app);
+    InterlockingService* interlockingService = new InterlockingService(dbManager, &app);  // NEW
+
+    engine.rootContext()->setContextProperty("globalDatabaseManager", dbManager);
     engine.rootContext()->setContextProperty("globalDatabaseInitializer", dbInitializer);
+    engine.rootContext()->setContextProperty("globalInterlockingService", interlockingService);  // NEW
+
+    dbManager->setInterlockingService(interlockingService);
+
+    QObject::connect(dbManager, &DatabaseManager::connectionStateChanged,
+                     [interlockingService](bool connected) {
+                         if (connected) {
+                             interlockingService->initialize();
+                         }
+                     });
 
     // ✅ ADD: Cleanup on application exit
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [dbManager]() {

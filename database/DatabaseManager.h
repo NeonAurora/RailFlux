@@ -17,6 +17,8 @@
 #include <QFile>
 #include <QFileInfo>
 
+class InterlockingService;
+
 class DatabaseManager : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool isConnected READ isConnected NOTIFY connectionStateChanged)
@@ -30,6 +32,10 @@ class DatabaseManager : public QObject {
 public:
     explicit DatabaseManager(QObject* parent = nullptr);
     ~DatabaseManager();
+
+    void setInterlockingService(InterlockingService* service);
+
+    QSqlDatabase getDatabase() const;
 
     Q_INVOKABLE bool connectToDatabase();
     Q_INVOKABLE bool connectToSystemPostgreSQL();
@@ -55,6 +61,9 @@ public:
     Q_INVOKABLE QVariantList getAllPointMachinesList();
     Q_INVOKABLE QVariantList getTextLabelsList();
 
+    Q_INVOKABLE QStringList getProtectedTracks(const QString& signalId);
+    Q_INVOKABLE QStringList getInterlockedSignals(const QString& signalId);
+
     // ✅ NEW: Individual object queries
     Q_INVOKABLE QVariantMap getSignalById(const QString& signalId);
     Q_INVOKABLE QVariantMap getTrackSegmentById(const QString& segmentId);
@@ -79,6 +88,7 @@ signals:
     void connectionStateChanged(bool connected);
     void dataUpdated();
     void errorOccurred(const QString& error);
+    void operationBlocked(const QString& entityId, const QString& reason);
 
     // ✅ NEW: Specific data change signals
     void trackSegmentsChanged();
@@ -97,6 +107,7 @@ private slots:
 private:
     // ✅ FIXED: Added missing constant
     static constexpr int POLLING_INTERVAL_MS = 50000;  // 50 second polling interval
+    InterlockingService* m_interlockingService = nullptr;
 
     // ✅ Database connection
     QSqlDatabase db;
@@ -134,4 +145,7 @@ private:
     QVariantMap convertSignalRowToVariant(const QSqlQuery& query);
     QVariantMap convertTrackRowToVariant(const QSqlQuery& query);
     QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);
+
+    QString getCurrentSignalAspect(const QString& signalId);
+    QString getCurrentPointPosition(const QString& machineId);
 };

@@ -76,6 +76,7 @@ private:
     bool populateSignals();
     bool populatePointMachines();
     bool populateTextLabels();
+    bool populateInterlockingRules();
     bool validateDatabase();
     bool verifySchemas();
 
