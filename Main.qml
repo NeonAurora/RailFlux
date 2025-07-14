@@ -17,54 +17,10 @@ ApplicationWindow {
         target: globalDatabaseManager
 
         function onConnectionStateChanged(isConnected) {
-            console.log("🔗 Connection state changed to:", isConnected)
-            console.log("🔗 globalDatabaseManager.isConnected:", globalDatabaseManager.isConnected)
+            console.log("🔗 Main: Connection state changed to:", isConnected)
 
             // ✅ DIRECT property update
             connectionStatus.connected = isConnected
-
-            if (isConnected) {
-                console.log("✅ Database connected - refreshing all station data")
-                stationLayout.refreshAllData()
-            } else {
-                console.log("❌ Database disconnected")
-            }
-        }
-
-        function onDataUpdated() {
-            console.log("📊 Database data updated - refreshing UI")
-            stationLayout.refreshAllData()
-        }
-
-        function onSignalUpdated(signalId) {
-            console.log("🚦 Signal updated:", signalId)
-            stationLayout.refreshSignalData()
-        }
-
-        function onPointMachineUpdated(machineId) {
-            console.log("🔄 Point machine updated:", machineId)
-            stationLayout.refreshPointMachineData()
-        }
-
-        function onTrackSegmentUpdated(segmentId) {
-            console.log("🛤️ Track segment updated:", segmentId)
-            stationLayout.refreshTrackData()
-        }
-
-        function onTrackSegmentsChanged() {
-            stationLayout.refreshTrackData()
-        }
-
-        function onSignalsChanged() {
-            stationLayout.refreshSignalData()
-        }
-
-        function onPointMachinesChanged() {
-            stationLayout.refreshPointMachineData()
-        }
-
-        function onTextLabelsChanged() {
-            stationLayout.refreshTextLabelData()
         }
 
         function onErrorOccurred(error) {
@@ -142,12 +98,6 @@ ApplicationWindow {
         // ✅ ADD: Update UI connection state immediately
         if (globalDatabaseManager) {
             connectionStatus.connected = globalDatabaseManager.isConnected
-        }
-
-        // Initialize data once database is ready
-        if (globalDatabaseManager && globalDatabaseManager.isConnected) {
-            console.log("✅ Loading initial data")
-            stationLayout.refreshAllData()
         }
     }
 

@@ -382,6 +382,10 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
     qDebug() << "✅ Parsed notification:" << table << operation << entityId;
 
     // ✅ SAFETY: No cache refreshing - just emit signals for UI updates
+    if (obj["test"].toString() == "startup") {
+        qDebug() << "✅ Test notification received - system working";
+        return; // ← Don't trigger data refresh
+    }
     if (table == "signals") {
         emit signalsChanged();
         emit signalUpdated(entityId);
@@ -498,6 +502,13 @@ QVariantList DatabaseManager::getTrackSegmentsList() {
 QVariantList DatabaseManager::getAllSignalsList() {
     if (!connected) return QVariantList();
 
+    qDebug() << "🔍 getAllSignalsList() called from:";
+    qDebug() << "   Thread:" << QThread::currentThread();
+
+    static int callCount = 0;
+    callCount++;
+    qDebug() << "📊 Call #" << callCount << "- getAllSignalsList() executing";
+
     qDebug() << "🔍 SAFETY: getAllSignalsList() - DIRECT DATABASE QUERY";
 
     // ✅ FIXED: Changed from 'signals' to 'signalsList' (signals is a Qt keyword)
@@ -533,7 +544,7 @@ QVariantList DatabaseManager::getAllSignalsList() {
     }
 
     // ✅ FIXED: Use signalsList instead of signals
-    qDebug() << "✅ SAFETY: Returning" << signalsList.size() << "signals from DIRECT database query";
+    qDebug() << "✅ getAllSignalsList() returning" << signalsList.size() << "signals";
     return signalsList;
 }
 
