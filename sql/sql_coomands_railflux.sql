@@ -62,17 +62,16 @@ CREATE TABLE railway_control.track_segments (
     track_type VARCHAR(20) DEFAULT 'STRAIGHT',
     is_occupied BOOLEAN DEFAULT FALSE,
     is_assigned BOOLEAN DEFAULT FALSE,
-    occupied_by VARCHAR(50), -- Train ID or assignment
+    occupied_by VARCHAR(50),
     circuit_id VARCHAR(20),
     length_meters NUMERIC(10,2),
     max_speed_kmh INTEGER,
     is_active BOOLEAN DEFAULT TRUE,
+    protecting_signals TEXT[],
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Constraints
     CONSTRAINT chk_coordinates CHECK (
-        start_row >= 0 AND start_col >= 0 AND 
+        start_row >= 0 AND start_col >= 0 AND
         end_row >= 0 AND end_col >= 0
     )
 );
@@ -86,27 +85,20 @@ CREATE TABLE railway_control.signals (
     location_col NUMERIC(10,2) NOT NULL,
     direction VARCHAR(10) NOT NULL CHECK (direction IN ('UP', 'DOWN')),
     current_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
-    
-    -- Home signal specific fields
     calling_on_aspect VARCHAR(20) DEFAULT 'OFF',
     loop_aspect VARCHAR(20) DEFAULT 'OFF',
     loop_signal_configuration VARCHAR(10) DEFAULT 'UR',
-    
-    -- Signal properties
     aspect_count INTEGER NOT NULL DEFAULT 2,
-    possible_aspects TEXT[], -- Array of possible aspect codes
+    possible_aspects TEXT[],
     is_active BOOLEAN DEFAULT TRUE,
     location_description VARCHAR(200),
-    
-    -- Operational fields
     last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     last_changed_by VARCHAR(100),
-    interlocked_with INTEGER[], -- Array of signal IDs this is interlocked with
-    
+    interlocked_with INTEGER[],
+    protected_tracks TEXT[],
+    manual_control_active BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Constraints
     CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
     CONSTRAINT chk_aspect_count CHECK (aspect_count >= 2 AND aspect_count <= 4)
 );
@@ -115,37 +107,25 @@ CREATE TABLE railway_control.point_machines (
     id SERIAL PRIMARY KEY,
     machine_id VARCHAR(20) NOT NULL UNIQUE,
     machine_name VARCHAR(100) NOT NULL,
-    
-    -- Junction geometry
     junction_row NUMERIC(10,2) NOT NULL,
     junction_col NUMERIC(10,2) NOT NULL,
-    
-    -- Track connections (JSON for flexibility)
     root_track_connection JSONB NOT NULL,
     normal_track_connection JSONB NOT NULL,
     reverse_track_connection JSONB NOT NULL,
-    
-    -- Current state
     current_position_id INTEGER REFERENCES railway_config.point_positions(id),
     operating_status VARCHAR(20) DEFAULT 'CONNECTED' CHECK (
         operating_status IN ('CONNECTED', 'IN_TRANSITION', 'FAILED', 'LOCKED_OUT')
     ),
-    
-    -- Operational fields
     transition_time_ms INTEGER DEFAULT 3000,
     last_operated_at TIMESTAMP WITH TIME ZONE,
     last_operated_by VARCHAR(100),
     operation_count INTEGER DEFAULT 0,
-    
-    -- Safety interlocks
-    safety_interlocks INTEGER[], -- Array of signal IDs that must be RED before operation
+    safety_interlocks INTEGER[],
     is_locked BOOLEAN DEFAULT FALSE,
     lock_reason TEXT,
-    
+    protected_signals TEXT[],
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Constraints
     CONSTRAINT chk_junction_location CHECK (junction_row >= 0 AND junction_col >= 0)
 );
 
@@ -163,6 +143,44 @@ CREATE TABLE railway_control.text_labels (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE railway_control.system_state (
+    id SERIAL PRIMARY KEY,
+    state_key VARCHAR(100) NOT NULL UNIQUE,
+    state_value JSONB NOT NULL,
+    description TEXT,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_by VARCHAR(100)
+);
+
+CREATE TABLE railway_control.interlocking_rules (
+    id SERIAL PRIMARY KEY,
+    rule_name VARCHAR(100) NOT NULL,
+    source_entity_type VARCHAR(20) NOT NULL CHECK (source_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT')),
+    source_entity_id VARCHAR(20) NOT NULL,
+    target_entity_type VARCHAR(20) NOT NULL CHECK (target_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT')),
+    target_entity_id VARCHAR(20) NOT NULL,
+    target_constraint VARCHAR(50) NOT NULL,
+    rule_type VARCHAR(50) NOT NULL,
+    priority INTEGER DEFAULT 100,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_no_self_reference CHECK (
+        NOT (source_entity_type = target_entity_type AND source_entity_id = target_entity_id)
+    )
+);
+
+CREATE TABLE railway_control.signal_track_protection (
+    id SERIAL PRIMARY KEY,
+    signal_id VARCHAR(20) NOT NULL,
+    protected_track_id VARCHAR(20) NOT NULL,
+    protection_type VARCHAR(50) DEFAULT 'APPROACH',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(signal_id, protected_track_id, protection_type)
+);
+
 -- ============================================================================
 -- AUDIT AND EVENT LOGGING SYSTEM
 -- ============================================================================
@@ -174,29 +192,29 @@ CREATE TABLE railway_audit.event_log (
     entity_type VARCHAR(50) NOT NULL, -- SIGNAL, POINT_MACHINE, TRACK_SEGMENT
     entity_id VARCHAR(50) NOT NULL,
     entity_name VARCHAR(100),
-    
+
     -- Change details
     old_values JSONB,
     new_values JSONB,
     field_changed VARCHAR(100),
-    
+
     -- Context
     operator_id VARCHAR(100),
     operator_name VARCHAR(200),
     operation_source VARCHAR(50) DEFAULT 'HMI', -- HMI, API, AUTOMATIC, SYSTEM
     session_id VARCHAR(100),
     ip_address INET,
-    
+
     -- Safety and compliance
     safety_critical BOOLEAN DEFAULT FALSE,
     authorization_level VARCHAR(20),
     reason_code VARCHAR(50),
     comments TEXT,
-    
+
     -- Replay capability
     replay_data JSONB, -- Complete state for replay
     sequence_number BIGINT,
-    
+
     -- Date for partitioning (computed via trigger instead of generated column)
     event_date DATE
 );
@@ -279,6 +297,16 @@ CREATE INDEX idx_event_log_old_values ON railway_audit.event_log USING gin(old_v
 CREATE INDEX idx_event_log_new_values ON railway_audit.event_log USING gin(new_values);
 CREATE INDEX idx_event_log_replay_data ON railway_audit.event_log USING gin(replay_data);
 
+
+-- Add to existing basicIndexes QStringList:
+CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id)
+CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id)
+CREATE INDEX idx_signal_track_protection_signal ON railway_control.signal_track_protection(signal_id)
+CREATE INDEX idx_signal_track_protection_track ON railway_control.signal_track_protection(protected_track_id)
+CREATE INDEX idx_signals_protected_tracks ON railway_control.signals USING gin(protected_tracks)
+CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals)
+CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals)
+
 -- ============================================================================
 -- TRIGGERS FOR AUTOMATIC TIMESTAMP UPDATES
 -- ============================================================================
@@ -343,13 +371,13 @@ DECLARE
 BEGIN
     -- Determine entity name based on table
     CASE TG_TABLE_NAME
-        WHEN 'track_segments' THEN 
+        WHEN 'track_segments' THEN
             entity_name_val := COALESCE(NEW.segment_name, OLD.segment_name, NEW.segment_id, OLD.segment_id);
-        WHEN 'signals' THEN 
+        WHEN 'signals' THEN
             entity_name_val := COALESCE(NEW.signal_name, OLD.signal_name, NEW.signal_id, OLD.signal_id);
-        WHEN 'point_machines' THEN 
+        WHEN 'point_machines' THEN
             entity_name_val := COALESCE(NEW.machine_name, OLD.machine_name, NEW.machine_id, OLD.machine_id);
-        ELSE 
+        ELSE
             entity_name_val := 'Unknown';
     END CASE;
 
@@ -396,10 +424,10 @@ BEGIN
         new_json,
         operator_id_val,
         operation_source_val,
-        CASE TG_TABLE_NAME 
-            WHEN 'signals' THEN true 
-            WHEN 'point_machines' THEN true 
-            ELSE false 
+        CASE TG_TABLE_NAME
+            WHEN 'signals' THEN true
+            WHEN 'point_machines' THEN true
+            ELSE false
         END,
         COALESCE(new_json, old_json),
         nextval('railway_audit.event_sequence')
@@ -502,7 +530,7 @@ CREATE TRIGGER trg_point_machines_notify
 
 -- Complete signal information view
 CREATE VIEW railway_control.v_signals_complete AS
-SELECT 
+SELECT
     s.id,
     s.signal_id,
     s.signal_name,
@@ -531,7 +559,7 @@ LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id;
 
 -- Complete point machine information view
 CREATE VIEW railway_control.v_point_machines_complete AS
-SELECT 
+SELECT
     pm.id,
     pm.machine_id,
     pm.machine_name,
@@ -556,13 +584,13 @@ LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id;
 
 -- Track occupancy summary
 CREATE VIEW railway_control.v_track_occupancy AS
-SELECT 
+SELECT
     COUNT(*) as total_segments,
     COUNT(*) FILTER (WHERE is_occupied) as occupied_count,
     COUNT(*) FILTER (WHERE is_assigned) as assigned_count,
     COUNT(*) FILTER (WHERE is_occupied OR is_assigned) as unavailable_count,
     ROUND(
-        (COUNT(*) FILTER (WHERE is_occupied OR is_assigned)::NUMERIC / COUNT(*)) * 100, 
+        (COUNT(*) FILTER (WHERE is_occupied OR is_assigned)::NUMERIC / COUNT(*)) * 100,
         2
     ) as utilization_percentage
 FROM railway_control.track_segments
@@ -570,7 +598,7 @@ WHERE is_active = TRUE;
 
 -- Recent events view
 CREATE VIEW railway_audit.v_recent_events AS
-SELECT 
+SELECT
     el.id,
     el.event_timestamp,
     el.event_type,
@@ -595,10 +623,10 @@ RETURNS INTEGER AS $$
 DECLARE
     aspect_id_result INTEGER;
 BEGIN
-    SELECT id INTO aspect_id_result 
-    FROM railway_config.signal_aspects 
+    SELECT id INTO aspect_id_result
+    FROM railway_config.signal_aspects
     WHERE aspect_code = aspect_code_param;
-    
+
     RETURN aspect_id_result;
 END;
 $$ LANGUAGE plpgsql;
@@ -609,10 +637,10 @@ RETURNS INTEGER AS $$
 DECLARE
     position_id_result INTEGER;
 BEGIN
-    SELECT id INTO position_id_result 
-    FROM railway_config.point_positions 
+    SELECT id INTO position_id_result
+    FROM railway_config.point_positions
     WHERE position_code = position_code_param;
-    
+
     RETURN position_id_result;
 END;
 $$ LANGUAGE plpgsql;
@@ -630,18 +658,18 @@ DECLARE
 BEGIN
     -- Set operator context for audit logging
     PERFORM set_config('railway.operator_id', operator_id_param, true);
-    
+
     -- Get aspect ID
     aspect_id_val := railway_config.get_aspect_id(aspect_code_param);
     IF aspect_id_val IS NULL THEN
         RAISE EXCEPTION 'Invalid aspect code: %', aspect_code_param;
     END IF;
-    
+
     -- Check if signal exists and update
-    UPDATE railway_control.signals 
+    UPDATE railway_control.signals
     SET current_aspect_id = aspect_id_val
     WHERE signal_id = signal_id_param;
-    
+
     -- ✅ FIXED: Use GET DIAGNOSTICS with ROW_COUNT instead of FOUND
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
@@ -661,22 +689,22 @@ DECLARE
 BEGIN
     -- Set operator context for audit logging
     PERFORM set_config('railway.operator_id', operator_id_param, true);
-    
+
     -- Get position ID
     position_id_val := railway_config.get_position_id(position_code_param);
     IF position_id_val IS NULL THEN
         RAISE EXCEPTION 'Invalid position code: %', position_code_param;
     END IF;
-    
+
     -- Update point machine position and increment operation count
-    UPDATE railway_control.point_machines 
-    SET 
+    UPDATE railway_control.point_machines
+    SET
         current_position_id = position_id_val,
         last_operated_at = CURRENT_TIMESTAMP,
         last_operated_by = operator_id_param,
         operation_count = operation_count + 1
     WHERE machine_id = machine_id_param;
-    
+
     -- ✅ FIXED: Use GET DIAGNOSTICS with ROW_COUNT instead of FOUND
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
@@ -696,17 +724,17 @@ DECLARE
 BEGIN
     -- Set operator context for audit logging
     PERFORM set_config('railway.operator_id', operator_id_param, true);
-    
+
     -- Update track segment occupancy
-    UPDATE railway_control.track_segments 
-    SET 
+    UPDATE railway_control.track_segments
+    SET
         is_occupied = is_occupied_param,
-        occupied_by = CASE 
-            WHEN is_occupied_param = TRUE THEN occupied_by_param 
-            ELSE NULL 
+        occupied_by = CASE
+            WHEN is_occupied_param = TRUE THEN occupied_by_param
+            ELSE NULL
         END
     WHERE segment_id = segment_id_param;
-    
+
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
 END;
@@ -724,12 +752,12 @@ DECLARE
 BEGIN
     -- Set operator context for audit logging
     PERFORM set_config('railway.operator_id', operator_id_param, true);
-    
+
     -- Update track segment assignment
-    UPDATE railway_control.track_segments 
+    UPDATE railway_control.track_segments
     SET is_assigned = is_assigned_param
     WHERE segment_id = segment_id_param;
-    
+
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
 END;
@@ -745,29 +773,29 @@ DECLARE
     point_stats RECORD;
 BEGIN
     -- Get track statistics
-    SELECT 
+    SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE is_occupied) as occupied,
         COUNT(*) FILTER (WHERE is_assigned) as assigned
     INTO track_stats
     FROM railway_control.track_segments
     WHERE is_active = TRUE;
-    
+
     -- Get signal statistics
-    SELECT 
+    SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE is_active) as active
     INTO signal_stats
     FROM railway_control.signals;
-    
+
     -- Get point machine statistics
-    SELECT 
+    SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE operating_status = 'CONNECTED') as connected,
         COUNT(*) FILTER (WHERE operating_status = 'IN_TRANSITION') as in_transition
     INTO point_stats
     FROM railway_control.point_machines;
-    
+
     -- Build result JSON
     result := json_build_object(
         'timestamp', extract(epoch from now()),
@@ -787,7 +815,7 @@ BEGIN
             'in_transition', point_stats.in_transition
         )
     );
-    
+
     RETURN result;
 END;
 $$ LANGUAGE plpgsql;

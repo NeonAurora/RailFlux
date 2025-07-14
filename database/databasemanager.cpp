@@ -17,9 +17,15 @@ DatabaseManager::DatabaseManager(QObject* parent)
     connect(pollingTimer.get(), &QTimer::timeout, this, &DatabaseManager::pollDatabase);
     pollingTimer->setInterval(POLLING_INTERVAL_MS);
 
-    m_connectionTimer->setInterval(5000);  // Check every 5 seconds
-    m_statePollingTimer->setInterval(200); // Poll every 200ms
+    m_connectionTimer->setInterval(5000);
+    m_statePollingTimer->setInterval(200);
+
+    // ✅ ADD: Health monitoring for notifications
+    m_notificationHealthTimer = new QTimer(this);
+    connect(m_notificationHealthTimer, &QTimer::timeout, this, &DatabaseManager::checkNotificationHealth);
+    m_notificationHealthTimer->start(60000); // Check every minute
 }
+
 
 DatabaseManager::~DatabaseManager() {
     stopPolling();
@@ -56,11 +62,24 @@ bool DatabaseManager::connectToDatabase()
     return false;
 }
 
+// In DatabaseManager.cpp - Fix connectToSystemPostgreSQL()
 bool DatabaseManager::connectToSystemPostgreSQL()
 {
     try {
-        // ✅ Remove existing connection if it exists
+        // ✅ CRITICAL: Check if connection already exists and is open
         if (QSqlDatabase::contains("system_connection")) {
+            QSqlDatabase existingDb = QSqlDatabase::database("system_connection");
+            if (existingDb.isOpen() && existingDb.isValid()) {
+                qDebug() << "✅ Using existing system PostgreSQL connection";
+                db = existingDb;
+                connected = true;
+                m_isConnected = true;
+                return true;
+            }
+            // ✅ CRITICAL: Only remove if connection is actually closed
+            qDebug() << "🔄 Removing stale system connection";
+            m_notificationsEnabled = false;
+            m_notificationsWorking = false;
             QSqlDatabase::removeDatabase("system_connection");
         }
 
@@ -75,15 +94,11 @@ bool DatabaseManager::connectToSystemPostgreSQL()
             connected = true;
             m_isConnected = true;
             emit connectionStateChanged(connected);
-            qDebug() << "✅ Connected to system PostgreSQL (postgres/qwerty)";
+            qDebug() << "✅ Connected to system PostgreSQL";
             return true;
         }
     } catch (...) {
         qDebug() << "❌ System PostgreSQL connection failed";
-    }
-
-    if (db.isOpen()) {
-        db.close();
     }
 
     connected = false;
@@ -118,6 +133,8 @@ bool DatabaseManager::startPortableMode()
 
     // ✅ Remove existing connection if it exists
     if (QSqlDatabase::contains("portable_connection")) {
+        m_notificationsEnabled = false;
+        m_notificationsWorking = false;
         QSqlDatabase::removeDatabase("portable_connection");
     }
 
@@ -264,57 +281,134 @@ bool DatabaseManager::stopPortablePostgreSQL()
 }
 
 void DatabaseManager::enableRealTimeUpdates() {
-    if (!connected) {
-        qDebug() << "Cannot enable real-time updates - database not connected";
+    if (m_notificationsEnabled) {
+        qDebug() << "ℹ️ Real-time updates already enabled";
         return;
     }
 
-    // Try to enable PostgreSQL notifications
-    QSqlQuery query(db);
-    if (query.exec("LISTEN railway_changes")) {
-        qDebug() << "PostgreSQL LISTEN enabled for real-time updates";
+    if (!connected || !db.isOpen()) {
+        qWarning() << "❌ Cannot enable real-time updates - database not connected";
+        return;
+    }
 
+    // ✅ Check if driver supports notifications
+    if (!db.driver()->hasFeature(QSqlDriver::EventNotifications)) {
+        qWarning() << "❌ Database driver does not support event notifications";
+        return;
+    }
+
+    // ✅ Use subscribeToNotification
+    if (db.driver()->subscribeToNotification("railway_changes")) {
+        qDebug() << "✅ Subscribed to railway_changes notifications";
+
+        // ✅ ENHANCED: Connect with health tracking
         QObject::connect(db.driver(), &QSqlDriver::notification,
-                         this, [this](const QString& name, QSqlDriver::NotificationSource /*source*/, const QVariant& payload) {
+                         this, [this](const QString& name, QSqlDriver::NotificationSource source, const QVariant& payload) {
+                             // ✅ TRACK: Update health indicators
+                             m_lastNotificationReceived = QDateTime::currentDateTime();
+                             m_notificationsWorking = true;
+
+                             qDebug() << "🔔 NOTIFICATION RECEIVED:" << name << "Payload:" << payload.toString();
                              this->handleDatabaseNotification(name, payload);
+
+                             // ✅ HYBRID: Reduce polling frequency
+                             if (pollingTimer->interval() != POLLING_INTERVAL_SLOW) {
+                                 pollingTimer->setInterval(POLLING_INTERVAL_SLOW);
+                                 qDebug() << "📉 Reduced polling to" << POLLING_INTERVAL_SLOW << "ms - notifications working";
+                             }
                          });
+
+        m_notificationsEnabled = true;
+        m_lastNotificationReceived = QDateTime::currentDateTime(); // Initialize
+
+        // Send test notification
+        QSqlQuery testQuery(db);
+        if (testQuery.exec("SELECT pg_notify('railway_changes', "
+                           "'{\"test\": \"startup\", \"timestamp\": \"" +
+                           QString::number(QDateTime::currentSecsSinceEpoch()) + "\"}'::text)")) {
+            qDebug() << "✅ Test notification sent";
+        }
     } else {
-        qWarning() << "Failed to enable PostgreSQL LISTEN - using polling only";
-        qWarning() << "Error:" << query.lastError().text();
+        qWarning() << "❌ Failed to subscribe to railway_changes notifications";
+    }
+}
+
+void DatabaseManager::checkNotificationHealth() {
+    if (!m_notificationsEnabled) return;
+
+    QDateTime now = QDateTime::currentDateTime();
+
+    // Check if notifications have been silent too long
+    if (m_lastNotificationReceived.isValid() &&
+        m_lastNotificationReceived.secsTo(now) > 120) { // 2 minutes
+
+        qWarning() << "❌ No notifications for 2 minutes - assuming failure";
+        m_notificationsWorking = false;
+
+        // ✅ FAILOVER: Increase polling frequency
+        pollingTimer->setInterval(POLLING_INTERVAL_FAST);
+        qDebug() << "📈 Increased polling to" << POLLING_INTERVAL_FAST << "ms (notification failover)";
     }
 }
 
 void DatabaseManager::handleDatabaseNotification(const QString& name, const QVariant& payload) {
-    if (name == "railway_changes") {
-        QJsonDocument doc = QJsonDocument::fromJson(payload.toString().toUtf8());
-        QJsonObject obj = doc.object();
+    qDebug() << "🔔 NOTIFICATION HANDLER CALLED:" << name << payload.toString();
 
-        QString table = obj["table"].toString();
-        QString operation = obj["operation"].toString();
-        QString entityId = obj["entity_id"].toString();
-
-        qDebug() << "🔔 REAL-TIME notification:" << table << operation << entityId;
-
-        // ✅ SAFETY: No cache refreshing - just emit signals for UI updates
-        if (table == "signals") {
-            emit signalsChanged();
-            emit signalUpdated(entityId);
-        } else if (table == "point_machines") {
-            emit pointMachinesChanged();
-            emit pointMachineUpdated(entityId);
-        } else if (table == "track_segments") {
-            emit trackSegmentsChanged();
-            emit trackSegmentUpdated(entityId);
-        }
-
-        emit dataUpdated();
+    if (name != "railway_changes") {
+        qDebug() << "⚠️ Unexpected notification channel:" << name;
+        return;
     }
+
+    QString payloadStr = payload.toString();
+    if (payloadStr.isEmpty()) {
+        qWarning() << "❌ Empty notification payload";
+        return;
+    }
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(payloadStr.toUtf8(), &parseError);
+
+    if (parseError.error != QJsonParseError::NoError) {
+        qWarning() << "❌ JSON parse error:" << parseError.errorString() << "Payload:" << payloadStr;
+        return;
+    }
+
+    QJsonObject obj = doc.object();
+    QString table = obj["table"].toString();
+    QString operation = obj["operation"].toString();
+    QString entityId = obj["entity_id"].toString();
+
+    qDebug() << "✅ Parsed notification:" << table << operation << entityId;
+
+    // ✅ SAFETY: No cache refreshing - just emit signals for UI updates
+    if (table == "signals") {
+        emit signalsChanged();
+        emit signalUpdated(entityId);
+        qDebug() << "📡 Emitted signalsChanged and signalUpdated(" << entityId << ")";
+    } else if (table == "point_machines") {
+        emit pointMachinesChanged();
+        emit pointMachineUpdated(entityId);
+        qDebug() << "📡 Emitted pointMachinesChanged and pointMachineUpdated(" << entityId << ")";
+    } else if (table == "track_segments") {
+        emit trackSegmentsChanged();
+        emit trackSegmentUpdated(entityId);
+        qDebug() << "📡 Emitted trackSegmentsChanged and trackSegmentUpdated(" << entityId << ")";
+    }
+
+    emit dataUpdated();
+    qDebug() << "📡 Emitted dataUpdated()";
 }
 
 void DatabaseManager::startPolling() {
     if (connected) {
+        // ✅ INTELLIGENT: Longer interval when notifications are working
+        int interval = m_notificationsWorking ? POLLING_INTERVAL_SLOW : POLLING_INTERVAL_FAST;
+        pollingTimer->setInterval(interval);
         pollingTimer->start();
-        qDebug() << "🔍 SAFETY: Database polling started (interval:" << POLLING_INTERVAL_MS << "ms) - DIRECT QUERIES ONLY";
+
+        qDebug() << "🔍 HYBRID: Database polling started"
+                 << "(interval:" << interval << "ms)"
+                 << "Notifications working:" << m_notificationsWorking;
     }
 }
 
@@ -632,37 +726,39 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
 bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString& newAspect) {
     if (!connected) return false;
 
-    qDebug() << "🔄 SAFETY: Updating signal:" << signalId << "to aspect:" << newAspect;
-
+    // ✅ CRITICAL: Ensure transaction is committed
     QSqlQuery query(db);
+
+    // Start explicit transaction
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction:" << db.lastError().text();
+        return false;
+    }
+
     query.prepare("SELECT railway_control.update_signal_aspect(?, ?, 'HMI_USER')");
     query.addBindValue(signalId);
     query.addBindValue(newAspect);
 
+    bool success = false;
     if (query.exec() && query.next()) {
-        bool success = query.value(0).toBool();
-        qDebug() << "✅ SAFETY: Database function returned:" << success;
+        success = query.value(0).toBool();
 
-        if (success) {
-            // ✅ SAFETY: Verify the change actually happened
-            QSqlQuery verifyQuery(db);
-            verifyQuery.prepare("SELECT current_aspect_id FROM railway_control.signals WHERE signal_id = ?");
-            verifyQuery.addBindValue(signalId);
-            if (verifyQuery.exec() && verifyQuery.next()) {
-                int currentAspectId = verifyQuery.value(0).toInt();
-                qDebug() << "🔍 SAFETY: Signal" << signalId << "now has aspect_id:" << currentAspectId;
-            }
-
-            // ✅ SAFETY: No cache invalidation - just emit signals
+        // ✅ CRITICAL: Commit transaction to trigger NOTIFY
+        if (success && db.commit()) {
+            qDebug() << "✅ Signal update committed - NOTIFY should fire";
             emit signalUpdated(signalId);
             emit signalsChanged();
+        } else {
+            qWarning() << "❌ Failed to commit transaction:" << db.lastError().text();
+            db.rollback();
+            success = false;
         }
-        return success;
     } else {
-        qDebug() << "❌ SAFETY CRITICAL: Database query failed:" << query.lastError().text();
+        qWarning() << "❌ Query failed:" << query.lastError().text();
+        db.rollback();
     }
 
-    return false;
+    return success;
 }
 
 bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const QString& newPosition) {
