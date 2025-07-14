@@ -10,6 +10,7 @@ Rectangle {
     property var dbManager
     property int cellSize: Math.floor(width / 320)
     property bool showGrid: true
+    property bool hasInitialDataLoaded: false
 
     // ✅ NEW: Data properties from database (replaces StationData.js)
     property var trackSegmentsModel: []
@@ -288,10 +289,12 @@ Rectangle {
     // ✅ NEW: Initialize data when component loads or database connects
     Component.onCompleted: {
         console.log("StationLayout: Component completed")
-        if (dbManager && dbManager.isConnected) {
+        if (dbManager && dbManager.isConnected && !hasInitialDataLoaded) {
+            console.log("StationLayout: Loading initial data")
             refreshAllData()
+            hasInitialDataLoaded = true
         } else {
-            console.log("Database not ready yet - will load data when connected")
+            console.log("StationLayout: Data already loaded or DB not connected")
         }
     }
 
@@ -301,8 +304,12 @@ Rectangle {
 
         function onConnectionStateChanged(isConnected) {
             console.log("StationLayout: Database connection state changed:", isConnected)
-            if (isConnected) {
+            if (isConnected && !hasInitialDataLoaded) {
+                console.log("StationLayout: First connection - loading data")
                 refreshAllData()
+                hasInitialDataLoaded = true
+            } else if (isConnected) {
+                console.log("StationLayout: Reconnected - data already loaded")
             } else {
                 console.log("Database disconnected - clearing data models")
                 trackSegmentsModel = []
@@ -312,6 +319,7 @@ Rectangle {
                 advanceStarterSignalsModel = []
                 pointMachinesModel = []
                 textLabelsModel = []
+                hasInitialDataLoaded = false  // ✅ Reset for next connection
             }
         }
 

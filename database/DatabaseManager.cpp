@@ -502,18 +502,7 @@ QVariantList DatabaseManager::getTrackSegmentsList() {
 QVariantList DatabaseManager::getAllSignalsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 getAllSignalsList() called from:";
-    qDebug() << "   Thread:" << QThread::currentThread();
-
-    static int callCount = 0;
-    callCount++;
-    qDebug() << "📊 Call #" << callCount << "- getAllSignalsList() executing";
-
-    qDebug() << "🔍 SAFETY: getAllSignalsList() - DIRECT DATABASE QUERY";
-
-    // ✅ FIXED: Changed from 'signals' to 'signalsList' (signals is a Qt keyword)
     QVariantList signalsList;
-
     QSqlQuery signalQuery(db);
     QString signalSql = R"(
         SELECT s.signal_id, s.signal_name, st.type_code as signal_type,
@@ -528,23 +517,14 @@ QVariantList DatabaseManager::getAllSignalsList() {
     )";
 
     if (signalQuery.exec(signalSql)) {
-        qDebug() << "📊 SAFETY: REAL-TIME signal query executed successfully";
         while (signalQuery.next()) {
-            QString signalId = signalQuery.value("signal_id").toString();
-            QString currentAspect = signalQuery.value("current_aspect").toString();
-
-            // ✅ SAFETY: Log every signal state from database
-            qDebug() << "🚦 REAL-TIME:" << signalId << "=" << currentAspect;
-
-            // ✅ FIXED: Use signalsList instead of signals
             signalsList.append(convertSignalRowToVariant(signalQuery));
         }
+        qDebug() << "✅ Loaded" << signalsList.size() << "signals from database";
     } else {
         qWarning() << "❌ SAFETY CRITICAL: Signal query failed:" << signalQuery.lastError().text();
     }
 
-    // ✅ FIXED: Use signalsList instead of signals
-    qDebug() << "✅ getAllSignalsList() returning" << signalsList.size() << "signals";
     return signalsList;
 }
 
