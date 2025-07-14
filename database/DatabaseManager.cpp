@@ -531,7 +531,7 @@ QVariantList DatabaseManager::getAllSignalsList() {
 QVariantList DatabaseManager::getAllPointMachinesList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY";
+    qDebug() << "🔍 SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from getAllPointMachinesList()";
 
     QVariantList points;
     QSqlQuery pointQuery(db);
