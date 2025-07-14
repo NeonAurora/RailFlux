@@ -29,6 +29,9 @@ class DatabaseManager : public QObject {
     Q_PROPERTY(QVariantList allPointMachines READ getAllPointMachinesList NOTIFY pointMachinesChanged)
     Q_PROPERTY(QVariantList textLabels READ getTextLabelsList NOTIFY textLabelsChanged)
 
+    Q_PROPERTY(int currentPollingInterval READ getCurrentPollingInterval NOTIFY pollingIntervalChanged)
+    Q_PROPERTY(QString pollingIntervalDisplay READ getPollingIntervalDisplay NOTIFY pollingIntervalChanged)
+
 public:
     explicit DatabaseManager(QObject* parent = nullptr);
     ~DatabaseManager();
@@ -42,6 +45,9 @@ public:
     Q_INVOKABLE void startPolling();
     Q_INVOKABLE void stopPolling();
     Q_INVOKABLE bool isConnected() const;
+
+    Q_INVOKABLE int getCurrentPollingInterval() const;
+    Q_INVOKABLE QString getPollingIntervalDisplay() const;
 
     // ✅ EXISTING: Component state queries
     Q_INVOKABLE QVariantMap getAllSignalStates();
@@ -99,6 +105,8 @@ signals:
     void pointMachineUpdated(const QString& machineId);
     void trackSegmentUpdated(const QString& segmentId);
 
+    void pollingIntervalChanged(int newInterval);
+
 private slots:
     void pollDatabase();
     // ✅ FIXED: Simplified notification handler signature
@@ -106,9 +114,9 @@ private slots:
 
 private:
     // ✅ FIXED: Added missing constant
-    static constexpr int POLLING_INTERVAL_MS = 5000;
-    static constexpr int POLLING_INTERVAL_FAST = 30000;  // 30 seconds (fallback)
-    static constexpr int POLLING_INTERVAL_SLOW = 300000; // 5 minutes (with notifications)
+    static constexpr int POLLING_INTERVAL_MS = 1000; // need to remove this one from code.
+    static constexpr int POLLING_INTERVAL_FAST = 10000;  // production time should be 50ms
+    static constexpr int POLLING_INTERVAL_SLOW = 50000; // production time should be 100ms
     InterlockingService* m_interlockingService = nullptr;
 
     // ✅ Database connection
@@ -122,8 +130,6 @@ private:
 
     QString m_connectionStatus = "Not Connected";
     bool m_isConnected = false;
-    std::unique_ptr<QTimer> m_connectionTimer;
-    std::unique_ptr<QTimer> m_statePollingTimer;
 
     QProcess* m_postgresProcess = nullptr;
     QString m_appDirectory;

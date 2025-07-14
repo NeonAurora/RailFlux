@@ -131,8 +131,12 @@ Rectangle {
         console.log("Outer signal control:", signalId, "Current aspect:", currentAspect)
 
         if (!dbManager || !dbManager.isConnected) {
-            showToast("Database Error", "Cannot update signal - database not connected",
-                     signalId, "DATABASE_DISCONNECTED")
+            showToast("Database Error",
+                     "Cannot update signal - database not connected",
+                     signalId,
+                     "Database connection lost. Check network connectivity.",
+                     "ERROR",
+                     true)
             return
         }
 
@@ -282,8 +286,33 @@ Rectangle {
         }
     }
 
-    function showToast(title, message, signalId, reason) {
-        toastNotification.show(title, message, signalId, reason)
+    function showToast(title, message, entityId, details, type, autoHide) {
+        toastNotification.show(
+            title || "Notification",
+            message || "",
+            entityId || "",
+            details || "",
+            type || "INFO",
+            autoHide !== undefined ? autoHide : true
+        )
+    }
+
+    function showCriticalAlert(title, message, entityId, details) {
+        toastNotification.show(title, message, entityId, details, "CRITICAL", false)
+    }
+
+    function showSignalBlockedToast(title, message, signalId, reason) {
+        toastNotification.show(title, message, signalId, reason, "ERROR", true)
+    }
+
+    function getPollingStatusColor() {
+        if (!dbManager || !dbManager.isConnected) return "#ef4444" // Red - disconnected
+
+        var interval = dbManager.currentPollingInterval
+        if (interval === 0) return "#ef4444"        // Red - not polling
+        if (interval <= 11000) return "#f6ad55"      // Orange - fast polling
+        if (interval <= 50000) return "#38a169"     // Green - normal polling
+        return "#3182ce"                            // Blue - slow polling (notifications working)
     }
 
     // ✅ NEW: Initialize data when component loads or database connects
@@ -849,10 +878,11 @@ Rectangle {
                             width: 8
                             height: 8
                             radius: 4
-                            color: "#38a169"
+                            color: getPollingStatusColor() // ✅ Dynamic color based on interval
                         }
                         Text {
-                            text: "Polling: 50s interval"
+                            // ✅ FIX: Use property instead of function call
+                            text: "Polling: " + (dbManager ? dbManager.pollingIntervalDisplay : "Unknown")
                             color: "#a0aec0"
                             font.pixelSize: 9
                             leftPadding: 6

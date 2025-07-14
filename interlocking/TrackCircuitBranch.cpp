@@ -1,6 +1,7 @@
 #include "TrackCircuitBranch.h"
 #include "../database/DatabaseManager.h"
 #include <QDebug>
+#include <QThread>
 
 TrackCircuitBranch::TrackCircuitBranch(DatabaseManager* dbManager, QObject* parent)
     : QObject(parent), m_dbManager(dbManager) {}
@@ -269,4 +270,119 @@ bool TrackCircuitBranch::areProtectingSignalsAtRed(const QStringList& signalIds)
         }
     }
     return true;
+}
+
+void TrackCircuitBranch::enforceTrackOccupancyInterlocking(const QString& trackId, bool wasOccupied, bool isOccupied) {
+    // ✅ SAFETY: Only act on occupancy transitions (false → true)
+    if (wasOccupied || !isOccupied) {
+        return; // No action needed
+    }
+
+    qDebug() << "🚨 AUTOMATIC INTERLOCKING: Track" << trackId << "became occupied - enforcing signal protection";
+
+    // ✅ SAFETY: Get protecting signals from both sources for redundancy
+    QStringList protectingSignals = getProtectingSignalsFromBothSources(trackId);
+
+    if (protectingSignals.isEmpty()) {
+        qWarning() << "⚠️ SAFETY WARNING: No protecting signals found for occupied track" << trackId;
+        return;
+    }
+
+    qDebug() << "🔒 ENFORCING: Setting" << protectingSignals.size() << "protecting signals to RED for track" << trackId;
+
+    // ✅ SAFETY: Force all protecting signals to RED - no validation, just enforce
+    bool allSucceeded = true;
+    QStringList failedSignals;
+
+    for (const QString& signalId : protectingSignals) {
+        if (!enforceSignalToRed(signalId, QString("AUTOMATIC: Track %1 occupied").arg(trackId))) {
+            allSucceeded = false;
+            failedSignals.append(signalId);
+        }
+    }
+
+    if (!allSucceeded) {
+        qCritical() << "🚨 CRITICAL SAFETY FAILURE: Failed to set signals to RED for occupied track" << trackId;
+        qCritical() << "🚨 Failed signals:" << failedSignals;
+        handleInterlockingFailure(trackId, failedSignals.join(","), "Failed to enforce RED aspect");
+    } else {
+        qDebug() << "✅ AUTOMATIC INTERLOCKING: All protecting signals set to RED for track" << trackId;
+    }
+}
+
+QStringList TrackCircuitBranch::getProtectingSignalsFromBothSources(const QString& trackId) {
+    QStringList combinedSignals;
+
+    // ✅ SOURCE 1: signal_track_protection table
+    QStringList fromProtectionTable = getProtectingSignals(trackId);
+
+    // ✅ SOURCE 2: track_segments.protecting_signals array
+    auto trackData = m_dbManager->getTrackSegmentById(trackId);
+    QStringList fromTrackData;
+
+    if (!trackData.isEmpty()) {
+        QString protectingSignalsStr = trackData["protectingSignals"].toString();
+        if (!protectingSignalsStr.isEmpty() && protectingSignalsStr != "{}") {
+            protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
+            fromTrackData = protectingSignalsStr.split(",", Qt::SkipEmptyParts);
+        }
+    }
+
+    // ✅ SAFETY: Combine both sources and remove duplicates
+    combinedSignals = fromProtectionTable;
+    for (const QString& signal : fromTrackData) {
+        if (!combinedSignals.contains(signal.trimmed())) {
+            combinedSignals.append(signal.trimmed());
+        }
+    }
+
+    qDebug() << "🔍 PROTECTING SIGNALS for track" << trackId << ":";
+    qDebug() << "   From protection table:" << fromProtectionTable;
+    qDebug() << "   From track data:" << fromTrackData;
+    qDebug() << "   Combined list:" << combinedSignals;
+
+    return combinedSignals;
+}
+
+bool TrackCircuitBranch::enforceSignalToRed(const QString& signalId, const QString& reason) {
+    qDebug() << "🔒 ENFORCING RED: Signal" << signalId << "Reason:" << reason;
+
+    // ✅ SAFETY: Check if signal is already RED to avoid unnecessary operations
+    auto signalData = m_dbManager->getSignalById(signalId);
+    if (!signalData.isEmpty()) {
+        QString currentAspect = signalData["currentAspect"].toString();
+        if (currentAspect == "RED") {
+            qDebug() << "✅ Signal" << signalId << "already RED - no action needed";
+            return true;
+        }
+    }
+
+    // ✅ FORCE: Use database manager to set signal to RED
+    bool success = m_dbManager->updateSignalAspect(signalId, "RED");
+
+    if (success) {
+        qDebug() << "✅ ENFORCED: Signal" << signalId << "set to RED";
+    } else {
+        qCritical() << "🚨 FAILED to enforce RED on signal" << signalId;
+    }
+
+    return success;
+}
+
+void TrackCircuitBranch::handleInterlockingFailure(const QString& trackId, const QString& signalId, const QString& error) {
+    qCritical() << "🚨🚨🚨 CRITICAL SAFETY SYSTEM FAILURE 🚨🚨🚨";
+    qCritical() << "Track ID:" << trackId;
+    qCritical() << "Failed Signal(s):" << signalId;
+    qCritical() << "Error Details:" << error;
+    qCritical() << "Timestamp:" << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
+    qCritical() << "Thread:" << QThread::currentThread();
+    qCritical() << "🚨 SYSTEM FREEZE REQUIRED - MANUAL INTERVENTION NEEDED 🚨";
+
+    // ✅ EMIT FREEZE SIGNAL
+    QString reason = QString("Failed to enforce signal protection for occupied track %1").arg(trackId);
+    QString details = QString("Track: %1, Failed Signals: %2, Error: %3, Time: %4")
+                          .arg(trackId, signalId, error, QDateTime::currentDateTime().toString());
+
+    qCritical() << "🚨 EMITTING SYSTEM FREEZE SIGNAL";
+    emit systemFreezeRequired(trackId, reason, details);
 }

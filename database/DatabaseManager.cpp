@@ -12,19 +12,14 @@ DatabaseManager::DatabaseManager(QObject* parent)
     : QObject(parent)
     , pollingTimer(std::make_unique<QTimer>(this))
     , connected(false)
-    , m_connectionTimer(std::make_unique<QTimer>(this))
-    , m_statePollingTimer(std::make_unique<QTimer>(this))
 {
     connect(pollingTimer.get(), &QTimer::timeout, this, &DatabaseManager::pollDatabase);
     pollingTimer->setInterval(POLLING_INTERVAL_MS);
 
-    m_connectionTimer->setInterval(5000);
-    m_statePollingTimer->setInterval(200);
-
     // ✅ ADD: Health monitoring for notifications
     m_notificationHealthTimer = new QTimer(this);
     connect(m_notificationHealthTimer, &QTimer::timeout, this, &DatabaseManager::checkNotificationHealth);
-    m_notificationHealthTimer->start(60000); // Check every minute
+    m_notificationHealthTimer->start(100); // Check every minute
 }
 
 
@@ -339,15 +334,16 @@ void DatabaseManager::checkNotificationHealth() {
 
     QDateTime now = QDateTime::currentDateTime();
 
-    // Check if notifications have been silent too long
     if (m_lastNotificationReceived.isValid() &&
-        m_lastNotificationReceived.secsTo(now) > 120) { // 2 minutes
+        m_lastNotificationReceived.secsTo(now) > 120) {
 
-        qWarning() << "❌ No notifications for 2 minutes - assuming failure";
+        qWarning() << "❌ No notifications for 1 seconds - assuming failure";
         m_notificationsWorking = false;
 
-        // ✅ FAILOVER: Increase polling frequency
+        // ✅ UPDATE: Emit signal when changing interval
         pollingTimer->setInterval(POLLING_INTERVAL_FAST);
+        emit pollingIntervalChanged(POLLING_INTERVAL_FAST); // ✅ ADD
+
         qDebug() << "📈 Increased polling to" << POLLING_INTERVAL_FAST << "ms (notification failover)";
     }
 }
@@ -381,11 +377,23 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
 
     qDebug() << "✅ Parsed notification:" << table << operation << entityId;
 
+    // ✅ ADD: Update polling interval when notifications are working
+    if (pollingTimer && pollingTimer->isActive() && pollingTimer->interval() != POLLING_INTERVAL_SLOW) {
+        pollingTimer->setInterval(POLLING_INTERVAL_SLOW);
+        emit pollingIntervalChanged(POLLING_INTERVAL_SLOW);
+        qDebug() << "📉 Reduced polling to" << POLLING_INTERVAL_SLOW << "ms - notifications working";
+    }
+
+    // ✅ UPDATE: Mark notifications as working (for health monitoring)
+    m_notificationsWorking = true;
+    m_lastNotificationReceived = QDateTime::currentDateTime();
+
     // ✅ SAFETY: No cache refreshing - just emit signals for UI updates
     if (obj["test"].toString() == "startup") {
         qDebug() << "✅ Test notification received - system working";
         return; // ← Don't trigger data refresh
     }
+
     if (table == "signals") {
         emit signalsChanged();
         emit signalUpdated(entityId);
@@ -404,12 +412,65 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
     qDebug() << "📡 Emitted dataUpdated()";
 }
 
+int DatabaseManager::getCurrentPollingInterval() const {
+    // ✅ ADD: Debug logging
+    qDebug() << "🔍 getCurrentPollingInterval() called:";
+    qDebug() << "   pollingTimer exists:" << (pollingTimer != nullptr);
+    if (pollingTimer) {
+        qDebug() << "   pollingTimer->isActive():" << pollingTimer->isActive();
+        qDebug() << "   pollingTimer->interval():" << pollingTimer->interval();
+    }
+
+    if (!pollingTimer || !pollingTimer->isActive()) {
+        qDebug() << "   → Returning 0 (Not polling)";
+        return 0; // Not polling
+    }
+
+    int interval = pollingTimer->interval();
+    qDebug() << "   → Returning interval:" << interval;
+    return interval;
+}
+
+QString DatabaseManager::getPollingIntervalDisplay() const {
+    int interval = getCurrentPollingInterval();
+
+    // ✅ ADD: Debug logging
+    qDebug() << "🔍 getPollingIntervalDisplay() called:";
+    qDebug() << "   interval from getCurrentPollingInterval():" << interval;
+
+    if (interval == 0) {
+        qDebug() << "   → Returning 'Not polling'";
+        return "Not polling";
+    } else if (interval < 1000) {
+        QString result = QString("%1ms").arg(interval);
+        qDebug() << "   → Returning:" << result;
+        return result;
+    } else if (interval < 60000) {
+        QString result = QString("%1s").arg(interval / 1000);
+        qDebug() << "   → Returning:" << result;
+        return result;
+    } else {
+        int minutes = interval / 60000;
+        int seconds = (interval % 60000) / 1000;
+        QString result;
+        if (seconds == 0) {
+            result = QString("%1m").arg(minutes);
+        } else {
+            result = QString("%1m %2s").arg(minutes).arg(seconds);
+        }
+        qDebug() << "   → Returning:" << result;
+        return result;
+    }
+}
+
 void DatabaseManager::startPolling() {
     if (connected) {
         // ✅ INTELLIGENT: Longer interval when notifications are working
         int interval = m_notificationsWorking ? POLLING_INTERVAL_SLOW : POLLING_INTERVAL_FAST;
         pollingTimer->setInterval(interval);
         pollingTimer->start();
+
+        emit pollingIntervalChanged(interval);
 
         qDebug() << "🔍 HYBRID: Database polling started"
                  << "(interval:" << interval << "ms)"
@@ -919,15 +980,40 @@ bool DatabaseManager::updateTrackOccupancy(const QString& segmentId, bool isOccu
 
     qDebug() << "🔄 SAFETY: Updating track occupancy:" << segmentId << "to" << isOccupied;
 
+    // ✅ NEW: Get current state for interlocking validation
+    bool wasOccupied = false;
+    auto currentTrackData = getTrackSegmentById(segmentId);
+    if (!currentTrackData.isEmpty()) {
+        wasOccupied = currentTrackData["occupied"].toBool();
+    }
+
+    // ✅ NEW: Track interlocking validation (if service is available)
+    if (m_interlockingService) {
+        auto validation = m_interlockingService->validateTrackAssignment(
+            segmentId, false, false, "SYSTEM_AUTO"); // Simplified validation for occupancy
+
+        // ✅ NOTE: Unlike signals, track occupancy changes are NOT blocked by interlocking
+        // This is just for logging and awareness
+        if (!validation.isAllowed()) {
+            qDebug() << "ℹ️ Track occupancy change noted with interlocking concerns:" << validation.getReason();
+        }
+    }
+
     QSqlQuery query(db);
-    query.prepare("SELECT railway_control.update_track_occupancy(?, ?, NULL, 'HMI_USER')");
+    query.prepare("SELECT railway_control.update_track_occupancy(?, ?, NULL, 'SYSTEM_AUTO')");
     query.addBindValue(segmentId);
     query.addBindValue(isOccupied);
 
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            // ✅ SAFETY: No cache invalidation - just emit signals
+            // ✅ NEW: Automatic interlocking enforcement after successful update
+            if (m_interlockingService && m_interlockingService->isOperational()) {
+                // ✅ SAFETY: Trigger automatic interlocking after track state change
+                m_interlockingService->enforceTrackOccupancyInterlocking(segmentId, wasOccupied, isOccupied);
+            }
+
+            // ✅ EXISTING: Emit signals
             emit trackSegmentUpdated(segmentId);
             emit trackSegmentsChanged();
         }

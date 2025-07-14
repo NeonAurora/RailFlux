@@ -39,9 +39,14 @@ InterlockingService::InterlockingService(DatabaseManager* dbManager, QObject* pa
     m_signalBranch = std::make_unique<SignalBranch>(dbManager, this);
     m_trackBranch = std::make_unique<TrackCircuitBranch>(dbManager, this);
     m_pointBranch = std::make_unique<PointMachineBranch>(dbManager, this);
+
+    connect(m_trackBranch.get(), &TrackCircuitBranch::systemFreezeRequired,
+            this, &InterlockingService::systemFreezeRequired);
 }
 
-InterlockingService::~InterlockingService() = default;
+InterlockingService::~InterlockingService() {
+    // Cleanup handled by smart pointers
+}
 
 bool InterlockingService::initialize() {
     if (!m_dbManager || !m_dbManager->isConnected()) {
@@ -130,4 +135,14 @@ int InterlockingService::getActiveInterlocksCount() const {
     // This would query the database for active interlocking rules
     // For now, return a placeholder
     return 0;
+}
+
+void InterlockingService::enforceTrackOccupancyInterlocking(const QString& trackId, bool wasOccupied, bool isOccupied) {
+    if (!m_isOperational) {
+        qWarning() << "⚠️ Cannot enforce track interlocking - system not operational";
+        return;
+    }
+
+    // ✅ DELEGATE to track branch for enforcement
+    m_trackBranch->enforceTrackOccupancyInterlocking(trackId, wasOccupied, isOccupied);
 }

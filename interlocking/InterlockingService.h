@@ -87,6 +87,7 @@ public:
     Q_INVOKABLE bool isOperational() const { return m_isOperational; }
     Q_INVOKABLE double getAverageResponseTime() const;
     Q_INVOKABLE int getActiveInterlocksCount() const;
+    Q_INVOKABLE void enforceTrackOccupancyInterlocking(const QString& trackId, bool wasOccupied, bool isOccupied);
 
 signals:
     void operationBlocked(const QString& entityId, const QString& reason);
@@ -95,6 +96,7 @@ signals:
     void activeInterlocksChanged(int count);
     void performanceChanged();
     void criticalSafetyViolation(const QString& entityId, const QString& violation);
+    void systemFreezeRequired(const QString& trackId, const QString& reason, const QString& details);
 
 private:
     DatabaseManager* m_dbManager;

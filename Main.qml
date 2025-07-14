@@ -61,6 +61,27 @@ ApplicationWindow {
         }
     }
 
+    Connections {
+        target: globalInterlockingService
+
+        // ✅ NEW: Handle system freeze signal
+        function onSystemFreezeRequired(trackId, reason, details) {
+            console.log("🚨🚨🚨 SYSTEM FREEZE DETECTED IN QML 🚨🚨🚨")
+            console.log("Track:", trackId)
+            console.log("Reason:", reason)
+            console.log("Details:", details)
+
+            // ✅ Show critical toast that requires manual dismissal
+            stationLayout.showCriticalAlert(
+                "🚨 SYSTEM FREEZE ACTIVATED",
+                "A critical safety system failure has occurred. All operations are suspended pending manual intervention.",
+                trackId,
+                details,
+                false  // No auto-hide
+            )
+        }
+    }
+
     // ✅ NEW: Timer for database reconnection after reset
     Timer {
         id: reconnectTimer

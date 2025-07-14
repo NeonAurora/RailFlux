@@ -16,10 +16,8 @@ int main(int argc, char *argv[])
     qmlRegisterType<InterlockingService>("RailFlux.Interlocking", 1, 0, "InterlockingService");  // NEW
     qmlRegisterType<ValidationResult>("RailFlux.Interlocking", 1, 0, "ValidationResult");        // NEW
 
-
     app.setWindowIcon(QIcon(":/resources/icons/railway-icon.ico"));
     qDebug() << "Icon exists??" << QFile(":/icons/railway-icon.ico").exists();
-
 
     QQmlApplicationEngine engine;
 
@@ -39,6 +37,19 @@ int main(int argc, char *argv[])
                          if (connected) {
                              interlockingService->initialize();
                          }
+                     });
+
+    // ✅ NEW: Connect freeze signal for safety system monitoring
+    QObject::connect(interlockingService, &InterlockingService::systemFreezeRequired,
+                     [](const QString& trackId, const QString& reason, const QString& details) {
+                         qCritical() << "🚨🚨🚨 FREEZE SIGNAL DETECTED IN MAIN.CPP 🚨🚨🚨";
+                         qCritical() << "🚨 SYSTEM FREEZE ACTIVATED 🚨";
+                         qCritical() << "Track ID:" << trackId;
+                         qCritical() << "Reason:" << reason;
+                         qCritical() << "Details:" << details;
+                         qCritical() << "Timestamp:" << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
+                         qCritical() << "🚨 MANUAL INTERVENTION REQUIRED 🚨";
+                         qCritical() << "🚨🚨🚨 END FREEZE SIGNAL 🚨🚨🚨";
                      });
 
     // ✅ ADD: Cleanup on application exit
