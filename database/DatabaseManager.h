@@ -106,13 +106,19 @@ private slots:
 
 private:
     // ✅ FIXED: Added missing constant
-    static constexpr int POLLING_INTERVAL_MS = 50000;  // 50 second polling interval
+    static constexpr int POLLING_INTERVAL_MS = 5000;
+    static constexpr int POLLING_INTERVAL_FAST = 30000;  // 30 seconds (fallback)
+    static constexpr int POLLING_INTERVAL_SLOW = 300000; // 5 minutes (with notifications)
     InterlockingService* m_interlockingService = nullptr;
 
     // ✅ Database connection
     QSqlDatabase db;
     std::unique_ptr<QTimer> pollingTimer;
     bool connected;
+    bool m_notificationsEnabled = false;
+    bool m_notificationsWorking = false;
+    QDateTime m_lastNotificationReceived;
+    QTimer* m_notificationHealthTimer = nullptr;
 
     QString m_connectionStatus = "Not Connected";
     bool m_isConnected = false;
@@ -135,6 +141,9 @@ private:
     void detectAndEmitChanges();
     bool setupDatabase();
     void logError(const QString& operation, const QSqlError& error);
+    void checkNotificationHealth();
+
+
     bool startPortablePostgreSQL();
     bool stopPortablePostgreSQL();
     bool initializePortableDatabase();
