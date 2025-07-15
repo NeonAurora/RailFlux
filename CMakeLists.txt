@@ -47,6 +47,9 @@ qt_add_qml_module(appRailFlux
         SOURCES interlocking/PointMachineBranch.h interlocking/PointMachineBranch.cpp
         QML_FILES components/ToastNotification.qml
         QML_FILES components/SignalContextMenu.qml
+        SOURCES interlocking/SignalInterlockingTypes.h interlocking/SignalInterlockingTypes.cpp
+        SOURCES interlocking/SignalInterlockingConfig.h interlocking/SignalInterlockingConfig.cpp
+        SOURCES interlocking/SignalInterlockingEngine.h interlocking/SignalInterlockingEngine.cpp
 )
 
 qt_add_resources(appRailFlux "app_resources"

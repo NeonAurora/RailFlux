@@ -958,13 +958,14 @@ bool DatabaseInitializer::populateInterlockingRules() {
         ('Opposing Signals HM001-HM002', 'SIGNAL', 'HM001', 'SIGNAL', 'HM002', 'MUST_BE_RED', 'OPPOSING', 1000),
         ('Opposing Signals HM002-HM001', 'SIGNAL', 'HM002', 'SIGNAL', 'HM001', 'MUST_BE_RED', 'OPPOSING', 1000),
         ('Signal OT001 protects T1S3', 'SIGNAL', 'OT001', 'TRACK_SEGMENT', 'T1S3', 'MUST_BE_CLEAR', 'PROTECTING', 900),
-        ('Signal HM001 protects T1S4', 'SIGNAL', 'HM001', 'TRACK_SEGMENT', 'T1S4', 'MUST_BE_CLEAR', 'PROTECTING', 900)
+        ('Signal HM001 protects T1S5', 'SIGNAL', 'HM001', 'TRACK_SEGMENT', 'T1S5', 'MUST_BE_CLEAR', 'PROTECTING', 900),
+        ('Signal HM001 protects T1S6', 'SIGNAL', 'HM001', 'TRACK_SEGMENT', 'T1S6', 'MUST_BE_CLEAR', 'PROTECTING', 900)
         ON CONFLICT DO NOTHING)",
 
         R"(INSERT INTO railway_control.signal_track_protection (signal_id, protected_track_id, protection_type) VALUES
         ('OT001', 'T1S3', 'APPROACH'),
-        ('HM001', 'T1S4', 'APPROACH'),
-        ('HM001', 'T1S5', 'CLEARING'),
+        ('HM001', 'T1S5', 'APPROACH'),
+        ('HM001', 'T1S6', 'CLEARING'),
         ('ST001', 'T4S2', 'APPROACH'),
         ('ST002', 'T1S6', 'CLEARING')
         ON CONFLICT DO NOTHING)"
