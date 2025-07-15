@@ -2,6 +2,7 @@
 #include <QObject>
 #include <QSqlQuery>
 #include "InterlockingService.h"
+#include "InterlockingRuleEngine.h"
 
 class DatabaseManager;
 
@@ -117,4 +118,8 @@ private:
 
     DatabaseManager* m_dbManager;
     QString m_currentSignalId;  // Context for validation
+    std::unique_ptr<InterlockingRuleEngine> m_ruleEngine;
+    ValidationResult checkInterlockedSignals(const QString& signalId,
+                                             const QString& currentAspect,
+                                             const QString& requestedAspect);
 };

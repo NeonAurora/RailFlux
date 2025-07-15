@@ -1,9 +1,24 @@
 #include "SignalBranch.h"
 #include "../database/DatabaseManager.h"
+#include "InterlockingRuleEngine.h"
 #include <QDebug>
 
 SignalBranch::SignalBranch(DatabaseManager* dbManager, QObject* parent)
-    : QObject(parent), m_dbManager(dbManager) {}
+    : QObject(parent), m_dbManager(dbManager) {
+
+    if (!dbManager) {
+        qCritical() << "🚨 SAFETY: SignalBranch initialized with null DatabaseManager!";
+        // Consider throwing or handling this critical error
+    }
+
+    // ✅ INITIALIZE RULE ENGINE
+    m_ruleEngine = std::make_unique<InterlockingRuleEngine>(dbManager, this);
+
+    if (!m_ruleEngine->loadRulesFromResource()) {
+        qCritical() << "🚨 SAFETY: Failed to load interlocking rules - system may not be safe!";
+        // Consider setting a safety flag or refusing to operate
+    }
+}
 
 ValidationResult SignalBranch::validateAspectChange(
     const QString& signalId, const QString& currentAspect,
@@ -21,8 +36,8 @@ ValidationResult SignalBranch::validateAspectChange(
     auto trackResult = checkTrackProtection(signalId, requestedAspect);
     if (!trackResult.isAllowed()) return trackResult;
 
-    // 4. Interlocked signals validation
-    auto interlockResult = checkInterlockedSignals(signalId, requestedAspect);
+    // ✅ FIXED: Pass currentAspect instead of re-fetching
+    auto interlockResult = checkInterlockedSignals(signalId, currentAspect, requestedAspect);
     if (!interlockResult.isAllowed()) return interlockResult;
 
     return ValidationResult::allowed("All signal validations passed");
@@ -84,29 +99,18 @@ ValidationResult SignalBranch::checkTrackProtection(const QString& signalId, con
         );
 }
 
-ValidationResult SignalBranch::checkInterlockedSignals(const QString& signalId, const QString& requestedAspect) {
-    QStringList interlockedSignals = getInterlockedSignals(signalId);
+ValidationResult SignalBranch::checkInterlockedSignals(
+    const QString& signalId,
+    const QString& currentAspect,
+    const QString& requestedAspect) {
 
-    for (const QString& interlockedSignalId : interlockedSignals) {
-        auto interlockedData = m_dbManager->getSignalById(interlockedSignalId);
-        if (interlockedData.isEmpty()) continue;
-
-        QString interlockedAspect = interlockedData["currentAspect"].toString();
-
-        // Basic opposing signal rule: both signals cannot show proceed aspects
-        bool requestedIsProceed = (requestedAspect == "GREEN" || requestedAspect == "YELLOW");
-        bool interlockedIsProceed = (interlockedAspect == "GREEN" || interlockedAspect == "YELLOW");
-
-        if (requestedIsProceed && interlockedIsProceed) {
-            return ValidationResult::blocked(
-                       QString("Cannot set %1 to %2: interlocked signal %3 shows %4")
-                           .arg(signalId, requestedAspect, interlockedSignalId, interlockedAspect),
-                       "INTERLOCKED_SIGNAL_CONFLICT"
-                       ).addAffectedEntity(interlockedSignalId);
-        }
+    if (!m_ruleEngine) {
+        qCritical() << "🚨 SAFETY: Rule engine not initialized!";
+        return ValidationResult::blocked("Interlocking system not available", "RULE_ENGINE_MISSING");
     }
 
-    return ValidationResult::allowed();
+    // ✅ FIXED: Use renamed function
+    return m_ruleEngine->validateInterlockedSignalAspectChange(signalId, currentAspect, requestedAspect);
 }
 
 ValidationResult SignalBranch::checkSignalActive(const QString& signalId) {

@@ -30,32 +30,35 @@ qt_add_qml_module(appRailFlux
         components/StarterSignal.qml
         components/PointMachine.qml
         components/AdvanceStarterSignal.qml
+        components/ToastNotification.qml
+        components/SignalContextMenu.qml
 
     SOURCES
-    database/DatabaseManager.h
+        database/DatabaseManager.h
         database/DatabaseManager.cpp
         database/DatabaseInitializer.h
         database/DatabaseInitializer.cpp
 
     RESOURCES
         sql/sql_coomands_railflux.sql
-        SOURCES
-        SOURCES
         SOURCES interlocking/InterlockingService.h interlocking/InterlockingService.cpp
         SOURCES interlocking/SignalBranch.h interlocking/SignalBranch.cpp
         SOURCES interlocking/TrackCircuitBranch.h interlocking/TrackCircuitBranch.cpp
         SOURCES interlocking/PointMachineBranch.h interlocking/PointMachineBranch.cpp
-        QML_FILES components/ToastNotification.qml
-        QML_FILES components/SignalContextMenu.qml
-        SOURCES interlocking/SignalInterlockingTypes.h interlocking/SignalInterlockingTypes.cpp
-        SOURCES interlocking/SignalInterlockingConfig.h interlocking/SignalInterlockingConfig.cpp
-        SOURCES interlocking/SignalInterlockingEngine.h interlocking/SignalInterlockingEngine.cpp
+        SOURCES interlocking/SignalRule.h interlocking/SignalRule.cpp
+        SOURCES interlocking/InterlockingRuleEngine.h interlocking/InterlockingRuleEngine.cpp
 )
 
 qt_add_resources(appRailFlux "app_resources"
     PREFIX "/"
     FILES
         resources/icons/railway-icon.ico
+)
+
+qt_add_resources(appRailFlux "app_resources"
+    PREFIX "/"
+    FILES
+        data/signal_interlocking_rules.json
 )
 
 set_target_properties(appRailFlux PROPERTIES

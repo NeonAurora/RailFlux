@@ -19,7 +19,7 @@ DatabaseManager::DatabaseManager(QObject* parent)
     // ✅ ADD: Health monitoring for notifications
     m_notificationHealthTimer = new QTimer(this);
     connect(m_notificationHealthTimer, &QTimer::timeout, this, &DatabaseManager::checkNotificationHealth);
-    m_notificationHealthTimer->start(100); // Check every minute
+    m_notificationHealthTimer->start(100000); // Check every minute
 }
 
 
@@ -335,7 +335,7 @@ void DatabaseManager::checkNotificationHealth() {
     QDateTime now = QDateTime::currentDateTime();
 
     if (m_lastNotificationReceived.isValid() &&
-        m_lastNotificationReceived.secsTo(now) > 120) {
+        m_lastNotificationReceived.secsTo(now) > 300) {
 
         qWarning() << "❌ No notifications for 1 seconds - assuming failure";
         m_notificationsWorking = false;

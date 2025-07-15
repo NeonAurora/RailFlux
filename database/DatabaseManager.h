@@ -115,8 +115,8 @@ private slots:
 private:
     // ✅ FIXED: Added missing constant
     static constexpr int POLLING_INTERVAL_MS = 1000; // need to remove this one from code.
-    static constexpr int POLLING_INTERVAL_FAST = 40000;  // production time should be 50ms
-    static constexpr int POLLING_INTERVAL_SLOW = 50000; // production time should be 100ms
+    static constexpr int POLLING_INTERVAL_FAST = 400000;  // production time should be 50ms
+    static constexpr int POLLING_INTERVAL_SLOW = 500000; // production time should be 100ms
     InterlockingService* m_interlockingService = nullptr;
 
     // ✅ Database connection
