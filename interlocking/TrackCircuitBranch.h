@@ -1,59 +1,66 @@
-#pragma once
+#ifndef TRACKCIRCUITBRANCH_H
+#define TRACKCIRCUITBRANCH_H
+
 #include <QObject>
-#include "InterlockingService.h"
+#include <QString>
+#include <QStringList>
+#include <QSqlQuery>
+#include <QDateTime>
+#include "InterlockingService.h"  // ✅ Use existing ValidationResult
 
 class DatabaseManager;
 
-class TrackCircuitBranch : public QObject {
+class TrackCircuitBranch : public QObject
+{
     Q_OBJECT
 
 public:
     explicit TrackCircuitBranch(DatabaseManager* dbManager, QObject* parent = nullptr);
 
-    ValidationResult validateTrackAssignment(const QString& trackId,
-                                           bool currentlyAssigned,
-                                           bool requestedAssignment,
-                                           const QString& operatorId);
+    // ✅ MAIN FUNCTION: Reactive enforcement when track becomes occupied
+    void enforceTrackOccupancyInterlocking(const QString& trackSectionId, bool wasOccupied, bool isOccupied);
 
-    void enforceTrackOccupancyInterlocking(const QString& trackId, bool wasOccupied, bool isOccupied);
+    // ✅ UTILITY: Basic track section checks (for safety verification)
+    ValidationResult checkTrackSectionExists(const QString& trackSectionId);
+    ValidationResult checkTrackSectionActive(const QString& trackSectionId);
 
 signals:
-    void systemFreezeRequired(const QString& trackId, const QString& reason, const QString& details);
+    void systemFreezeRequired(const QString& trackSectionId, const QString& reason, const QString& details);
+    void automaticInterlockingCompleted(const QString& trackSectionId, const QStringList& affectedSignals);
+    void interlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error);
 
 private:
     DatabaseManager* m_dbManager;
 
-    // Core validation rules
-    ValidationResult checkTrackExists(const QString& trackId);
-    ValidationResult checkTrackActive(const QString& trackId);
-    ValidationResult checkSignalProtection(const QString& trackId, bool requestedAssignment);
-    ValidationResult checkRouteIntegrity(const QString& trackId, bool requestedAssignment);
-    ValidationResult checkAdjacentTrackConflicts(const QString& trackId, bool requestedAssignment);
-    ValidationResult checkOccupancyStatus(const QString& trackId, bool requestedAssignment);
-    ValidationResult checkMaintenanceMode(const QString& trackId);
-    ValidationResult checkApproachLocking(const QString& trackId, bool requestedAssignment);
-
-    // Helper methods
-    QStringList getProtectingSignals(const QString& trackId);
-    QStringList getAdjacentTracks(const QString& trackId);
-    QStringList getConflictingTracks(const QString& trackId);
-    QStringList getProtectingSignalsFromBothSources(const QString& trackId);
-
-    bool isPartOfActiveRoute(const QString& trackId);
-    bool areProtectingSignalsAtRed(const QStringList& signalIds);
-    bool hasApproachLock(const QString& trackId);
-    bool enforceSignalToRed(const QString& signalId, const QString& reason);
-    QString getApproachLockingSignal(const QString& trackId);
-
-    struct TrackState {
+    // ✅ TRACK SECTION STATE: Simplified structure for hardware-based occupancy
+    struct TrackSectionState {
         bool isOccupied;
         bool isAssigned;
         bool isActive;
         QString occupiedBy;
-        bool approachLockingActive;
-        QString approachLockedBy;
+        QString trackType;
+        QStringList protectingSignals;
     };
 
-    TrackState getTrackState(const QString& trackId);
-    void handleInterlockingFailure(const QString& trackId, const QString& signalId, const QString& error);
+    // ✅ CORE METHODS: Track section state and protection
+    TrackSectionState getTrackSectionState(const QString& trackSectionId);
+    QStringList getProtectingSignalsFromBothSources(const QString& trackSectionId);
+    QStringList getProtectingSignalsFromDatabase(const QString& trackSectionId);
+    QStringList getProtectingSignalsFromTrackData(const QString& trackSectionId);
+
+    // ✅ ENFORCEMENT METHODS: Automatic signal control
+    bool enforceSignalToRed(const QString& signalId, const QString& reason);
+    bool enforceMultipleSignalsToRed(const QStringList& signalIds, const QString& reason);
+    bool verifySignalIsRed(const QString& signalId);
+
+    // ✅ FAILURE HANDLING: Critical safety system failures
+    void handleInterlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error);
+    void logCriticalFailure(const QString& trackSectionId, const QString& details);
+    void emitSystemFreeze(const QString& trackSectionId, const QString& reason, const QString& details);
+
+    // ✅ UTILITY METHODS: Safety checks
+    bool areAllSignalsAtRed(const QStringList& signalIds);
+    QString formatFailureDetails(const QString& trackSectionId, const QStringList& failedSignals, const QString& error);
 };
+
+#endif // TRACKCIRCUITBRANCH_H

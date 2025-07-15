@@ -66,7 +66,7 @@ public:
     explicit InterlockingService(DatabaseManager* dbManager, QObject* parent = nullptr);
     ~InterlockingService();
 
-    // Main validation interface
+    // ✅ MAIN VALIDATION INTERFACE: Only for operator-initiated actions
     Q_INVOKABLE ValidationResult validateSignalOperation(const QString& signalId,
                                                          const QString& currentAspect,
                                                          const QString& requestedAspect,
@@ -77,26 +77,34 @@ public:
                                                                const QString& requestedPosition,
                                                                const QString& operatorId = "HMI_USER");
 
-    Q_INVOKABLE ValidationResult validateTrackAssignment(const QString& trackId,
-                                                         bool currentlyAssigned,
-                                                         bool requestedAssignment,
-                                                         const QString& operatorId = "HMI_USER");
+    // ✅ REMOVED: validateTrackAssignment - track occupancy is hardware-driven, no validation needed
 
-    // System management
+    // ✅ SYSTEM MANAGEMENT
     Q_INVOKABLE bool initialize();
     Q_INVOKABLE bool isOperational() const { return m_isOperational; }
     Q_INVOKABLE double getAverageResponseTime() const;
     Q_INVOKABLE int getActiveInterlocksCount() const;
-    Q_INVOKABLE void enforceTrackOccupancyInterlocking(const QString& trackId, bool wasOccupied, bool isOccupied);
+
+public slots:
+    // ✅ REACTIVE INTERLOCKING: Called when hardware detects track occupancy changes
+    void reactToTrackOccupancyChange(const QString& trackSectionId, bool wasOccupied, bool isOccupied);
 
 signals:
+    // ✅ OPERATIONAL SIGNALS
     void operationBlocked(const QString& entityId, const QString& reason);
     void automaticProtectionActivated(const QString& entityId, const QString& reason);
     void operationalStateChanged(bool isOperational);
     void activeInterlocksChanged(int count);
     void performanceChanged();
+
+    // ✅ SAFETY SIGNALS
     void criticalSafetyViolation(const QString& entityId, const QString& violation);
-    void systemFreezeRequired(const QString& trackId, const QString& reason, const QString& details);
+    void systemFreezeRequired(const QString& trackSectionId, const QString& reason, const QString& details);
+
+private slots:
+    // ✅ FAILURE HANDLING: Internal slot for handling critical failures
+    void handleCriticalFailure(const QString& entityId, const QString& reason);
+    void handleInterlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error);
 
 private:
     DatabaseManager* m_dbManager;
@@ -104,12 +112,16 @@ private:
     std::unique_ptr<TrackCircuitBranch> m_trackBranch;
     std::unique_ptr<PointMachineBranch> m_pointBranch;
 
-    // Performance monitoring
+    // ✅ PERFORMANCE MONITORING
     bool m_isOperational = false;
     mutable std::mutex m_performanceMutex;
     std::deque<double> m_responseTimeHistory;
     static constexpr size_t MAX_RESPONSE_HISTORY = 1000;
     static constexpr int TARGET_RESPONSE_TIME_MS = 50;
+
+    // ✅ HELPER METHODS
+    void recordResponseTime(double responseTimeMs);
+    void logPerformanceWarning(const QString& operation, double responseTimeMs);
 };
 
 Q_DECLARE_METATYPE(ValidationResult)

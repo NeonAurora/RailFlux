@@ -1,0 +1,126 @@
+{
+  "station_id": "T1",
+  "signal_interlocking_rules": {
+    "AS001": {
+      "type": "ADVANCED_STARTER",
+      "independent": true,
+      "rules": [
+        {
+          "when_aspect": "GREEN",
+          "conditions": [],
+          "allows": {
+            "ST001": ["GREEN", "YELLOW", "RED"],
+            "ST002": ["YELLOW", "RED"]
+          }
+        },
+        {
+          "when_aspect": "RED",
+          "conditions": [],
+          "allows": {
+            "ST001": ["YELLOW", "RED"],
+            "ST002": ["YELLOW", "RED"]
+          }
+        }
+      ]
+    },
+    "ST001": {
+      "type": "STARTER",
+      "controlled_by": ["AS001"],
+      "rules": [
+        {
+          "when_aspect": "GREEN",
+          "conditions": [{"point_machine": "PM001", "position": "NORMAL"}],
+          "allows": {
+            "HM001": ["GREEN"]
+          }
+        },
+        {
+          "when_aspect": "YELLOW",
+          "conditions": [{"point_machine": "PM001", "position": "NORMAL"}],
+          "allows": {
+            "HM001": ["YELLOW", "RED"]
+          }
+        },
+        {
+          "when_aspect": "RED",
+          "conditions": [{"point_machine": "PM001", "position": "NORMAL"}],
+          "allows": {
+            "HM001": ["YELLOW", "RED", "RED_CALLING"]
+          }
+        }
+      ]
+    },
+    "ST002": {
+      "type": "STARTER",
+      "controlled_by": ["AS001"],
+      "rules": [
+        {
+          "when_aspect": "YELLOW",
+          "conditions": [{"point_machine": "PM001", "position": "REVERSE"}],
+          "allows": {
+            "HM001": ["RED", "YELLOW_LOOP"]
+          }
+        },
+        {
+          "when_aspect": "RED",
+          "conditions": [{"point_machine": "PM001", "position": "REVERSE"}],
+          "allows": {
+            "HM001": ["RED", "YELLOW_LOOP", "RED_CALLING_LOOP"]
+          }
+        }
+      ]
+    },
+    "HM001": {
+      "type": "HOME",
+      "controlled_by": ["ST001", "ST002"],
+      "rules": [
+        {
+          "when_aspect": "GREEN",
+          "allows": {"OT001": ["GREEN", "RED"]}
+        },
+        {
+          "when_aspect": "YELLOW",
+          "allows": {"OT001": ["GREEN", "RED"]}
+        },
+        {
+          "when_aspect": "RED",
+          "allows": {"OT001": ["RED"]}
+        },
+        {
+          "when_aspect": "YELLOW_LOOP",
+          "allows": {"OT001": ["DOUBLE_YELLOW", "RED"]}
+        },
+        {
+          "when_aspect": "RED_CALLING",
+          "allows": {"OT001": ["SINGLE_YELLOW"]}
+        },
+        {
+          "when_aspect": "RED_CALLING_LOOP",
+          "allows": {"OT001": ["RED"]}
+        }
+      ]
+    },
+    "OT001": {
+      "type": "OUTER",
+      "controlled_by": ["HM001"],
+      "rules": [
+        {
+          "when_aspect": "GREEN",
+          "allows": {}
+        },
+        {
+          "when_aspect": "SINGLE_YELLOW",
+          "allows": {}
+        },
+        {
+          "when_aspect": "DOUBLE_YELLOW",
+          "allows": {}
+        },
+        {
+          "when_aspect": "RED",
+          "allows": {}
+        }
+      ]
+    }
+  }
+}

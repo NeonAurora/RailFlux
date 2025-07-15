@@ -101,25 +101,23 @@ Rectangle {
     }
 
     // ✅ UPDATED: Signal handlers now update database instead of StationData.js
-    function handleTrackClick(segmentId, currentState) {
-        console.log("Track segment clicked:", segmentId, "Currently occupied:", currentState)
+    // ✅ REFACTORED: Direct hardware simulation (no validation)
+    function handleTrackClick(trackSectionId, currentState) {
+        console.log("🚂 HARDWARE SIMULATION: Track section", trackSectionId, "occupancy changed to:", !currentState)
 
         if (!dbManager || !dbManager.isConnected) {
-            console.warn("Database not connected - cannot update track state")
+            console.error("❌ CRITICAL: Database not connected - track occupancy change lost!")
             return
         }
 
-        // Toggle occupancy state in database
+        // ✅ SIMULATE: Hardware directly updates database (no validation)
         var newState = !currentState
-        console.log("Updating track", segmentId, "occupancy to:", newState)
+        var success = dbManager.updateTrackOccupancy(trackSectionId, newState)
 
-        var success = dbManager.updateTrackOccupancy(segmentId, newState)
-        if (success) {
-            console.log("Track occupancy updated successfully")
-            // Data will be refreshed automatically via database signals
-        } else {
-            console.error("Failed to update track occupancy")
+        if (!success) {
+            console.error("🚨 CRITICAL: Failed to update track occupancy - system may be unsafe!")
         }
+        // ✅ Reactive interlocking will be triggered automatically by database change
     }
 
     function updateDisplay() {
@@ -499,6 +497,7 @@ Rectangle {
         }
 
         // ✅ UPDATED: Home signals from database
+        // ✅ UPDATED: Home signals from database
         Repeater {
             model: homeSignalsModel
 
@@ -508,16 +507,21 @@ Rectangle {
                 signalId: modelData.id
                 signalName: modelData.name
                 currentAspect: modelData.currentAspect
-                aspectCount: modelData.aspectCount || 3  // ✅ NEW
-                possibleAspects: modelData.possibleAspects || []  // ✅ NEW
+                aspectCount: modelData.aspectCount || 3
+                possibleAspects: modelData.possibleAspects || []
                 callingOnAspect: modelData.callingOnAspect
                 loopAspect: modelData.loopAspect
                 loopSignalConfiguration: modelData.loopSignalConfiguration
                 direction: modelData.direction
                 isActive: modelData.isActive
-                locationDescription: modelData.location || ""  // ✅ NEW
+                locationDescription: modelData.location || ""
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleHomeSignalClick(signalId, currentAspect)
+
+                // ✅ ADD THIS CONTEXT MENU HANDLER:
+                onContextMenuRequested: function(signalId, signalName, currentAspect, possibleAspects, x, y) {
+                    signalContextMenu.show(x, y, signalId, signalName, currentAspect, possibleAspects)
+                }
             }
         }
 
@@ -538,6 +542,10 @@ Rectangle {
                 locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleStarterSignalClick(signalId, currentAspect)
+
+                onContextMenuRequested: function(signalId, signalName, currentAspect, possibleAspects, x, y) {
+                    signalContextMenu.show(x, y, signalId, signalName, currentAspect, possibleAspects)
+                }
             }
         }
 
@@ -558,6 +566,9 @@ Rectangle {
                 locationDescription: modelData.location || ""  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 onSignalClicked: stationLayout.handleAdvanceStarterSignalClick(signalId, currentAspect)
+                onContextMenuRequested: function(signalId, signalName, currentAspect, possibleAspects, x, y) {
+                    signalContextMenu.show(x, y, signalId, signalName, currentAspect, possibleAspects)
+                }
             }
         }
 

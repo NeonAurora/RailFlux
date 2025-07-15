@@ -78,8 +78,8 @@ public:
     // ✅ NEW: Update operations (for signal clicks, etc.)
     Q_INVOKABLE bool updateSignalAspect(const QString& signalId, const QString& newAspect);
     Q_INVOKABLE bool updatePointMachinePosition(const QString& machineId, const QString& newPosition);
-    Q_INVOKABLE bool updateTrackOccupancy(const QString& segmentId, bool isOccupied);
-    Q_INVOKABLE bool updateTrackAssignment(const QString& segmentId, bool isAssigned);
+    Q_INVOKABLE bool updateTrackOccupancy(const QString& trackSectionId, bool isOccupied);
+    Q_INVOKABLE QVariantMap getTrackSectionById(const QString& trackSectionId);
 
     // ✅ NEW: Real-time notification handling
     Q_INVOKABLE void enableRealTimeUpdates();
@@ -95,6 +95,9 @@ signals:
     void dataUpdated();
     void errorOccurred(const QString& error);
     void operationBlocked(const QString& entityId, const QString& reason);
+    void trackSectionUpdated(const QString& trackSectionId);
+    void trackSectionsChanged();
+
 
     // ✅ NEW: Specific data change signals
     void trackSegmentsChanged();

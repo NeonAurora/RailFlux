@@ -14,41 +14,27 @@ InterlockingRuleEngine::InterlockingRuleEngine(DatabaseManager* dbManager, QObje
 }
 
 bool InterlockingRuleEngine::loadRulesFromResource(const QString& resourcePath) {
-    qDebug() << "🔍 DEBUG: Attempting to load rules from:" << resourcePath;
-
     QFile file(resourcePath);
     if (!file.open(QIODevice::ReadOnly)) {
         qCritical() << "🚨 SAFETY: Cannot open interlocking rules file:" << resourcePath;
-        qDebug() << "🔍 DEBUG: File exists?" << file.exists();
-        qDebug() << "🔍 DEBUG: File error:" << file.errorString();
         return false;
     }
 
-    QByteArray jsonData = file.readAll();
-    qDebug() << "🔍 DEBUG: JSON file size:" << jsonData.size() << "bytes";
-    qDebug() << "🔍 DEBUG: First 200 chars:" << jsonData.left(200);
-
     QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(jsonData, &parseError);
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
 
     if (parseError.error != QJsonParseError::NoError) {
         qCritical() << "🚨 SAFETY: Invalid JSON in interlocking rules:" << parseError.errorString();
-        qDebug() << "🔍 DEBUG: Parse error at offset:" << parseError.offset;
         return false;
     }
 
     QJsonObject rootObject = doc.object();
-    qDebug() << "🔍 DEBUG: Root object keys:" << rootObject.keys();
-
     QJsonObject rulesObject = rootObject["signal_interlocking_rules"].toObject();
-    qDebug() << "🔍 DEBUG: Rules object keys:" << rulesObject.keys();
-    qDebug() << "🔍 DEBUG: Rules object size:" << rulesObject.size();
 
     bool success = parseJsonRules(rulesObject);
 
     if (success) {
         qDebug() << "✅ Loaded interlocking rules for" << m_signalRules.size() << "signals";
-        qDebug() << "🔍 DEBUG: Loaded signal IDs:" << m_signalRules.keys();
     }
 
     return success;
@@ -57,15 +43,8 @@ bool InterlockingRuleEngine::loadRulesFromResource(const QString& resourcePath) 
 ValidationResult InterlockingRuleEngine::validateInterlockedSignalAspectChange(
     const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
 
-    qDebug() << "🔍 DEBUG: Validating signal:" << signalId << "from" << currentAspect << "to" << requestedAspect;
-    qDebug() << "🔍 DEBUG: Available signals in rules:" << m_signalRules.keys();
-    qDebug() << "🔍 DEBUG: Total rules loaded:" << m_signalRules.size();
-
     auto signalInfoIt = m_signalRules.find(signalId);
     if (signalInfoIt == m_signalRules.end()) {
-        qDebug() << "❌ DEBUG: Signal" << signalId << "not found in rules!";
-        qDebug() << "🔍 DEBUG: Did you mean one of these?" << m_signalRules.keys();
-
         return ValidationResult::blocked(
             QString("Signal %1 not found in interlocking rules").arg(signalId),
             "SIGNAL_NOT_IN_RULES"
@@ -73,9 +52,6 @@ ValidationResult InterlockingRuleEngine::validateInterlockedSignalAspectChange(
     }
 
     const SignalInfo& signalInfo = signalInfoIt.value();
-    qDebug() << "✅ DEBUG: Signal found! Type:" << signalInfo.signalType
-             << "Independent:" << signalInfo.isIndependent
-             << "Controlled by:" << signalInfo.controlledBy;
 
     if (signalInfo.isIndependent) {
         qDebug() << "✅ Signal" << signalId << "is independent - change allowed";

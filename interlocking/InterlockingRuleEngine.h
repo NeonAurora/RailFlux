@@ -14,7 +14,7 @@ class InterlockingRuleEngine : public QObject {
 public:
     explicit InterlockingRuleEngine(DatabaseManager* dbManager, QObject* parent = nullptr);
 
-    bool loadRulesFromResource(const QString& resourcePath = ":/data/signal_interlocking_rules.json");
+    bool loadRulesFromResource(const QString& resourcePath = ":/resources/data/signal_interlocking_rules.json");
 
     // ✅ RENAMED: Clear function name to avoid confusion
     ValidationResult validateInterlockedSignalAspectChange(const QString& signalId,

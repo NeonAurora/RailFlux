@@ -844,6 +844,7 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString&
             qWarning() << "❌ Query failed:" << query.lastError().text();
             db.rollback();
             success = false;
+            return success;
         }
     }
 }
@@ -975,78 +976,91 @@ QSqlDatabase DatabaseManager::getDatabase() const {
 }
 
 
-bool DatabaseManager::updateTrackOccupancy(const QString& segmentId, bool isOccupied) {
+bool DatabaseManager::updateTrackOccupancy(const QString& trackSectionId, bool isOccupied) {
     if (!connected) return false;
 
-    qDebug() << "🔄 SAFETY: Updating track occupancy:" << segmentId << "to" << isOccupied;
+    qDebug() << "🔄 HARDWARE: Track section occupancy change:" << trackSectionId << "→" << isOccupied;
 
-    // ✅ NEW: Get current state for interlocking validation
+    // ✅ Get previous state for interlocking comparison
     bool wasOccupied = false;
-    auto currentTrackData = getTrackSegmentById(segmentId);
+    auto currentTrackData = getTrackSectionById(trackSectionId);
     if (!currentTrackData.isEmpty()) {
         wasOccupied = currentTrackData["occupied"].toBool();
     }
 
-    // ✅ NEW: Track interlocking validation (if service is available)
-    if (m_interlockingService) {
-        auto validation = m_interlockingService->validateTrackAssignment(
-            segmentId, false, false, "SYSTEM_AUTO"); // Simplified validation for occupancy
-
-        // ✅ NOTE: Unlike signals, track occupancy changes are NOT blocked by interlocking
-        // This is just for logging and awareness
-        if (!validation.isAllowed()) {
-            qDebug() << "ℹ️ Track occupancy change noted with interlocking concerns:" << validation.getReason();
-        }
-    }
-
+    // ✅ DIRECT UPDATE: No validation - hardware doesn't need permission
     QSqlQuery query(db);
-    query.prepare("SELECT railway_control.update_track_occupancy(?, ?, NULL, 'SYSTEM_AUTO')");
-    query.addBindValue(segmentId);
+    query.prepare("SELECT railway_control.update_track_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
+    query.addBindValue(trackSectionId);
     query.addBindValue(isOccupied);
 
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            // ✅ NEW: Automatic interlocking enforcement after successful update
+            // ✅ REACTIVE: Trigger automatic interlocking enforcement
             if (m_interlockingService && m_interlockingService->isOperational()) {
-                // ✅ SAFETY: Trigger automatic interlocking after track state change
-                m_interlockingService->enforceTrackOccupancyInterlocking(segmentId, wasOccupied, isOccupied);
+                QMetaObject::invokeMethod(m_interlockingService,
+                                          "reactToTrackOccupancyChange", Qt::QueuedConnection,
+                                          Q_ARG(QString, trackSectionId),
+                                          Q_ARG(bool, wasOccupied),
+                                          Q_ARG(bool, isOccupied));
             }
 
-            // ✅ EXISTING: Emit signals
-            emit trackSegmentUpdated(segmentId);
-            emit trackSegmentsChanged();
+            emit trackSectionUpdated(trackSectionId);  // ✅ RENAMED
+            emit trackSectionsChanged();               // ✅ RENAMED
         }
         return success;
     }
 
-    qWarning() << "❌ SAFETY CRITICAL: Track occupancy update failed:" << query.lastError().text();
+    qCritical() << "🚨 HARDWARE FAILURE: Track occupancy update failed:" << query.lastError().text();
     return false;
 }
 
-bool DatabaseManager::updateTrackAssignment(const QString& segmentId, bool isAssigned) {
-    if (!connected) return false;
+QVariantMap DatabaseManager::getTrackSectionById(const QString& trackSectionId) {
+    if (!connected) return QVariantMap();
 
-    qDebug() << "🔄 SAFETY: Updating track assignment:" << segmentId << "to" << isAssigned;
+    qDebug() << "🔍 QUERY: getTrackSectionById(" << trackSectionId << ")";
 
     QSqlQuery query(db);
-    query.prepare("SELECT railway_control.update_track_assignment(?, ?, 'HMI_USER')");
-    query.addBindValue(segmentId);
-    query.addBindValue(isAssigned);
+    query.prepare(R"(
+        SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
+               track_type, is_occupied, is_assigned, occupied_by, is_active, protecting_signals
+        FROM railway_control.track_segments
+        WHERE segment_id = ?
+    )");
+    query.addBindValue(trackSectionId);
 
     if (query.exec() && query.next()) {
-        bool success = query.value(0).toBool();
-        if (success) {
-            // ✅ SAFETY: No cache invalidation - just emit signals
-            emit trackSegmentUpdated(segmentId);
-            emit trackSegmentsChanged();
-        }
-        return success;
+        return convertTrackRowToVariant(query);
     }
 
-    qWarning() << "❌ SAFETY CRITICAL: Track assignment update failed:" << query.lastError().text();
-    return false;
+    qWarning() << "❌ Track section" << trackSectionId << "not found";
+    return QVariantMap();
 }
+
+// bool DatabaseManager::updateTrackAssignment(const QString& segmentId, bool isAssigned) {
+//     if (!connected) return false;
+
+//     qDebug() << "🔄 SAFETY: Updating track assignment:" << segmentId << "to" << isAssigned;
+
+//     QSqlQuery query(db);
+//     query.prepare("SELECT railway_control.update_track_assignment(?, ?, 'HMI_USER')");
+//     query.addBindValue(segmentId);
+//     query.addBindValue(isAssigned);
+
+//     if (query.exec() && query.next()) {
+//         bool success = query.value(0).toBool();
+//         if (success) {
+//             // ✅ SAFETY: No cache invalidation - just emit signals
+//             emit trackSegmentUpdated(segmentId);
+//             emit trackSegmentsChanged();
+//         }
+//         return success;
+//     }
+
+//     qWarning() << "❌ SAFETY CRITICAL: Track assignment update failed:" << query.lastError().text();
+//     return false;
+// }
 
 // ✅ SAFETY: Row conversion helpers (unchanged)
 QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {

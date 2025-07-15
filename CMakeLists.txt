@@ -53,12 +53,7 @@ qt_add_resources(appRailFlux "app_resources"
     PREFIX "/"
     FILES
         resources/icons/railway-icon.ico
-)
-
-qt_add_resources(appRailFlux "app_resources"
-    PREFIX "/"
-    FILES
-        data/signal_interlocking_rules.json
+        resources/data/signal_interlocking_rules.json
 )
 
 set_target_properties(appRailFlux PROPERTIES

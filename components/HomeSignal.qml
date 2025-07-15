@@ -172,6 +172,8 @@ Item {
     }
 
     signal signalClicked(string signalId, string currentAspect)
+    signal contextMenuRequested(string signalId, string signalName, string currentAspect,
+                              var possibleAspects, real x, real y)
 
     // ============================================================================
     // ✅ FIXED: UP SIGNAL LAYOUT WITH CORRECT VISIBILITY LOGIC
@@ -486,9 +488,10 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
+        acceptedButtons: Qt.LeftButton | Qt.RightButton  // ✅ ADD: Accept both buttons
         cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
-        onClicked: {
+        onClicked: function(mouse) {  // ✅ CHANGE: Use function(mouse) instead of plain onClicked
             if (!isOperational()) {
                 console.log("Home signal operation blocked:", signalId,
                            "Active:", isActive,
@@ -496,15 +499,21 @@ Item {
                 return
             }
 
-            console.log("Home signal clicked:", signalId,
-                       "Name:", signalName || "Unnamed",
-                       "Main aspect:", currentAspect, "(" + getAspectDisplayName(currentAspect) + ")",
-                       "Calling-on:", callingOnAspect, "(visible:" + isCallingOnVisible + ")",
-                       "Loop:", loopAspect, "(visible:" + isLoopSignalVisible + ")",
-                       "Loop config:", loopSignalConfiguration,
-                       "Direction:", direction,
-                       "Type:", getSignalTypeDescription())
-            homeSignal.signalClicked(signalId, currentAspect)
+            if (mouse.button === Qt.LeftButton) {  // ✅ ADD: Left click handling
+                console.log("Home signal clicked:", signalId,
+                           "Name:", signalName || "Unnamed",
+                           "Main aspect:", currentAspect, "(" + getAspectDisplayName(currentAspect) + ")",
+                           "Calling-on:", callingOnAspect, "(visible:" + isCallingOnVisible + ")",
+                           "Loop:", loopAspect, "(visible:" + isLoopSignalVisible + ")",
+                           "Loop config:", loopSignalConfiguration,
+                           "Direction:", direction,
+                           "Type:", getSignalTypeDescription())
+                homeSignal.signalClicked(signalId, currentAspect)
+            } else if (mouse.button === Qt.RightButton) {  // ✅ ADD: Right click context menu
+                console.log("Home signal right-clicked:", signalId, "Showing context menu")
+                homeSignal.contextMenuRequested(signalId, signalName, currentAspect, possibleAspects,
+                                               mouse.x + homeSignal.x, mouse.y + homeSignal.y)
+            }
         }
 
         Rectangle {
