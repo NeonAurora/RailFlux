@@ -1,14 +1,32 @@
 -- ============================================================================
+-- DATABASE RESET - Clean slate approach
+-- ============================================================================
+
+-- Drop existing schemas in dependency order (CASCADE removes all dependent objects)
+DROP SCHEMA IF EXISTS railway_control CASCADE;
+DROP SCHEMA IF EXISTS railway_audit CASCADE;
+DROP SCHEMA IF EXISTS railway_config CASCADE;
+
+-- Drop any existing sequences that might persist
+DROP SEQUENCE IF EXISTS railway_audit.event_sequence CASCADE;
+
+-- Drop any existing roles
+DROP ROLE IF EXISTS railway_operator;
+DROP ROLE IF EXISTS railway_observer;
+DROP ROLE IF EXISTS railway_auditor;
+
+-- ============================================================================
 -- RailFlux Railway Control System Database Schema
--- Version: 1.0.1
--- Description: Complete database schema for railway control system
--- PostgreSQL 10+ Compatible - Fixed syntax issues
+-- Version: 1.0.2
+-- Description: Complete database schema with circuit-based occupancy
+-- PostgreSQL 10+ Compatible - Fresh installation
 -- ============================================================================
 
 -- Create schemas for organization
 CREATE SCHEMA IF NOT EXISTS railway_control;
 CREATE SCHEMA IF NOT EXISTS railway_audit;
 CREATE SCHEMA IF NOT EXISTS railway_config;
+
 
 -- Set search path
 SET search_path TO railway_control, railway_audit, railway_config, public;
@@ -51,19 +69,33 @@ CREATE TABLE railway_config.point_positions (
 -- CORE RAILWAY INFRASTRUCTURE TABLES
 -- ============================================================================
 
+-- ✅ CRITICAL: Track circuits must be created BEFORE track segments (foreign key dependency)
+CREATE TABLE railway_control.track_circuits (
+    id SERIAL PRIMARY KEY,
+    circuit_id VARCHAR(20) NOT NULL UNIQUE, -- e.g., "W22T", "A42", "6T"
+    circuit_name VARCHAR(100),
+    is_occupied BOOLEAN DEFAULT FALSE,
+    occupied_by VARCHAR(50),
+    length_meters NUMERIC(10,2),
+    max_speed_kmh INTEGER,
+    is_active BOOLEAN DEFAULT TRUE,
+    protecting_signals TEXT[],
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ✅ UPDATED: Track segments WITHOUT occupancy fields
 CREATE TABLE railway_control.track_segments (
     id SERIAL PRIMARY KEY,
-    segment_id VARCHAR(20) NOT NULL UNIQUE,
+    segment_id VARCHAR(20) NOT NULL UNIQUE, -- e.g., "T1S1", "T1S2"
     segment_name VARCHAR(100),
     start_row NUMERIC(10,2) NOT NULL,
     start_col NUMERIC(10,2) NOT NULL,
     end_row NUMERIC(10,2) NOT NULL,
     end_col NUMERIC(10,2) NOT NULL,
     track_type VARCHAR(20) DEFAULT 'STRAIGHT',
-    is_occupied BOOLEAN DEFAULT FALSE,
     is_assigned BOOLEAN DEFAULT FALSE,
-    occupied_by VARCHAR(50),
-    circuit_id VARCHAR(20),
+    circuit_id VARCHAR(20) REFERENCES railway_control.track_circuits(circuit_id),
     length_meters NUMERIC(10,2),
     max_speed_kmh INTEGER,
     is_active BOOLEAN DEFAULT TRUE,
@@ -155,9 +187,9 @@ CREATE TABLE railway_control.system_state (
 CREATE TABLE railway_control.interlocking_rules (
     id SERIAL PRIMARY KEY,
     rule_name VARCHAR(100) NOT NULL,
-    source_entity_type VARCHAR(20) NOT NULL CHECK (source_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT')),
+    source_entity_type VARCHAR(20) NOT NULL CHECK (source_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT', 'TRACK_CIRCUIT')),
     source_entity_id VARCHAR(20) NOT NULL,
-    target_entity_type VARCHAR(20) NOT NULL CHECK (target_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT')),
+    target_entity_type VARCHAR(20) NOT NULL CHECK (target_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT', 'TRACK_CIRCUIT')),
     target_entity_id VARCHAR(20) NOT NULL,
     target_constraint VARCHAR(50) NOT NULL,
     rule_type VARCHAR(50) NOT NULL,
@@ -177,7 +209,6 @@ CREATE TABLE railway_control.signal_track_protection (
     protection_type VARCHAR(50) DEFAULT 'APPROACH',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-
     UNIQUE(signal_id, protected_track_id, protection_type)
 );
 
@@ -189,7 +220,7 @@ CREATE TABLE railway_audit.event_log (
     id BIGSERIAL PRIMARY KEY,
     event_timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     event_type VARCHAR(50) NOT NULL,
-    entity_type VARCHAR(50) NOT NULL, -- SIGNAL, POINT_MACHINE, TRACK_SEGMENT
+    entity_type VARCHAR(50) NOT NULL, -- SIGNAL, POINT_MACHINE, TRACK_SEGMENT, TRACK_CIRCUIT
     entity_id VARCHAR(50) NOT NULL,
     entity_name VARCHAR(100),
 
@@ -246,27 +277,19 @@ CREATE TABLE railway_audit.system_events (
 );
 
 -- ============================================================================
--- OPERATIONAL STATE TRACKING
+-- INDEXES FOR PERFORMANCE (UPDATED FOR CIRCUIT-BASED OCCUPANCY)
 -- ============================================================================
 
-CREATE TABLE railway_control.system_state (
-    id SERIAL PRIMARY KEY,
-    state_key VARCHAR(100) NOT NULL UNIQUE,
-    state_value JSONB NOT NULL,
-    description TEXT,
-    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_by VARCHAR(100)
-);
-
--- ============================================================================
--- INDEXES FOR PERFORMANCE
--- ============================================================================
-
--- Track segments
+-- Track segments (REMOVED broken is_occupied indexes)
 CREATE INDEX idx_track_segments_segment_id ON railway_control.track_segments(segment_id);
-CREATE INDEX idx_track_segments_occupied ON railway_control.track_segments(is_occupied) WHERE is_occupied = TRUE;
 CREATE INDEX idx_track_segments_assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE;
 CREATE INDEX idx_track_segments_location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col);
+CREATE INDEX idx_track_segments_circuit ON railway_control.track_segments(circuit_id);
+
+-- ✅ NEW: Track circuits indexes
+CREATE INDEX idx_track_circuits_circuit_id ON railway_control.track_circuits(circuit_id);
+CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE;
+CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE;
 
 -- Signals
 CREATE INDEX idx_signals_signal_id ON railway_control.signals(signal_id);
@@ -296,16 +319,16 @@ CREATE INDEX idx_point_machines_safety_interlocks ON railway_control.point_machi
 CREATE INDEX idx_event_log_old_values ON railway_audit.event_log USING gin(old_values);
 CREATE INDEX idx_event_log_new_values ON railway_audit.event_log USING gin(new_values);
 CREATE INDEX idx_event_log_replay_data ON railway_audit.event_log USING gin(replay_data);
+CREATE INDEX idx_track_circuits_protecting_signals ON railway_control.track_circuits USING gin(protecting_signals);
 
-
--- Add to existing basicIndexes QStringList:
-CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id)
-CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id)
-CREATE INDEX idx_signal_track_protection_signal ON railway_control.signal_track_protection(signal_id)
-CREATE INDEX idx_signal_track_protection_track ON railway_control.signal_track_protection(protected_track_id)
-CREATE INDEX idx_signals_protected_tracks ON railway_control.signals USING gin(protected_tracks)
-CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals)
-CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals)
+-- Additional indexes
+CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id);
+CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id);
+CREATE INDEX idx_signal_track_protection_signal ON railway_control.signal_track_protection(signal_id);
+CREATE INDEX idx_signal_track_protection_track ON railway_control.signal_track_protection(protected_track_id);
+CREATE INDEX idx_signals_protected_tracks ON railway_control.signals USING gin(protected_tracks);
+CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals);
+CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals);
 
 -- ============================================================================
 -- TRIGGERS FOR AUTOMATIC TIMESTAMP UPDATES
@@ -323,6 +346,10 @@ $$ LANGUAGE plpgsql;
 -- Apply to all main tables
 CREATE TRIGGER trg_track_segments_updated_at
     BEFORE UPDATE ON railway_control.track_segments
+    FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp();
+
+CREATE TRIGGER trg_track_circuits_updated_at
+    BEFORE UPDATE ON railway_control.track_circuits
     FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp();
 
 CREATE TRIGGER trg_signals_updated_at
@@ -373,6 +400,8 @@ BEGIN
     CASE TG_TABLE_NAME
         WHEN 'track_segments' THEN
             entity_name_val := COALESCE(NEW.segment_name, OLD.segment_name, NEW.segment_id, OLD.segment_id);
+        WHEN 'track_circuits' THEN
+            entity_name_val := COALESCE(NEW.circuit_name, OLD.circuit_name, NEW.circuit_id, OLD.circuit_id);
         WHEN 'signals' THEN
             entity_name_val := COALESCE(NEW.signal_name, OLD.signal_name, NEW.signal_id, OLD.signal_id);
         WHEN 'point_machines' THEN
@@ -427,6 +456,7 @@ BEGIN
         CASE TG_TABLE_NAME
             WHEN 'signals' THEN true
             WHEN 'point_machines' THEN true
+            WHEN 'track_circuits' THEN true  -- ✅ NEW: Track circuits are safety critical
             ELSE false
         END,
         COALESCE(new_json, old_json),
@@ -442,6 +472,10 @@ CREATE TRIGGER trg_track_segments_audit
     AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_segments
     FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes();
 
+CREATE TRIGGER trg_track_circuits_audit
+    AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_circuits
+    FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes();
+
 CREATE TRIGGER trg_signals_audit
     AFTER INSERT OR UPDATE OR DELETE ON railway_control.signals
     FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes();
@@ -451,7 +485,7 @@ CREATE TRIGGER trg_point_machines_audit
     FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes();
 
 -- ============================================================================
--- REAL-TIME NOTIFICATION SYSTEM - FIXED VERSION
+-- REAL-TIME NOTIFICATION SYSTEM
 -- ============================================================================
 
 -- Track segments notification function
@@ -465,6 +499,26 @@ BEGIN
         'operation', TG_OP,
         'id', COALESCE(NEW.id, OLD.id),
         'entity_id', COALESCE(NEW.segment_id, OLD.segment_id),
+        'timestamp', extract(epoch from now())
+    );
+
+    PERFORM pg_notify('railway_changes', payload::TEXT);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- ✅ NEW: Track circuits notification function
+CREATE OR REPLACE FUNCTION railway_control.notify_track_circuit_changes()
+RETURNS TRIGGER AS $$
+DECLARE
+    payload JSON;
+BEGIN
+    payload := json_build_object(
+        'table', 'track_circuits',
+        'operation', TG_OP,
+        'id', COALESCE(NEW.id, OLD.id),
+        'circuit_id', COALESCE(NEW.circuit_id, OLD.circuit_id),
+        'is_occupied', COALESCE(NEW.is_occupied, false),
         'timestamp', extract(epoch from now())
     );
 
@@ -511,10 +565,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Apply notification triggers with specific functions
+-- Apply notification triggers
 CREATE TRIGGER trg_track_segments_notify
     AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_segments
     FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_changes();
+
+CREATE TRIGGER trg_track_circuits_notify
+    AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_circuits
+    FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_circuit_changes();
 
 CREATE TRIGGER trg_signals_notify
     AFTER INSERT OR UPDATE OR DELETE ON railway_control.signals
@@ -525,8 +583,33 @@ CREATE TRIGGER trg_point_machines_notify
     FOR EACH ROW EXECUTE FUNCTION railway_control.notify_point_changes();
 
 -- ============================================================================
--- VIEWS FOR COMMON QUERIES
+-- VIEWS FOR COMMON QUERIES (UPDATED FOR CIRCUIT-BASED OCCUPANCY)
 -- ============================================================================
+
+-- ✅ CRITICAL: Main view to get segment occupancy from circuit occupancy
+CREATE OR REPLACE VIEW railway_control.v_track_segments_with_occupancy AS
+SELECT
+    ts.id,
+    ts.segment_id,
+    ts.segment_name,
+    ts.start_row,
+    ts.start_col,
+    ts.end_row,
+    ts.end_col,
+    ts.track_type,
+    ts.is_assigned,
+    ts.circuit_id,
+    ts.length_meters,
+    ts.max_speed_kmh,
+    ts.is_active,
+    ts.protecting_signals,
+    ts.created_at,
+    ts.updated_at,
+    -- ✅ Get occupancy from circuit, not segment
+    COALESCE(tc.is_occupied, false) as is_occupied,
+    tc.occupied_by
+FROM railway_control.track_segments ts
+LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id;
 
 -- Complete signal information view
 CREATE VIEW railway_control.v_signals_complete AS
@@ -582,19 +665,21 @@ SELECT
 FROM railway_control.point_machines pm
 LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id;
 
--- Track occupancy summary
+-- ✅ UPDATED: Track occupancy summary using circuits
 CREATE VIEW railway_control.v_track_occupancy AS
 SELECT
-    COUNT(*) as total_segments,
-    COUNT(*) FILTER (WHERE is_occupied) as occupied_count,
-    COUNT(*) FILTER (WHERE is_assigned) as assigned_count,
-    COUNT(*) FILTER (WHERE is_occupied OR is_assigned) as unavailable_count,
+    COUNT(DISTINCT ts.segment_id) as total_segments,
+    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true) as occupied_count,
+    COUNT(DISTINCT ts.segment_id) FILTER (WHERE ts.is_assigned = true) as assigned_count,
+    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true OR ts.is_assigned = true) as unavailable_count,
     ROUND(
-        (COUNT(*) FILTER (WHERE is_occupied OR is_assigned)::NUMERIC / COUNT(*)) * 100,
+        (COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true OR ts.is_assigned = true)::NUMERIC /
+         COUNT(DISTINCT ts.segment_id)) * 100,
         2
     ) as utilization_percentage
-FROM railway_control.track_segments
-WHERE is_active = TRUE;
+FROM railway_control.track_segments ts
+LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
+WHERE ts.is_active = TRUE;
 
 -- Recent events view
 CREATE VIEW railway_audit.v_recent_events AS
@@ -645,7 +730,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to safely update signal aspect with validation - FIXED
+-- Function to safely update signal aspect with validation
 CREATE OR REPLACE FUNCTION railway_control.update_signal_aspect(
     signal_id_param VARCHAR,
     aspect_code_param VARCHAR,
@@ -670,13 +755,12 @@ BEGIN
     SET current_aspect_id = aspect_id_val
     WHERE signal_id = signal_id_param;
 
-    -- ✅ FIXED: Use GET DIAGNOSTICS with ROW_COUNT instead of FOUND
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to safely update point machine position - FIXED
+-- Function to safely update point machine position
 CREATE OR REPLACE FUNCTION railway_control.update_point_position(
     machine_id_param VARCHAR,
     position_code_param VARCHAR,
@@ -705,15 +789,18 @@ BEGIN
         operation_count = operation_count + 1
     WHERE machine_id = machine_id_param;
 
-    -- ✅ FIXED: Use GET DIAGNOSTICS with ROW_COUNT instead of FOUND
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to update track occupancy with audit logging
-CREATE OR REPLACE FUNCTION railway_control.update_track_occupancy(
-    segment_id_param VARCHAR,
+-- ============================================================================
+-- CIRCUIT-BASED FUNCTIONS (NEW)
+-- ============================================================================
+
+-- ✅ PRIMARY: Function to update track circuit occupancy
+CREATE OR REPLACE FUNCTION railway_control.update_track_circuit_occupancy(
+    circuit_id_param VARCHAR,
     is_occupied_param BOOLEAN,
     occupied_by_param VARCHAR DEFAULT NULL,
     operator_id_param VARCHAR DEFAULT 'system'
@@ -725,18 +812,54 @@ BEGIN
     -- Set operator context for audit logging
     PERFORM set_config('railway.operator_id', operator_id_param, true);
 
-    -- Update track segment occupancy
-    UPDATE railway_control.track_segments
+    -- Update track circuit occupancy
+    UPDATE railway_control.track_circuits
     SET
         is_occupied = is_occupied_param,
         occupied_by = CASE
             WHEN is_occupied_param = TRUE THEN occupied_by_param
             ELSE NULL
-        END
-    WHERE segment_id = segment_id_param;
+        END,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE circuit_id = circuit_id_param;
 
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
     RETURN rows_affected > 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ✅ WRAPPER: Legacy track occupancy function (for backward compatibility)
+-- This maps segment updates to circuit updates
+CREATE OR REPLACE FUNCTION railway_control.update_track_occupancy(
+    segment_id_param VARCHAR,
+    is_occupied_param BOOLEAN,
+    occupied_by_param VARCHAR DEFAULT NULL,
+    operator_id_param VARCHAR DEFAULT 'system'
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    circuit_id_val VARCHAR(20);
+    circuit_result BOOLEAN;
+BEGIN
+    -- Find the circuit ID for this segment
+    SELECT circuit_id INTO circuit_id_val
+    FROM railway_control.track_segments
+    WHERE segment_id = segment_id_param;
+
+    -- If no circuit found or circuit is INVALID, return false
+    IF circuit_id_val IS NULL OR circuit_id_val = 'INVALID' THEN
+        RETURN false;
+    END IF;
+
+    -- Update the circuit occupancy
+    SELECT railway_control.update_track_circuit_occupancy(
+        circuit_id_val,
+        is_occupied_param,
+        occupied_by_param,
+        operator_id_param
+    ) INTO circuit_result;
+
+    RETURN circuit_result;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -763,22 +886,30 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get current system status
+-- ✅ UPDATED: System status function using circuits
 CREATE OR REPLACE FUNCTION railway_control.get_system_status()
 RETURNS JSON AS $$
 DECLARE
     result JSON;
     track_stats RECORD;
+    circuit_stats RECORD;
     signal_stats RECORD;
     point_stats RECORD;
 BEGIN
-    -- Get track statistics
+    -- Get track segment statistics (assignment only)
     SELECT
         COUNT(*) as total,
-        COUNT(*) FILTER (WHERE is_occupied) as occupied,
         COUNT(*) FILTER (WHERE is_assigned) as assigned
     INTO track_stats
     FROM railway_control.track_segments
+    WHERE is_active = TRUE;
+
+    -- Get track circuit statistics (occupancy)
+    SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE is_occupied) as occupied
+    INTO circuit_stats
+    FROM railway_control.track_circuits
     WHERE is_active = TRUE;
 
     -- Get signal statistics
@@ -800,10 +931,11 @@ BEGIN
     result := json_build_object(
         'timestamp', extract(epoch from now()),
         'tracks', json_build_object(
-            'total', track_stats.total,
-            'occupied', track_stats.occupied,
-            'assigned', track_stats.assigned,
-            'available', track_stats.total - track_stats.occupied - track_stats.assigned
+            'total_segments', track_stats.total,
+            'assigned_segments', track_stats.assigned,
+            'total_circuits', circuit_stats.total,
+            'occupied_circuits', circuit_stats.occupied,
+            'available_segments', track_stats.total - track_stats.assigned
         ),
         'signals', json_build_object(
             'total', signal_stats.total,

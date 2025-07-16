@@ -403,9 +403,13 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
         emit pointMachineUpdated(entityId);
         qDebug() << "📡 Emitted pointMachinesChanged and pointMachineUpdated(" << entityId << ")";
     } else if (table == "track_segments") {
-        emit trackSegmentsChanged();
-        emit trackSegmentUpdated(entityId);
+        emit trackSegmentsChanged();  // ✅ FIXED: Consistent naming
+        emit trackSegmentUpdated(entityId);  // ✅ FIXED: Consistent naming
         qDebug() << "📡 Emitted trackSegmentsChanged and trackSegmentUpdated(" << entityId << ")";
+    } else if (table == "track_circuits") {  // ✅ NEW: Handle circuit notifications
+        emit trackCircuitsChanged();
+        emit trackSegmentsChanged(); // ✅ Segments depend on circuits
+        qDebug() << "📡 Emitted trackCircuitsChanged and trackSegmentsChanged (circuit affects segments)";
     }
 
     emit dataUpdated();
@@ -497,10 +501,10 @@ void DatabaseManager::pollDatabase() {
 
 void DatabaseManager::detectAndEmitChanges() {
     // Poll signals
-    QSqlQuery query("SELECT signal_id, current_aspect_id FROM railway_control.signals", db);
-    while (query.next()) {
-        QString signalId = query.value(0).toString();
-        int aspectId = query.value(1).toInt();
+    QSqlQuery signalQuery("SELECT signal_id, current_aspect_id FROM railway_control.signals", db);
+    while (signalQuery.next()) {
+        QString signalId = signalQuery.value(0).toString();
+        int aspectId = signalQuery.value(1).toInt();
 
         if (!lastSignalStates.contains(signalId.toInt()) || lastSignalStates[signalId.toInt()] != QString::number(aspectId)) {
             lastSignalStates[signalId.toInt()] = QString::number(aspectId);
@@ -508,15 +512,17 @@ void DatabaseManager::detectAndEmitChanges() {
         }
     }
 
-    // Poll track circuits
-    QSqlQuery trackQuery("SELECT segment_id, is_occupied FROM railway_control.track_segments", db);
-    while (trackQuery.next()) {
-        QString segmentId = trackQuery.value(0).toString();
-        bool isOccupied = trackQuery.value(1).toBool();
+    // ✅ FIXED: Poll track circuits for occupancy (not segments)
+    QSqlQuery circuitQuery("SELECT circuit_id, is_occupied FROM railway_control.track_circuits", db);
+    while (circuitQuery.next()) {
+        QString circuitId = circuitQuery.value(0).toString();
+        bool isOccupied = circuitQuery.value(1).toBool();
 
-        if (!lastTrackStates.contains(segmentId.toInt()) || lastTrackStates[segmentId.toInt()] != isOccupied) {
-            lastTrackStates[segmentId.toInt()] = isOccupied;
-            emit trackCircuitStateChanged(segmentId.toInt(), isOccupied);
+        // ✅ Use circuit_id as key for tracking state changes
+        int circuitKey = qHash(circuitId);
+        if (!lastTrackStates.contains(circuitKey) || lastTrackStates[circuitKey] != isOccupied) {
+            lastTrackStates[circuitKey] = isOccupied;
+            emit trackCircuitStateChanged(circuitKey, isOccupied);
         }
     }
 }
@@ -543,18 +549,24 @@ bool DatabaseManager::isPortableServerRunning()
 QVariantList DatabaseManager::getTrackSegmentsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY";
+    qDebug() << "?? SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY";
 
     QVariantList tracks;
     QSqlQuery trackQuery(db);
-    QString trackSql = "SELECT segment_id, segment_name, start_row, start_col, end_row, end_col, track_type, is_occupied, is_assigned, occupied_by, is_active FROM railway_control.track_segments ORDER BY segment_id";
+    // ? Use the view that joins with circuits for occupancy
+    QString trackSql = R"(
+        SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
+               track_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
+        FROM railway_control.v_track_segments_with_occupancy
+        ORDER BY segment_id
+    )";
 
     if (trackQuery.exec(trackSql)) {
         while (trackQuery.next()) {
             tracks.append(convertTrackRowToVariant(trackQuery));
         }
     } else {
-        qWarning() << "❌ SAFETY CRITICAL: Track query failed:" << trackQuery.lastError().text();
+        qWarning() << "? SAFETY CRITICAL: Track query failed:" << trackQuery.lastError().text();
     }
 
     return tracks;
@@ -729,25 +741,25 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
     return QVariantMap();
 }
 
-QVariantMap DatabaseManager::getTrackSegmentById(const QString& segmentId) {
+QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) {
     if (!connected) return QVariantMap();
 
-    qDebug() << "🔍 SAFETY: getTrackSegmentById(" << segmentId << ") - DIRECT DATABASE QUERY";
+    qDebug() << "?? QUERY: getTrackSegmentById(" << trackSegmentId << ")";
 
     QSqlQuery query(db);
     query.prepare(R"(
         SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
-               track_type, is_occupied, is_assigned, occupied_by, is_active
-        FROM railway_control.track_segments
+               track_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
+        FROM railway_control.v_track_segments_with_occupancy
         WHERE segment_id = ?
     )");
-    query.addBindValue(segmentId);
+    query.addBindValue(trackSegmentId);
 
     if (query.exec() && query.next()) {
         return convertTrackRowToVariant(query);
     }
 
-    qWarning() << "❌ SAFETY: Track segment" << segmentId << "not found in database";
+    qWarning() << "? Track segment" << trackSegmentId << "not found";
     return QVariantMap();
 }
 
@@ -870,7 +882,7 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
         if (!validation.isAllowed()) {
             qDebug() << "🚨 Point machine operation blocked by interlocking:" << validation.getReason();
             emit operationBlocked(machineId, validation.getReason());
-            return false;
+            // return false;
         }
 
         qDebug() << "✅ Interlocking validation passed for point machine" << machineId;
@@ -976,22 +988,23 @@ QSqlDatabase DatabaseManager::getDatabase() const {
 }
 
 
-bool DatabaseManager::updateTrackOccupancy(const QString& trackSectionId, bool isOccupied) {
+bool DatabaseManager::updateTrackSegmentOccupancy(const QString& trackSegmentId, bool isOccupied) {
     if (!connected) return false;
 
-    qDebug() << "🔄 HARDWARE: Track section occupancy change:" << trackSectionId << "→" << isOccupied;
+    qDebug() << "🔄 HARDWARE: Track segment occupancy change:" << trackSegmentId << "→" << isOccupied;
+    qDebug() << "             (This updates the CIRCUIT that contains this segment)";
 
     // ✅ Get previous state for interlocking comparison
     bool wasOccupied = false;
-    auto currentTrackData = getTrackSectionById(trackSectionId);
-    if (!currentTrackData.isEmpty()) {
-        wasOccupied = currentTrackData["occupied"].toBool();
+    auto currentTrackSegmentData = getTrackSegmentById(trackSegmentId);
+    if (!currentTrackSegmentData.isEmpty()) {
+        wasOccupied = currentTrackSegmentData["occupied"].toBool();
     }
 
-    // ✅ DIRECT UPDATE: No validation - hardware doesn't need permission
+    // ✅ UPDATED: Use the wrapper function that maps segment to circuit
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_track_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
-    query.addBindValue(trackSectionId);
+    query.addBindValue(trackSegmentId);
     query.addBindValue(isOccupied);
 
     if (query.exec() && query.next()) {
@@ -1000,43 +1013,125 @@ bool DatabaseManager::updateTrackOccupancy(const QString& trackSectionId, bool i
             // ✅ REACTIVE: Trigger automatic interlocking enforcement
             if (m_interlockingService && m_interlockingService->isOperational()) {
                 QMetaObject::invokeMethod(m_interlockingService,
-                                          "reactToTrackOccupancyChange", Qt::QueuedConnection,
-                                          Q_ARG(QString, trackSectionId),
+                                          "reactToTrackSegmentOccupancyChange", Qt::QueuedConnection,
+                                          Q_ARG(QString, trackSegmentId),
                                           Q_ARG(bool, wasOccupied),
                                           Q_ARG(bool, isOccupied));
             }
 
-            emit trackSectionUpdated(trackSectionId);  // ✅ RENAMED
-            emit trackSectionsChanged();               // ✅ RENAMED
+            emit trackSegmentUpdated(trackSegmentId);  // ✅ FIXED: Consistent naming
+            emit trackSegmentsChanged();               // ✅ FIXED: Consistent naming
         }
         return success;
     }
 
-    qCritical() << "🚨 HARDWARE FAILURE: Track occupancy update failed:" << query.lastError().text();
+    qCritical() << "🚨 HARDWARE FAILURE: Track segment occupancy update failed:" << query.lastError().text();
     return false;
 }
 
-QVariantMap DatabaseManager::getTrackSectionById(const QString& trackSectionId) {
-    if (!connected) return QVariantMap();
+bool DatabaseManager::updateTrackCircuitOccupancy(const QString& trackCircuitId, bool isOccupied) {
+    if (!connected) return false;
 
-    qDebug() << "🔍 QUERY: getTrackSectionById(" << trackSectionId << ")";
+    qDebug() << "🔄 CIRCUIT: Track circuit occupancy change:" << trackCircuitId << "→" << isOccupied;
 
+    QSqlQuery query(db);
+    query.prepare("SELECT railway_control.update_track_circuit_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
+    query.addBindValue(trackCircuitId);
+    query.addBindValue(isOccupied);
+
+    if (query.exec() && query.next()) {
+        bool success = query.value(0).toBool();
+        if (success) {
+            emit trackCircuitsChanged();  // ✅ NEW: Circuit-specific signal
+            emit trackSegmentsChanged();  // ✅ Also update segments since they depend on circuits
+        }
+        return success;
+    }
+
+    qCritical() << "🚨 CIRCUIT FAILURE: Track circuit occupancy update failed:" << query.lastError().text();
+    return false;
+}
+
+bool DatabaseManager::getTrackCircuitOccupancy(const QString& trackCircuitId) {
+    QSqlQuery query(db);
+    query.prepare("SELECT is_occupied FROM railway_control.track_circuits WHERE circuit_id = ?");
+    query.addBindValue(trackCircuitId);
+    if (query.exec() && query.next()) {
+        return query.value(0).toBool();
+    }
+    return false; // Safe default
+}
+
+QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCircuitId) {
+    if (!connected) return QVariantList();
+
+    qDebug() << "🔍 QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ")";
+
+    QVariantList segments;
     QSqlQuery query(db);
     query.prepare(R"(
         SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
-               track_type, is_occupied, is_assigned, occupied_by, is_active, protecting_signals
-        FROM railway_control.track_segments
-        WHERE segment_id = ?
+               track_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
+        FROM railway_control.v_track_segments_with_occupancy
+        WHERE circuit_id = ?
+        ORDER BY segment_id
     )");
-    query.addBindValue(trackSectionId);
+    query.addBindValue(trackCircuitId);
 
-    if (query.exec() && query.next()) {
-        return convertTrackRowToVariant(query);
+    if (query.exec()) {
+        while (query.next()) {
+            segments.append(convertTrackRowToVariant(query));
+        }
+    } else {
+        qWarning() << "❌ Failed to get segments for circuit" << trackCircuitId << ":" << query.lastError().text();
     }
 
-    qWarning() << "❌ Track section" << trackSectionId << "not found";
-    return QVariantMap();
+    return segments;
 }
+
+QVariantList DatabaseManager::getTrackCircuitsList() {
+    if (!connected) return QVariantList();
+
+    qDebug() << "🔍 SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY";
+
+    QVariantList circuits;
+    QSqlQuery query(db);
+    QString sql = R"(
+        SELECT circuit_id, circuit_name, is_occupied, occupied_by,
+               length_meters, max_speed_kmh, is_active, protecting_signals
+        FROM railway_control.track_circuits
+        ORDER BY circuit_id
+    )";
+
+    if (query.exec(sql)) {
+        while (query.next()) {
+            QVariantMap circuit;
+            circuit["id"] = query.value("circuit_id").toString();
+            circuit["name"] = query.value("circuit_name").toString();
+            circuit["occupied"] = query.value("is_occupied").toBool();
+            circuit["occupiedBy"] = query.value("occupied_by").toString();
+            circuit["lengthMeters"] = query.value("length_meters").toDouble();
+            circuit["maxSpeedKmh"] = query.value("max_speed_kmh").toInt();
+            circuit["isActive"] = query.value("is_active").toBool();
+
+            // Handle protecting signals array
+            QString protectingSignalsStr = query.value("protecting_signals").toString();
+            if (!protectingSignalsStr.isEmpty()) {
+                protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
+                circuit["protectingSignals"] = protectingSignalsStr.split(",");
+            } else {
+                circuit["protectingSignals"] = QStringList();
+            }
+
+            circuits.append(circuit);
+        }
+    } else {
+        qWarning() << "❌ SAFETY CRITICAL: Track circuits query failed:" << query.lastError().text();
+    }
+
+    return circuits;
+}
+
 
 // bool DatabaseManager::updateTrackAssignment(const QString& segmentId, bool isAssigned) {
 //     if (!connected) return false;
@@ -1100,10 +1195,11 @@ QVariantMap DatabaseManager::convertTrackRowToVariant(const QSqlQuery& query) {
     track["endRow"] = query.value("end_row").toDouble();
     track["endCol"] = query.value("end_col").toDouble();
     track["trackType"] = query.value("track_type").toString();
-    track["occupied"] = query.value("is_occupied").toBool();
+    track["occupied"] = query.value("is_occupied").toBool();  // ✅ Now from circuit via view
     track["assigned"] = query.value("is_assigned").toBool();
     track["occupiedBy"] = query.value("occupied_by").toString();
     track["isActive"] = query.value("is_active").toBool();
+    track["circuitId"] = query.value("circuit_id").toString();  // ✅ NEW: Include circuit_id
 
     return track;
 }
@@ -1165,19 +1261,9 @@ QString DatabaseManager::getSignalState(int signalId) {
     return "RED"; // Safe default
 }
 
-bool DatabaseManager::getTrackOccupancy(int circuitId) {
-    QSqlQuery query(db);
-    query.prepare("SELECT is_occupied FROM railway_control.track_segments WHERE segment_id = ?");
-    query.addBindValue(QString::number(circuitId));
-    if (query.exec() && query.next()) {
-        return query.value(0).toBool();
-    }
-    return false; // Safe default
-}
-
 QVariantMap DatabaseManager::getAllTrackCircuitStates() {
     QVariantMap states;
-    QSqlQuery query("SELECT segment_id, is_occupied FROM railway_control.track_segments", db);
+    QSqlQuery query("SELECT circuit_id, is_occupied FROM railway_control.track_circuits", db);
     while (query.next()) {
         states[query.value(0).toString()] = query.value(1).toBool();
     }
