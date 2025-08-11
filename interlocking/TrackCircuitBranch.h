@@ -17,36 +17,36 @@ class TrackCircuitBranch : public QObject
 public:
     explicit TrackCircuitBranch(DatabaseManager* dbManager, QObject* parent = nullptr);
 
-    // ✅ MAIN FUNCTION: Reactive enforcement when track becomes occupied
-    void enforceTrackOccupancyInterlocking(const QString& trackSectionId, bool wasOccupied, bool isOccupied);
+    // ✅ MAIN FUNCTION: Reactive enforcement when trackSegment becomes occupied
+    void enforceTrackSegmentOccupancyInterlocking(const QString& trackSegmentId, bool wasOccupied, bool isOccupied);
 
-    // ✅ UTILITY: Basic track section checks (for safety verification)
-    ValidationResult checkTrackSectionExists(const QString& trackSectionId);
-    ValidationResult checkTrackSectionActive(const QString& trackSectionId);
+    // ✅ UTILITY: Basic trackSegment section checks (for safety verification)
+    ValidationResult checkTrackSegmentExists(const QString& trackSegmentId);
+    ValidationResult checkTrackSegmentActive(const QString& trackSegmentId);
 
 signals:
-    void systemFreezeRequired(const QString& trackSectionId, const QString& reason, const QString& details);
-    void automaticInterlockingCompleted(const QString& trackSectionId, const QStringList& affectedSignals);
-    void interlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error);
+    void systemFreezeRequired(const QString& trackSegmentId, const QString& reason, const QString& details);
+    void automaticInterlockingCompleted(const QString& trackSegmentId, const QStringList& affectedSignals);
+    void interlockingFailure(const QString& trackSegmentId, const QString& failedSignals, const QString& error);
 
 private:
     DatabaseManager* m_dbManager;
 
-    // ✅ TRACK SECTION STATE: Simplified structure for hardware-based occupancy
-    struct TrackSectionState {
+    // ✅ TRACK SEGMENT SECTION STATE: Simplified structure for hardware-based occupancy
+    struct TrackSegmentState {
         bool isOccupied;
         bool isAssigned;
         bool isActive;
         QString occupiedBy;
-        QString trackType;
+        QString trackSegmentType;
         QStringList protectingSignals;
     };
 
-    // ✅ CORE METHODS: Track section state and protection
-    TrackSectionState getTrackSectionState(const QString& trackSectionId);
-    QStringList getProtectingSignalsFromBothSources(const QString& trackSectionId);
-    QStringList getProtectingSignalsFromDatabase(const QString& trackSectionId);
-    QStringList getProtectingSignalsFromTrackData(const QString& trackSectionId);
+    // ✅ CORE METHODS: Track Segment section state and protection
+    TrackSegmentState getTrackSegmentState(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromBothSources(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromDatabase(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromTrackSegmentData(const QString& trackSegmentId);
 
     // ✅ ENFORCEMENT METHODS: Automatic signal control
     bool enforceSignalToRed(const QString& signalId, const QString& reason);
@@ -54,13 +54,13 @@ private:
     bool verifySignalIsRed(const QString& signalId);
 
     // ✅ FAILURE HANDLING: Critical safety system failures
-    void handleInterlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error);
-    void logCriticalFailure(const QString& trackSectionId, const QString& details);
-    void emitSystemFreeze(const QString& trackSectionId, const QString& reason, const QString& details);
+    void handleInterlockingFailure(const QString& trackSegmentId, const QString& failedSignals, const QString& error);
+    void logCriticalFailure(const QString& trackSegmentId, const QString& details);
+    void emitSystemFreeze(const QString& trackSegmentId, const QString& reason, const QString& details);
 
     // ✅ UTILITY METHODS: Safety checks
     bool areAllSignalsAtRed(const QStringList& signalIds);
-    QString formatFailureDetails(const QString& trackSectionId, const QStringList& failedSignals, const QString& error);
+    QString formatFailureDetails(const QString& trackSegmentId, const QStringList& failedSignals, const QString& error);
 };
 
 #endif // TRACKCIRCUITBRANCH_H

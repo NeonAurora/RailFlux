@@ -18,96 +18,96 @@ TrackCircuitBranch::TrackCircuitBranch(DatabaseManager* dbManager, QObject* pare
 // ✅ MAIN REACTIVE ENFORCEMENT METHOD
 // ============================================================================
 
-void TrackCircuitBranch::enforceTrackOccupancyInterlocking(
-    const QString& trackSectionId, bool wasOccupied, bool isOccupied) {
+void TrackCircuitBranch::enforceTrackSegmentOccupancyInterlocking(
+    const QString& trackSegmentId, bool wasOccupied, bool isOccupied) {
 
-    // ✅ SAFETY: Only react to critical transition (track becoming occupied)
+    // ✅ SAFETY: Only react to critical transition (trackSegment becoming occupied)
     if (wasOccupied || !isOccupied) {
-        qDebug() << "🟢 No interlocking action needed for track section" << trackSectionId
+        qDebug() << "🟢 No interlocking action needed for track segment" << trackSegmentId
                  << "- transition:" << wasOccupied << "→" << isOccupied;
         return;
     }
 
-    qDebug() << "🚨 AUTOMATIC INTERLOCKING TRIGGERED: Track section" << trackSectionId
+    qDebug() << "🚨 AUTOMATIC INTERLOCKING TRIGGERED: Track segment" << trackSegmentId
              << "became occupied - enforcing signal protection";
 
-    // ✅ SAFETY: Verify track section exists and is operational
-    auto existsResult = checkTrackSectionExists(trackSectionId);
+    // ✅ SAFETY: Verify track segment exists and is operational
+    auto existsResult = checkTrackSegmentExists(trackSegmentId);
     if (!existsResult.isAllowed()) {
-        qCritical() << "🚨 CRITICAL: Track section" << trackSectionId << "not found during interlocking enforcement!";
-        handleInterlockingFailure(trackSectionId, "N/A", "Track section not found: " + existsResult.getReason());
+        qCritical() << "🚨 CRITICAL: Track segment" << trackSegmentId << "not found during interlocking enforcement!";
+        handleInterlockingFailure(trackSegmentId, "N/A", "Track segment not found: " + existsResult.getReason());
         return;
     }
 
-    auto activeResult = checkTrackSectionActive(trackSectionId);
+    auto activeResult = checkTrackSegmentActive(trackSegmentId);
     if (!activeResult.isAllowed()) {
-        qWarning() << "⚠️ Track section" << trackSectionId << "is not active - skipping interlocking enforcement";
+        qWarning() << "⚠️ Track segment" << trackSegmentId << "is not active - skipping interlocking enforcement";
         return;
     }
 
     // ✅ SAFETY: Get protecting signals from multiple sources for redundancy
-    QStringList protectingSignals = getProtectingSignalsFromBothSources(trackSectionId);
+    QStringList protectingSignals = getProtectingSignalsFromBothSources(trackSegmentId);
 
     if (protectingSignals.isEmpty()) {
-        qWarning() << "⚠️ SAFETY WARNING: No protecting signals found for occupied track section" << trackSectionId;
-        qWarning() << "⚠️ This could indicate a configuration error or unprotected track section";
+        qWarning() << "⚠️ SAFETY WARNING: No protecting signals found for occupied track segment" << trackSegmentId;
+        qWarning() << "⚠️ This could indicate a configuration error or unprotected track segment";
         return;
     }
 
     qDebug() << "🔒 ENFORCING PROTECTION: Setting" << protectingSignals.size()
-             << "protecting signals to RED for track section" << trackSectionId;
+             << "protecting signals to RED for track segment" << trackSegmentId;
     qDebug() << "🔒 Protecting signals:" << protectingSignals;
 
     // ✅ SAFETY: Force all protecting signals to RED - no validation, just enforce
     bool allSucceeded = enforceMultipleSignalsToRed(protectingSignals,
-                                                    QString("AUTOMATIC: Track section %1 occupied").arg(trackSectionId));
+                                                    QString("AUTOMATIC: Track segment %1 occupied").arg(trackSegmentId));
 
     if (allSucceeded) {
-        qDebug() << "✅ AUTOMATIC INTERLOCKING SUCCESSFUL: All protecting signals set to RED for track section" << trackSectionId;
-        emit automaticInterlockingCompleted(trackSectionId, protectingSignals);
+        qDebug() << "✅ AUTOMATIC INTERLOCKING SUCCESSFUL: All protecting signals set to RED for track segment" << trackSegmentId;
+        emit automaticInterlockingCompleted(trackSegmentId, protectingSignals);
     } else {
-        qCritical() << "🚨 AUTOMATIC INTERLOCKING FAILED for track section" << trackSectionId;
+        qCritical() << "🚨 AUTOMATIC INTERLOCKING FAILED for track segment" << trackSegmentId;
         // handleInterlockingFailure is called within enforceMultipleSignalsToRed
     }
 }
 
 // ============================================================================
-// ✅ TRACK SECTION VALIDATION METHODS
+// ✅ TRACK SEGMENT SEGMENT VALIDATION METHODS
 // ============================================================================
 
-ValidationResult TrackCircuitBranch::checkTrackSectionExists(const QString& trackSectionId) {
-    auto trackData = m_dbManager->getTrackSegmentById(trackSectionId);  // ✅ Use existing method name
-    if (trackData.isEmpty()) {
-        return ValidationResult::blocked("Track section not found: " + trackSectionId, "TRACK_SECTION_NOT_FOUND");
+ValidationResult TrackCircuitBranch::checkTrackSegmentExists(const QString& trackSegmentId) {
+    auto trackSegmentData = m_dbManager->getTrackSegmentById(trackSegmentId);  // ✅ Use existing method name
+    if (trackSegmentData.isEmpty()) {
+        return ValidationResult::blocked("Track segment not found: " + trackSegmentId, "TRACK_SEGMENT_NOT_FOUND");
     }
-    return ValidationResult::allowed("Track section exists");
+    return ValidationResult::allowed("Track segment exists");
 }
 
-ValidationResult TrackCircuitBranch::checkTrackSectionActive(const QString& trackSectionId) {
-    auto trackState = getTrackSectionState(trackSectionId);
-    if (!trackState.isActive) {
-        return ValidationResult::blocked("Track section is not active: " + trackSectionId, "TRACK_SECTION_INACTIVE");
+ValidationResult TrackCircuitBranch::checkTrackSegmentActive(const QString& trackSegmentId) {
+    auto trackSegmentState = getTrackSegmentState(trackSegmentId);
+    if (!trackSegmentState.isActive) {
+        return ValidationResult::blocked("Track segment is not active: " + trackSegmentId, "TRACK_SEGMENT_INACTIVE");
     }
-    return ValidationResult::allowed("Track section is active");
+    return ValidationResult::allowed("Track segment is active");
 }
 
 // ============================================================================
-// ✅ TRACK SECTION STATE AND PROTECTION METHODS
+// ✅ TRACK SEGMENT SEGMENT STATE AND PROTECTION METHODS
 // ============================================================================
 
-TrackCircuitBranch::TrackSectionState TrackCircuitBranch::getTrackSectionState(const QString& trackSectionId) {
-    TrackSectionState state;
-    auto trackData = m_dbManager->getTrackSegmentById(trackSectionId);  // ✅ Use existing method name
+TrackCircuitBranch::TrackSegmentState TrackCircuitBranch::getTrackSegmentState(const QString& trackSegmentId) {
+    TrackSegmentState state;
+    auto trackSegmentData = m_dbManager->getTrackSegmentById(trackSegmentId);  // ✅ Use existing method name
 
-    if (!trackData.isEmpty()) {
-        state.isOccupied = trackData["occupied"].toBool();
-        state.isAssigned = trackData["assigned"].toBool();
-        state.isActive = trackData["isActive"].toBool();
-        state.occupiedBy = trackData["occupiedBy"].toString();
-        state.trackType = trackData["trackType"].toString();
+    if (!trackSegmentData.isEmpty()) {
+        state.isOccupied = trackSegmentData["occupied"].toBool();
+        state.isAssigned = trackSegmentData["assigned"].toBool();
+        state.isActive = trackSegmentData["isActive"].toBool();
+        state.occupiedBy = trackSegmentData["occupiedBy"].toString();
+        state.trackSegmentType = trackSegmentData["trackSegmentType"].toString();
 
         // ✅ Parse protecting signals array from database
-        QString protectingSignalsStr = trackData["protectingSignals"].toString();
+        QString protectingSignalsStr = trackSegmentData["protectingSignals"].toString();
         if (!protectingSignalsStr.isEmpty() && protectingSignalsStr != "{}") {
             protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
             state.protectingSignals = protectingSignalsStr.split(",", Qt::SkipEmptyParts);
@@ -120,37 +120,37 @@ TrackCircuitBranch::TrackSectionState TrackCircuitBranch::getTrackSectionState(c
     return state;
 }
 
-QStringList TrackCircuitBranch::getProtectingSignalsFromBothSources(const QString& trackSectionId) {
+QStringList TrackCircuitBranch::getProtectingSignalsFromBothSources(const QString& trackSegmentId) {
     QStringList combinedSignals;
 
-    // ✅ SOURCE 1: signal_track_protection table (explicit protection relationships)
-    QStringList fromProtectionTable = getProtectingSignalsFromDatabase(trackSectionId);
+    // ✅ SOURCE 1: signal_track_segment_protection table (explicit protection relationships)
+    QStringList fromProtectionTable = getProtectingSignalsFromDatabase(trackSegmentId);
 
     // ✅ SOURCE 2: track_segments.protecting_signals array (configuration data)
-    QStringList fromTrackData = getProtectingSignalsFromTrackData(trackSectionId);
+    QStringList fromTrackSegmentData = getProtectingSignalsFromTrackSegmentData(trackSegmentId);
 
     // ✅ SAFETY: Combine both sources and remove duplicates for redundancy
     combinedSignals = fromProtectionTable;
-    for (const QString& signal : fromTrackData) {
+    for (const QString& signal : fromTrackSegmentData) {
         if (!combinedSignals.contains(signal.trimmed())) {
             combinedSignals.append(signal.trimmed());
         }
     }
 
-    qDebug() << "🔍 PROTECTING SIGNALS for track section" << trackSectionId << ":";
+    qDebug() << "🔍 PROTECTING SIGNALS for track segment" << trackSegmentId << ":";
     qDebug() << "   From protection table:" << fromProtectionTable;
-    qDebug() << "   From track data:" << fromTrackData;
+    qDebug() << "   From trackSegment data:" << fromTrackSegmentData;
     qDebug() << "   Combined list:" << combinedSignals;
 
     return combinedSignals;
 }
 
-QStringList TrackCircuitBranch::getProtectingSignalsFromDatabase(const QString& trackSectionId) {
+QStringList TrackCircuitBranch::getProtectingSignalsFromDatabase(const QString& trackSegmentId) {
     if (!m_dbManager) return QStringList();
 
     QSqlQuery query(m_dbManager->getDatabase());
-    query.prepare("SELECT signal_id FROM railway_control.signal_track_protection WHERE protected_track_id = ? AND is_active = TRUE");
-    query.addBindValue(trackSectionId);
+    query.prepare("SELECT signal_id FROM railway_control.signal_track_segment_protection WHERE protected_track_segment_id = ? AND is_active = TRUE");
+    query.addBindValue(trackSegmentId);
 
     QStringList signalList;
     if (query.exec()) {
@@ -164,9 +164,9 @@ QStringList TrackCircuitBranch::getProtectingSignalsFromDatabase(const QString& 
     return signalList;
 }
 
-QStringList TrackCircuitBranch::getProtectingSignalsFromTrackData(const QString& trackSectionId) {
-    auto trackState = getTrackSectionState(trackSectionId);
-    return trackState.protectingSignals;
+QStringList TrackCircuitBranch::getProtectingSignalsFromTrackSegmentData(const QString& trackSegmentId) {
+    auto trackSegmentState = getTrackSegmentState(trackSegmentId);
+    return trackSegmentState.protectingSignals;
 }
 
 // ============================================================================
@@ -223,14 +223,14 @@ bool TrackCircuitBranch::enforceMultipleSignalsToRed(const QStringList& signalId
     }
 
     if (!allSucceeded) {
-        QString trackSectionId = reason.contains("Track section") ?
-                                     reason.split(" ")[2] : "UNKNOWN"; // Extract track section ID from reason
+        QString trackSegmentId = reason.contains("Track segment") ?
+                                     reason.split(" ")[2] : "UNKNOWN"; // Extract track segment ID from reason
 
         qCritical() << "🚨 CRITICAL SAFETY FAILURE: Failed to set signals to RED";
         qCritical() << "🚨 Succeeded signals:" << succeededSignals;
         qCritical() << "🚨 Failed signals:" << failedSignals;
 
-        handleInterlockingFailure(trackSectionId, failedSignals.join(","), "Failed to enforce RED aspect on multiple signals");
+        handleInterlockingFailure(trackSegmentId, failedSignals.join(","), "Failed to enforce RED aspect on multiple signals");
     }
 
     return allSucceeded;
@@ -261,33 +261,33 @@ bool TrackCircuitBranch::areAllSignalsAtRed(const QStringList& signalIds) {
 // ✅ FAILURE HANDLING METHODS
 // ============================================================================
 
-void TrackCircuitBranch::handleInterlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error) {
-    QString details = formatFailureDetails(trackSectionId, failedSignals.split(","), error);
+void TrackCircuitBranch::handleInterlockingFailure(const QString& trackSegmentId, const QString& failedSignals, const QString& error) {
+    QString details = formatFailureDetails(trackSegmentId, failedSignals.split(","), error);
 
-    logCriticalFailure(trackSectionId, details);
-    emitSystemFreeze(trackSectionId, "Failed to enforce signal protection for occupied track section", details);
+    logCriticalFailure(trackSegmentId, details);
+    emitSystemFreeze(trackSegmentId, "Failed to enforce signal protection for occupied track segment", details);
 
     // ✅ EMIT specific interlocking failure signal
-    emit interlockingFailure(trackSectionId, failedSignals, error);
+    emit interlockingFailure(trackSegmentId, failedSignals, error);
 }
 
-void TrackCircuitBranch::logCriticalFailure(const QString& trackSectionId, const QString& details) {
+void TrackCircuitBranch::logCriticalFailure(const QString& trackSegmentId, const QString& details) {
     qCritical() << "🚨🚨🚨 CRITICAL INTERLOCKING SYSTEM FAILURE 🚨🚨🚨";
-    qCritical() << "Track Section ID:" << trackSectionId;
+    qCritical() << "Track Segment Segment ID:" << trackSegmentId;
     qCritical() << "Failure Details:" << details;
     qCritical() << "Timestamp:" << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
     qCritical() << "Thread:" << QThread::currentThread();
     qCritical() << "🚨 IMMEDIATE MANUAL INTERVENTION REQUIRED 🚨";
 }
 
-void TrackCircuitBranch::emitSystemFreeze(const QString& trackSectionId, const QString& reason, const QString& details) {
-    qCritical() << "🚨 EMITTING SYSTEM FREEZE SIGNAL for track section" << trackSectionId;
-    emit systemFreezeRequired(trackSectionId, reason, details);
+void TrackCircuitBranch::emitSystemFreeze(const QString& trackSegmentId, const QString& reason, const QString& details) {
+    qCritical() << "🚨 EMITTING SYSTEM FREEZE SIGNAL for track segment" << trackSegmentId;
+    emit systemFreezeRequired(trackSegmentId, reason, details);
 }
 
-QString TrackCircuitBranch::formatFailureDetails(const QString& trackSectionId, const QStringList& failedSignals, const QString& error) {
-    return QString("Track Section: %1, Failed Signals: %2, Error: %3, Time: %4")
-    .arg(trackSectionId)
+QString TrackCircuitBranch::formatFailureDetails(const QString& trackSegmentId, const QStringList& failedSignals, const QString& error) {
+    return QString("Track Segment Segment: %1, Failed Signals: %2, Error: %3, Time: %4")
+    .arg(trackSegmentId)
         .arg(failedSignals.join(", "))
         .arg(error)
         .arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz"));

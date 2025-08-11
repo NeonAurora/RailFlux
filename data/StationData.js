@@ -3,7 +3,7 @@
 
 // Core station layout data - ported from your firebase_test.py
 var trackSegments = [
-    // T1 Track segments
+    // T1 Track Segment segments
     { id: "T1S1",  startRow: 110, startCol: 0, endRow: 110, endCol: 12, occupied: false, assigned: false },
     { id: "T1S2",  startRow: 110, startCol: 13, endRow: 110, endCol: 34, occupied: false, assigned: false },
     { id: "T1S3",  startRow: 110, startCol: 35, endRow: 110, endCol: 67, occupied: false, assigned: false },
@@ -16,12 +16,12 @@ var trackSegments = [
     { id: "T1S10", startRow: 110, startCol: 339, endRow: 110, endCol: 358, occupied: false, assigned: false },
     { id: "T1S11", startRow: 110, startCol: 359, endRow: 110, endCol: 369, occupied: false, assigned: false },
 
-    // T4 Track segments
+    // T4 Track Segment segments
     { id: "T4S1", startRow: 88, startCol: 98, endRow: 88, endCol: 110, occupied: false, assigned: false },
     { id: "T4S2", startRow: 88, startCol: 120, endRow: 88, endCol: 255, occupied: false, assigned: false },
     { id: "T4S3", startRow: 88, startCol: 265, endRow: 88, endCol: 281, occupied: false, assigned: false },
 
-    // Connection tracks
+    // Connection trackSegments
     { id: "T5S1", startRow: 106, startCol: 98, endRow: 92, endCol: 112, occupied: false, assigned: false },
     { id: "T6S1", startRow: 92, startCol: 263, endRow: 105, endCol: 277, occupied: false, assigned: false },
 ];
@@ -176,21 +176,21 @@ var pointMachines = [
         name: "Junction A",
         type: "POINT_MACHINE",
 
-        // **JUNCTION GEOMETRY** - Where all tracks meet
+        // **JUNCTION GEOMETRY** - Where all trackSegments meet
         junctionPoint: { row: 110, col: 94.2 },
 
-        // **TRACK CONNECTIONS** - Define relationships with offsets
-        rootTrack: {
-            trackId: "T1S4",           // The "common" track
+        // **TRACK SEGMENT SEGMENT CONNECTIONS** - Define relationships with offsets
+        rootTrackSegment: {
+            trackId: "T1S4",           // The "common" trackSegment
             connectionEnd: "END",       // Which end connects to junction
             offset: { row: 0, col: 0 } // ✅ NEW: Offset for proper alignment
         },
-        normalTrack: {                 // Straight-through path
+        normalTrackSegment: {                 // Straight-through path
             trackId: "T1S5",
             connectionEnd: "START",
-            offset: { row: 0, col: 0 } // ✅ NEW: Offset to align with track thickness
+            offset: { row: 0, col: 0 } // ✅ NEW: Offset to align with trackSegment thickness
         },
-        reverseTrack: {                // Diverging path
+        reverseTrackSegment: {                // Diverging path
             trackId: "T5S1",
             connectionEnd: "START",
             offset: { row: 0, col: 0 } // ✅ NEW: Offset for diagonal alignment
@@ -209,21 +209,21 @@ var pointMachines = [
         name: "Junction B",
         type: "POINT_MACHINE",
 
-        // **JUNCTION GEOMETRY** - Where all tracks meet
+        // **JUNCTION GEOMETRY** - Where all trackSegments meet
         junctionPoint: { row: 88, col: 116 },
 
-        // **TRACK CONNECTIONS** - Define relationships with offsets
-        rootTrack: {
-            trackId: "T4S2",           // The "common" track
+        // **TRACK SEGMENT SEGMENT CONNECTIONS** - Define relationships with offsets
+        rootTrackSegment: {
+            trackId: "T4S2",           // The "common" trackSegment
             connectionEnd: "START",    // Which end connects to junction
             offset: { row: 0, col: 0 } //  NEW: Offset for proper alignment
         },
-        normalTrack: {                 // Straight-through path
+        normalTrackSegment: {                 // Straight-through path
             trackId: "T4S1",
             connectionEnd: "END",
-            offset: { row: 0, col: 0 } //  NEW: Offset to align with track thickness
+            offset: { row: 0, col: 0 } //  NEW: Offset to align with trackSegment thickness
         },
-        reverseTrack: {                // Diverging path
+        reverseTrackSegment: {                // Diverging path
             trackId: "T5S1",
             connectionEnd: "END",
             offset: { row: 0, col: 0 } //  NEW: Offset for diagonal alignment
@@ -242,21 +242,21 @@ var pointMachines = [
         name: "Junction C",
         type: "POINT_MACHINE",
 
-        // **JUNCTION GEOMETRY** - Where all tracks meet
+        // **JUNCTION GEOMETRY** - Where all trackSegments meet
         junctionPoint: { row: 88, col: 258.7 },
 
-        // **TRACK CONNECTIONS** - Define relationships with offsets
-        rootTrack: {
-            trackId: "T4S2",           // The "common" track
+        // **TRACK SEGMENT SEGMENT CONNECTIONS** - Define relationships with offsets
+        rootTrackSegment: {
+            trackId: "T4S2",           // The "common" trackSegment
             connectionEnd: "END",    // Which end connects to junction
             offset: { row: 0, col: 0 } //  NEW: Offset for proper alignment
         },
-        normalTrack: {                 // Straight-through path
+        normalTrackSegment: {                 // Straight-through path
             trackId: "T4S3",
             connectionEnd: "START",
-            offset: { row: 0, col: 0 } //  NEW: Offset to align with track thickness
+            offset: { row: 0, col: 0 } //  NEW: Offset to align with trackSegment thickness
         },
-        reverseTrack: {                // Diverging path
+        reverseTrackSegment: {                // Diverging path
             trackId: "T6S1",
             connectionEnd: "START",
             offset: { row: 0, col: 0 } //  NEW: Offset for diagonal alignment
@@ -275,21 +275,21 @@ var pointMachines = [
         name: "Junction D",
         type: "POINT_MACHINE",
 
-        // **JUNCTION GEOMETRY** - Where all tracks meet
+        // **JUNCTION GEOMETRY** - Where all trackSegments meet
         junctionPoint: { row: 110, col: 282.5 },
 
-        // **TRACK CONNECTIONS** - Define relationships with offsets
-        rootTrack: {
-            trackId: "T1S8",           // The "common" track
+        // **TRACK SEGMENT SEGMENT CONNECTIONS** - Define relationships with offsets
+        rootTrackSegment: {
+            trackId: "T1S8",           // The "common" trackSegment
             connectionEnd: "START",    // Which end connects to junction
             offset: { row: 0, col: 0 } //  NEW: Offset for proper alignment
         },
-        normalTrack: {                 // Straight-through path
+        normalTrackSegment: {                 // Straight-through path
             trackId: "T1S7",
             connectionEnd: "END",
-            offset: { row: 0, col: 0 } //  NEW: Offset to align with track thickness
+            offset: { row: 0, col: 0 } //  NEW: Offset to align with trackSegment thickness
         },
-        reverseTrack: {                // Diverging path
+        reverseTrackSegment: {                // Diverging path
             trackId: "T6S1",
             connectionEnd: "END",
             offset: { row: 0, col: 0 } //  NEW: Offset for diagonal alignment
@@ -520,43 +520,43 @@ function isValidStarterAspectChange(signalId, newAspect) {
 }
 
 // ============================================================================
-// TRACK MANAGEMENT FUNCTIONS
+// TRACK SEGMENT MANAGEMENT FUNCTIONS
 // ============================================================================
 
 /**
- * Resolves which physical point of a track connects to a junction
- * @param {Object} track - Track segment object containing startRow, startCol, endRow, endCol
+ * Resolves which physical point of a trackSegment connects to a junction
+ * @param {Object} trackSegment - Track segment object containing startRow, startCol, endRow, endCol
  * @param {String} connectionEnd - "START" or "END" indicating which end to use
  * @returns {Object} - { row, col } coordinates of the connection point
  * @example
- * var track = getTrackById("T1S1");
- * var startPoint = getTrackEndpoint(track, "START");
- * var endPoint = getTrackEndpoint(track, "END");
+ * var trackSegment = getTrackById("T1S1");
+ * var startPoint = getTrackEndpoint(trackSegment, "START");
+ * var endPoint = getTrackEndpoint(trackSegment, "END");
  */
-function getTrackEndpoint(track, connectionEnd) {
+function getTrackEndpoint(trackSegment, connectionEnd) {
     if (connectionEnd === "START") {
         return {
-            row: track.startRow,
-            col: track.startCol
+            row: trackSegment.startRow,
+            col: trackSegment.startCol
         };
     } else { // "END"
         return {
-            row: track.endRow,
-            col: track.endCol
+            row: trackSegment.endRow,
+            col: trackSegment.endCol
         };
     }
 }
 
 /**
- * Finds a track object by its unique identifier
- * @param {String} trackId - Track identifier (e.g., "T1S1", "T4S2")
- * @returns {Object|undefined} - Track object or undefined if not found
+ * Finds a trackSegment object by its unique identifier
+ * @param {String} trackId - Track Segment identifier (e.g., "T1S1", "T4S2")
+ * @returns {Object|undefined} - Track Segment object or undefined if not found
  * @example
- * var track = getTrackById("T1S1");
- * if (track) console.log("Track length:", track.endCol - track.startCol);
+ * var trackSegment = getTrackById("T1S1");
+ * if (trackSegment) console.log("Track Segment length:", trackSegment.endCol - trackSegment.startCol);
  */
 function getTrackById(trackId) {
-    return trackSegments.find(track => track.id === trackId);
+    return trackSegments.find(trackSegment => trackSegment.id === trackId);
 }
 
 // ============================================================================
@@ -587,42 +587,42 @@ function getAllPointMachines() {
 }
 
 /**
- * Determines which track is currently active (connected) for a point machine
+ * Determines which trackSegment is currently active (connected) for a point machine
  * @param {Object} pointMachine - Point machine object
- * @returns {String} - Active track ID (either normal or reverse track)
+ * @returns {String} - Active trackSegment ID (either normal or reverse trackSegment)
  * @example
  * var pm = getPointMachineById("PM001");
  * var activeTrack = getConnectedTrackId(pm);
- * console.log("Currently connected to track:", activeTrack);
+ * console.log("Currently connected to trackSegment:", activeTrack);
  */
 function getConnectedTrackId(pointMachine) {
     if (pointMachine.position === "NORMAL") {
-        return pointMachine.normalTrack.trackId;
+        return pointMachine.normalTrackSegment.trackId;
     } else {
-        return pointMachine.reverseTrack.trackId;
+        return pointMachine.reverseTrackSegment.trackId;
     }
 }
 
 /**
- * Finds the point machine that controls a specific track
- * @param {String} trackId - Track identifier to search for
- * @returns {Object|null} - Point machine object that controls this track, or null if none found
+ * Finds the point machine that controls a specific trackSegment
+ * @param {String} trackId - Track Segment identifier to search for
+ * @returns {Object|null} - Point machine object that controls this trackSegment, or null if none found
  * @example
  * var pm = getPointMachineByTrack("T1S2");
- * if (pm) console.log("Track T1S2 is controlled by:", pm.name);
+ * if (pm) console.log("Track Segment T1S2 is controlled by:", pm.name);
  */
 function getPointMachineByTrack(trackId) {
     return pointMachines.find(pm =>
-        pm.rootTrack.trackId === trackId ||
-        pm.normalTrack.trackId === trackId ||
-        pm.reverseTrack.trackId === trackId
+        pm.rootTrackSegment.trackId === trackId ||
+        pm.normalTrackSegment.trackId === trackId ||
+        pm.reverseTrackSegment.trackId === trackId
     );
 }
 
 /**
  * Checks if a point machine operation is safe to perform
  * @param {Object} pointMachine - Point machine object to check
- * @returns {Boolean} - True if safe to operate, false if blocked by occupied tracks
+ * @returns {Boolean} - True if safe to operate, false if blocked by occupied trackSegments
  * @example
  * var pm = getPointMachineById("PM001");
  * if (isPointMachineOperationSafe(pm)) {
@@ -630,16 +630,16 @@ function getPointMachineByTrack(trackId) {
  * }
  */
 function isPointMachineOperationSafe(pointMachine) {
-    // Check if any controlled tracks are occupied
-    var tracks = [
-        pointMachine.rootTrack.trackId,
-        pointMachine.normalTrack.trackId,
-        pointMachine.reverseTrack.trackId
+    // Check if any controlled trackSegments are occupied
+    var trackSegments = [
+        pointMachine.rootTrackSegment.trackId,
+        pointMachine.normalTrackSegment.trackId,
+        pointMachine.reverseTrackSegment.trackId
     ];
 
-    return !tracks.some(trackId => {
-        var track = getTrackById(trackId);
-        return track && track.occupied;
+    return !trackSegments.some(trackId => {
+        var trackSegment = getTrackById(trackId);
+        return trackSegment && trackSegment.occupied;
     });
 }
 
@@ -677,7 +677,7 @@ function operatePointMachine(machineId, newPosition) {
         console.warn("Point machine operation blocked - safety interlock");
         return {
             success: false,
-            reason: "Safety interlock - tracks occupied",
+            reason: "Safety interlock - trackSegments occupied",
             transitionTime: 0
         };
     }

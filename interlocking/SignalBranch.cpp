@@ -32,9 +32,9 @@ ValidationResult SignalBranch::validateAspectChange(
     auto basicResult = validateBasicTransition(signalId, currentAspect, requestedAspect);
     if (!basicResult.isAllowed()) return basicResult;
 
-    // 3. Track protection validation
-    auto trackResult = checkTrackProtection(signalId, requestedAspect);
-    if (!trackResult.isAllowed()) return trackResult;
+    // 3. Track Segment protection validation
+    auto trackSegmentResult = checkTrackSegmentProtection(signalId, requestedAspect);
+    if (!trackSegmentResult.isAllowed()) return trackSegmentResult;
 
     // ✅ FIXED: Pass currentAspect instead of re-fetching
     auto interlockResult = checkInterlockedSignals(signalId, currentAspect, requestedAspect);
@@ -77,25 +77,25 @@ ValidationResult SignalBranch::validateBasicTransition(
     return ValidationResult::allowed();
 }
 
-ValidationResult SignalBranch::checkTrackProtection(const QString& signalId, const QString& requestedAspect) {
-    // ✅ SAFETY: Only check track protection for proceed aspects
+ValidationResult SignalBranch::checkTrackSegmentProtection(const QString& signalId, const QString& requestedAspect) {
+    // ✅ SAFETY: Only check trackSegment protection for proceed aspects
     if (requestedAspect == "RED") {
-        return ValidationResult::allowed("RED aspect - no track protection required");
+        return ValidationResult::allowed("RED aspect - no trackSegment protection required");
     }
 
-    // ✅ SAFETY: Comprehensive protected tracks validation
-    auto validation = validateProtectedTracks(signalId);
+    // ✅ SAFETY: Comprehensive protected trackSegments validation
+    auto validation = validateProtectedTrackSegments(signalId);
 
     if (!validation.isValid) {
         return ValidationResult::blocked(
             QString("Cannot clear signal %1: %2").arg(signalId, validation.errorReason),
-            validation.occupiedTracks.isEmpty() ? "TRACK_PROTECTION_VALIDATION_FAILED" : "TRACK_OCCUPIED"
+            validation.occupiedTrackSegments.isEmpty() ? "TRACK_SEGMENT_PROTECTION_VALIDATION_FAILED" : "TRACK_SEGMENT_OCCUPIED"
             );
     }
 
-    // ✅ SUCCESS: All protected tracks are clear
+    // ✅ SUCCESS: All protected trackSegments are clear
     return ValidationResult::allowed(
-        QString("All %1 protected tracks are clear").arg(validation.protectedTracks.size())
+        QString("All %1 protected trackSegments are clear").arg(validation.protectedTrackSegments.size())
         );
 }
 
@@ -126,13 +126,13 @@ ValidationResult SignalBranch::checkSignalActive(const QString& signalId) {
     return ValidationResult::allowed();
 }
 
-// SignalBranch.cpp - Replace the getProtectedTracks function
-QStringList SignalBranch::getProtectedTracks(const QString& signalId) {
-    // ✅ SAFETY: Use comprehensive validation for safety-critical track protection
-    auto validation = validateProtectedTracks(signalId);
+// SignalBranch.cpp - Replace the getProtectedTrackSegments function
+QStringList SignalBranch::getProtectedTrackSegments(const QString& signalId) {
+    // ✅ SAFETY: Use comprehensive validation for safety-critical trackSegment protection
+    auto validation = validateProtectedTrackSegments(signalId);
 
     if (!validation.isValid) {
-        qCritical() << "🚨 SAFETY CRITICAL: Protected tracks validation failed for signal"
+        qCritical() << "🚨 SAFETY CRITICAL: Protected trackSegments validation failed for signal"
                     << signalId << ":" << validation.errorReason;
 
         // ✅ SAFETY: Log to audit system for compliance
@@ -142,7 +142,7 @@ QStringList SignalBranch::getProtectedTracks(const QString& signalId) {
         return QStringList();
     }
 
-    return validation.protectedTracks;
+    return validation.protectedTrackSegments;
 }
 
 QStringList SignalBranch::getInterlockedSignals(const QString& signalId) {
@@ -232,74 +232,74 @@ bool SignalBranch::isDangerousInterGroupTransition(
     return false; // Allow other inter-group transitions
 }
 
-SignalBranch::ProtectedTracksValidation SignalBranch::validateProtectedTracks(const QString& signalId) {
-    ProtectedTracksValidation result;
+SignalBranch::ProtectedTrackSegmentsValidation SignalBranch::validateProtectedTrackSegments(const QString& signalId) {
+    ProtectedTrackSegmentsValidation result;
     result.isValid = false;
 
-    // ✅ SAFETY: Fetch protected tracks from all 3 sources
-    QStringList tracksFromSignalData = getProtectedTracksFromSignalData(signalId);
-    QStringList tracksFromInterlockingRules = getProtectedTracksFromInterlockingRules(signalId);
-    QStringList tracksFromProtectionTable = getProtectedTracksFromProtectionTable(signalId);
+    // ✅ SAFETY: Fetch protected trackSegments from all 3 sources
+    QStringList trackSegmentsFromSignalData = getProtectedTrackSegmentsFromSignalData(signalId);
+    QStringList trackSegmentsFromInterlockingRules = getProtectedTrackSegmentsFromInterlockingRules(signalId);
+    QStringList trackSegmentsFromProtectionTable = getProtectedTrackSegmentsFromProtectionTable(signalId);
 
-    qDebug() << "🔍 SAFETY AUDIT: Protected tracks for signal" << signalId;
-    qDebug() << "   From signal data:" << tracksFromSignalData;
-    qDebug() << "   From interlocking rules:" << tracksFromInterlockingRules;
-    qDebug() << "   From protection table:" << tracksFromProtectionTable;
+    qDebug() << "🔍 SAFETY AUDIT: Protected trackSegments for signal" << signalId;
+    qDebug() << "   From signal data:" << trackSegmentsFromSignalData;
+    qDebug() << "   From interlocking rules:" << trackSegmentsFromInterlockingRules;
+    qDebug() << "   From protection table:" << trackSegmentsFromProtectionTable;
 
     // ✅ SAFETY: Check consistency between all sources
-    if (!validateTrackConsistency(tracksFromSignalData, tracksFromInterlockingRules,
-                                  tracksFromProtectionTable, result)) {
-        return result; // Error details already set in validateTrackConsistency
+    if (!validateTrackSegmentConsistency(trackSegmentsFromSignalData, trackSegmentsFromInterlockingRules,
+                                  trackSegmentsFromProtectionTable, result)) {
+        return result; // Error details already set in validateTrackSegmentConsistency
     }
 
     // ✅ SAFETY: Use protection table as authoritative source (most explicit)
-    QStringList authoritative = tracksFromProtectionTable.isEmpty() ?
-                                    tracksFromSignalData : tracksFromProtectionTable;
+    QStringList authoritative = trackSegmentsFromProtectionTable.isEmpty() ?
+                                    trackSegmentsFromSignalData : trackSegmentsFromProtectionTable;
 
     if (authoritative.isEmpty()) {
-        result.errorReason = "No protected tracks found in any source";
+        result.errorReason = "No protected trackSegments found in any source";
         return result;
     }
 
-    // ✅ SAFETY: Check track occupancy status
-    if (!validateTrackOccupancy(authoritative, result)) {
-        return result; // Error details already set in validateTrackOccupancy
+    // ✅ SAFETY: Check trackSegment occupancy status
+    if (!validateTrackSegmentOccupancy(authoritative, result)) {
+        return result; // Error details already set in validateTrackSegmentOccupancy
     }
 
     // ✅ SUCCESS: All validations passed
     result.isValid = true;
-    result.protectedTracks = authoritative;
+    result.protectedTrackSegments = authoritative;
 
-    qDebug() << "✅ SAFETY: Protected tracks validation passed for signal" << signalId
-             << "- Tracks:" << result.protectedTracks;
+    qDebug() << "✅ SAFETY: Protected trackSegments validation passed for signal" << signalId
+             << "- Track Segments:" << result.protectedTrackSegments;
 
     return result;
 }
 
-QStringList SignalBranch::getProtectedTracksFromSignalData(const QString& signalId) {
+QStringList SignalBranch::getProtectedTrackSegmentsFromSignalData(const QString& signalId) {
     auto signalData = m_dbManager->getSignalById(signalId);
     if (signalData.isEmpty()) {
         qWarning() << "⚠️ Signal data not found for:" << signalId;
         return QStringList();
     }
 
-    // ✅ Parse PostgreSQL TEXT[] array from protected_tracks field
-    QVariant protectedTracksVar = signalData["protectedTracks"];
-    if (!protectedTracksVar.isValid()) {
+    // ✅ Parse PostgreSQL TEXT[] array from protected_trackSegments field
+    QVariant protectedTrackSegmentsVar = signalData["protectedTrackSegments"];
+    if (!protectedTrackSegmentsVar.isValid()) {
         return QStringList();
     }
 
-    QString protectedTracksStr = protectedTracksVar.toString();
-    if (protectedTracksStr.isEmpty() || protectedTracksStr == "{}") {
+    QString protectedTrackSegmentsStr = protectedTrackSegmentsVar.toString();
+    if (protectedTrackSegmentsStr.isEmpty() || protectedTrackSegmentsStr == "{}") {
         return QStringList();
     }
 
-    // ✅ Parse PostgreSQL array format: {track1,track2,track3}
-    protectedTracksStr = protectedTracksStr.mid(1, protectedTracksStr.length() - 2); // Remove { }
-    return protectedTracksStr.split(",", Qt::SkipEmptyParts);
+    // ✅ Parse PostgreSQL array format: {trackSegment1,trackSegment2,trackSegment3}
+    protectedTrackSegmentsStr = protectedTrackSegmentsStr.mid(1, protectedTrackSegmentsStr.length() - 2); // Remove { }
+    return protectedTrackSegmentsStr.split(",", Qt::SkipEmptyParts);
 }
 
-QStringList SignalBranch::getProtectedTracksFromInterlockingRules(const QString& signalId) {
+QStringList SignalBranch::getProtectedTrackSegmentsFromInterlockingRules(const QString& signalId) {
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT target_entity_id
@@ -313,50 +313,50 @@ QStringList SignalBranch::getProtectedTracksFromInterlockingRules(const QString&
     )");
     query.addBindValue(signalId);
 
-    QStringList tracks;
+    QStringList trackSegments;
     if (!query.exec()) {
         qCritical() << "🚨 SAFETY CRITICAL: Failed to query interlocking rules for signal"
                     << signalId << ":" << query.lastError().text();
-        return tracks;
+        return trackSegments;
     }
 
     while (query.next()) {
-        tracks.append(query.value(0).toString());
+        trackSegments.append(query.value(0).toString());
     }
 
-    return tracks;
+    return trackSegments;
 }
 
-QStringList SignalBranch::getProtectedTracksFromProtectionTable(const QString& signalId) {
+QStringList SignalBranch::getProtectedTrackSegmentsFromProtectionTable(const QString& signalId) {
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
-        SELECT protected_track_id
-        FROM railway_control.signal_track_protection
+        SELECT protected_track_segment_id
+        FROM railway_control.signal_track_segment_protection
         WHERE signal_id = ?
           AND is_active = TRUE
-        ORDER BY protected_track_id
+        ORDER BY protected_track_segment_id
     )");
     query.addBindValue(signalId);
 
-    QStringList tracks;
+    QStringList trackSegments;
     if (!query.exec()) {
-        qCritical() << "🚨 SAFETY CRITICAL: Failed to query signal_track_protection for signal"
+        qCritical() << "🚨 SAFETY CRITICAL: Failed to query signal_track_segment_protection for signal"
                     << signalId << ":" << query.lastError().text();
-        return tracks;
+        return trackSegments;
     }
 
     while (query.next()) {
-        tracks.append(query.value(0).toString());
+        trackSegments.append(query.value(0).toString());
     }
 
-    return tracks;
+    return trackSegments;
 }
 
-bool SignalBranch::validateTrackConsistency(
+bool SignalBranch::validateTrackSegmentConsistency(
     const QStringList& fromSignalData,
     const QStringList& fromInterlockingRules,
     const QStringList& fromProtectionTable,
-    ProtectedTracksValidation& result) {
+    ProtectedTrackSegmentsValidation& result) {
 
     // ✅ SAFETY: Compare all non-empty sources for consistency
     QList<QStringList> nonEmptySources;
@@ -376,13 +376,13 @@ bool SignalBranch::validateTrackConsistency(
     }
 
     if (nonEmptySources.isEmpty()) {
-        result.errorReason = "No protected tracks found in any source";
+        result.errorReason = "No protected trackSegments found in any source";
         return false;
     }
 
     // ✅ SAFETY: If only one source has data, that's acceptable
     if (nonEmptySources.size() == 1) {
-        qDebug() << "ℹ️ Only one source has protected tracks data:" << sourceNames.first();
+        qDebug() << "ℹ️ Only one source has protected trackSegments data:" << sourceNames.first();
         return true;
     }
 
@@ -395,11 +395,11 @@ bool SignalBranch::validateTrackConsistency(
         comparison.sort();
 
         if (baseline != comparison) {
-            result.errorReason = QString("Protected tracks mismatch between %1 and %2")
+            result.errorReason = QString("Protected trackSegments mismatch between %1 and %2")
             .arg(sourceNames.first(), sourceNames[i]);
             result.inconsistentSources = sourceNames;
 
-            qCritical() << "🚨 SAFETY CRITICAL: Protected tracks inconsistency detected!";
+            qCritical() << "🚨 SAFETY CRITICAL: Protected trackSegments inconsistency detected!";
             qCritical() << "   " << sourceNames.first() << ":" << baseline;
             qCritical() << "   " << sourceNames[i] << ":" << comparison;
 
@@ -407,43 +407,43 @@ bool SignalBranch::validateTrackConsistency(
         }
     }
 
-    qDebug() << "✅ SAFETY: All sources consistent for protected tracks";
+    qDebug() << "✅ SAFETY: All sources consistent for protected trackSegments";
     return true;
 }
 
-bool SignalBranch::validateTrackOccupancy(
-    const QStringList& protectedTracks,
-    ProtectedTracksValidation& result) {
+bool SignalBranch::validateTrackSegmentOccupancy(
+    const QStringList& protectedTrackSegments,
+    ProtectedTrackSegmentsValidation& result) {
 
-    QStringList occupiedTracks;
+    QStringList occupiedTrackSegments;
 
-    for (const QString& trackId : protectedTracks) {
-        auto trackData = m_dbManager->getTrackSegmentById(trackId);
-        if (trackData.isEmpty()) {
-            result.errorReason = QString("Protected track %1 not found in database").arg(trackId);
-            qCritical() << "🚨 SAFETY CRITICAL: Protected track not found:" << trackId;
+    for (const QString& trackSegmentId : protectedTrackSegments) {
+        auto trackSegmentData = m_dbManager->getTrackSegmentById(trackSegmentId);
+        if (trackSegmentData.isEmpty()) {
+            result.errorReason = QString("Protected track segment %1 not found in database").arg(trackSegmentId);
+            qCritical() << "🚨 SAFETY CRITICAL: Protected track segment not found:" << trackSegmentId;
             return false;
         }
 
-        if (trackData["occupied"].toBool()) {
-            occupiedTracks.append(trackId);
-            QString occupiedBy = trackData["occupiedBy"].toString();
+        if (trackSegmentData["occupied"].toBool()) {
+            occupiedTrackSegments.append(trackSegmentId);
+            QString occupiedBy = trackSegmentData["occupiedBy"].toString();
 
-            qWarning() << "⚠️ SAFETY: Protected track" << trackId
+            qWarning() << "⚠️ SAFETY: Protected track segment" << trackSegmentId
                        << "is occupied by" << occupiedBy;
         }
     }
 
-    if (!occupiedTracks.isEmpty()) {
-        result.errorReason = QString("Protected tracks are occupied: %1")
-        .arg(occupiedTracks.join(", "));
-        result.occupiedTracks = occupiedTracks;
+    if (!occupiedTrackSegments.isEmpty()) {
+        result.errorReason = QString("Protected trackSegments are occupied: %1")
+        .arg(occupiedTrackSegments.join(", "));
+        result.occupiedTrackSegments = occupiedTrackSegments;
 
-        qCritical() << "🚨 SAFETY CRITICAL: Cannot clear signal - protected tracks occupied:"
-                    << occupiedTracks;
+        qCritical() << "🚨 SAFETY CRITICAL: Cannot clear signal - protected trackSegments occupied:"
+                    << occupiedTrackSegments;
         return false;
     }
 
-    qDebug() << "✅ SAFETY: All protected tracks are clear";
+    qDebug() << "✅ SAFETY: All protected trackSegments are clear";
     return true;
 }

@@ -12,34 +12,34 @@ Item {
     property string position: "NORMAL"                  // "NORMAL" or "REVERSE" (converted from 1/2)
     property string operatingStatus: "CONNECTED"       // "CONNECTED" or "IN_TRANSITION"
     property var junctionPoint: ({ row: 0, col: 0 })
-    property var rootTrack: ({})
-    property var normalTrack: ({})
-    property var reverseTrack: ({})
+    property var rootTrackSegment: ({})
+    property var normalTrackSegment: ({})
+    property var reverseTrackSegment: ({})
     property int cellSize: 20
     property int transitionTime: 3000                   // ✅ NEW
     property bool isLocked: false                       // ✅ NEW
     property string lockReason: ""                      // ✅ NEW
 
-    // ✅ NEW: Track data lookup function (passed from parent)
-    property var trackDataLookup: null
+    // ✅ NEW: Track Segment Segment data lookup function (passed from parent)
+    property var trackSegmentDataLookup: null
 
     // ============================================================================
     // VISUAL CONFIGURATION CONSTANTS (unchanged)
     // ============================================================================
     readonly property real containerSizeMultiplier: 10.0
-    readonly property real trackThickness: 8
-    readonly property real trackRadius: 2
+    readonly property real trackSegmentThickness: 8
+    readonly property real trackSegmentRadius: 2
     readonly property real railLineThickness: 1
     readonly property real railLineMargin: 1
     readonly property real junctionOverlapLength: 3
-    readonly property real junctionCapRadius: trackThickness * 1
+    readonly property real junctionCapRadius: trackSegmentThickness * 1
 
-    // **TRACK CONNECTION COLORS**
+    // **TRACK SEGMENT SEGMENT CONNECTION COLORS**
     readonly property color rootConnectionColor: "#00aa00"
     readonly property color railLineColor: "#a6a6a6"
     readonly property color junctionCapColor: "#2d3748"
 
-    // **ACTIVE TRACK STATUS COLORS**
+    // **ACTIVE TRACK SEGMENT SEGMENT STATUS COLORS**
     readonly property color normalPositionColor: "#00ff00"
     readonly property color reversePositionColor: "#ffaa00"
     readonly property color transitionColor: "#ff6600"
@@ -88,19 +88,19 @@ Item {
     // ✅ UPDATED: HELPER FUNCTIONS (database-aware)
     // ============================================================================
 
-    function getRootTrackData() {
-        if (!trackDataLookup || !rootTrack.trackId) return null;
-        return trackDataLookup(rootTrack.trackId);
+    function getRootTrackSegmentData() {
+        if (!trackSegmentDataLookup || !rootTrackSegment.trackSegmentId) return null;
+        return trackSegmentDataLookup(rootTrackSegment.trackSegmentId);
     }
 
     function getRootEndpoint() {
-        var trackData = getRootTrackData();
-        if (!trackData) return { row: 0, col: 0 };
+        var trackSegmentData = getRootTrackSegmentData();
+        if (!trackSegmentData) return { row: 0, col: 0 };
 
-        if (rootTrack.connectionEnd === "START") {
-            return { row: trackData.startRow, col: trackData.startCol };
+        if (rootTrackSegment.connectionEnd === "START") {
+            return { row: trackSegmentData.startRow, col: trackSegmentData.startCol };
         } else {
-            return { row: trackData.endRow, col: trackData.endCol };
+            return { row: trackSegmentData.endRow, col: trackSegmentData.endCol };
         }
     }
 
@@ -113,39 +113,39 @@ Item {
 
     function getRootPixel() {
         var endpoint = getRootEndpoint();
-        var offsetRow = rootTrack.offset ? (rootTrack.offset.row || 0) : 0;
-        var offsetCol = rootTrack.offset ? (rootTrack.offset.col || 0) : 0;
+        var offsetRow = rootTrackSegment.offset ? (rootTrackSegment.offset.row || 0) : 0;
+        var offsetCol = rootTrackSegment.offset ? (rootTrackSegment.offset.col || 0) : 0;
         return {
             x: (endpoint.col + offsetCol) * cellSize,
             y: (endpoint.row + offsetRow) * cellSize
         };
     }
 
-    function getActiveTrackInfo() {
-        return (position === "NORMAL") ? normalTrack : reverseTrack;
+    function getActiveTrackSegmentInfo() {
+        return (position === "NORMAL") ? normalTrackSegment : reverseTrackSegment ;
     }
 
-    function getActiveTrackData() {
-        var activeInfo = getActiveTrackInfo();
-        if (!trackDataLookup || !activeInfo.trackId) return null;
-        return trackDataLookup(activeInfo.trackId);
+    function getActiveTrackSegmentData() {
+        var activeInfo = getActiveTrackSegmentInfo();
+        if (!trackSegmentDataLookup || !activeInfo.trackSegmentId) return null;
+        return trackSegmentDataLookup(activeInfo.trackSegmentId);
     }
 
     function getActiveEndpoint() {
-        var trackData = getActiveTrackData();
-        var activeInfo = getActiveTrackInfo();
-        if (!trackData) return { row: 0, col: 0 };
+        var trackSegmentData = getActiveTrackSegmentData();
+        var activeInfo = getActiveTrackSegmentInfo();
+        if (!trackSegmentData) return { row: 0, col: 0 };
 
         if (activeInfo.connectionEnd === "START") {
-            return { row: trackData.startRow, col: trackData.startCol };
+            return { row: trackSegmentData.startRow, col: trackSegmentData.startCol };
         } else {
-            return { row: trackData.endRow, col: trackData.endCol };
+            return { row: trackSegmentData.endRow, col: trackSegmentData.endCol };
         }
     }
 
     function getActivePixel() {
         var endpoint = getActiveEndpoint();
-        var activeInfo = getActiveTrackInfo();
+        var activeInfo = getActiveTrackSegmentInfo();
         var offsetRow = activeInfo.offset ? (activeInfo.offset.row || 0) : 0;
         var offsetCol = activeInfo.offset ? (activeInfo.offset.col || 0) : 0;
         return {
@@ -181,7 +181,7 @@ Item {
     // VISUAL COMPONENTS (unchanged structure, updated colors)
     // ============================================================================
 
-    // **ROOT TRACK CONNECTION**
+    // **ROOT TRACK SEGMENT SEGMENT CONNECTION**
     Rectangle {
         id: rootConnection
 
@@ -211,7 +211,7 @@ Item {
             var baseLength = Math.sqrt(Math.pow(junctionPx.x - rootPx.x, 2) + Math.pow(junctionPx.y - rootPx.y, 2));
             return baseLength + junctionOverlapLength;
         }
-        height: trackThickness
+        height: trackSegmentThickness
 
         transformOrigin: Item.Left
         rotation: {
@@ -221,7 +221,7 @@ Item {
         }
 
         color: rootConnectionColor
-        radius: trackRadius
+        radius: trackSegmentRadius
 
         Rectangle {
             width: parent.width
@@ -240,7 +240,7 @@ Item {
         }
     }
 
-    // **ACTIVE TRACK CONNECTION**
+    // **ACTIVE TRACK SEGMENT SEGMENT CONNECTION**
     Rectangle {
         id: activeConnection
 
@@ -270,7 +270,7 @@ Item {
             var baseLength = Math.sqrt(Math.pow(activePx.x - junctionPx.x, 2) + Math.pow(activePx.y - junctionPx.y, 2));
             return baseLength + junctionOverlapLength;
         }
-        height: trackThickness
+        height: trackSegmentThickness
 
         transformOrigin: Item.Left
         rotation: {
@@ -280,7 +280,7 @@ Item {
         }
 
         color: getActiveColor()
-        radius: trackRadius
+        radius: trackSegmentRadius
 
         Rectangle {
             width: parent.width

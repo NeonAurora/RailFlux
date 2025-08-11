@@ -3,6 +3,7 @@
   "signal_interlocking_rules": {
     "AS001": {
       "type": "ADVANCED_STARTER",
+      "control_mode": "OR",
       "independent": true,
       "rules": [
         {
@@ -25,13 +26,14 @@
     },
     "ST001": {
       "type": "STARTER",
+      "control_mode": "OR",
       "controlled_by": ["AS001"],
       "rules": [
         {
           "when_aspect": "GREEN",
           "conditions": [{"point_machine": "PM001", "position": "NORMAL"}],
           "allows": {
-            "HM001": ["GREEN"]
+            "HM001": ["GREEN", "RED"]
           }
         },
         {
@@ -52,6 +54,7 @@
     },
     "ST002": {
       "type": "STARTER",
+      "control_mode": "OR",
       "controlled_by": ["AS001"],
       "rules": [
         {
@@ -72,6 +75,7 @@
     },
     "HM001": {
       "type": "HOME",
+      "control_mode": "OR",
       "controlled_by": ["ST001", "ST002"],
       "rules": [
         {
@@ -92,7 +96,7 @@
         },
         {
           "when_aspect": "RED_CALLING",
-          "allows": {"OT001": ["SINGLE_YELLOW"]}
+          "allows": {"OT001": ["SINGLE_YELLOW", "RED"]}
         },
         {
           "when_aspect": "RED_CALLING_LOOP",
@@ -102,6 +106,7 @@
     },
     "OT001": {
       "type": "OUTER",
+      "control_mode": "OR",
       "controlled_by": ["HM001"],
       "rules": [
         {

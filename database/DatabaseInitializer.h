@@ -71,7 +71,7 @@ private:
     bool createSchemas();
     bool populateConfigurationData();
 
-    // ✅ NEW: Track circuits population method
+    // ✅ NEW: Track Segment circuits population method
     bool populateTrackCircuits();
     bool populateTrackSegments();
     bool populateSignals();
@@ -99,7 +99,7 @@ private:
     int insertSignalAspect(const QString& aspectCode, const QString& aspectName, const QString& colorCode, int safetyLevel);
     int insertPointPosition(const QString& positionCode, const QString& positionName);
 
-    // ✅ NEW: Track circuit helper methods
+    // ✅ NEW: Track Segment circuit helper methods
     bool insertTrackCircuit(const QString& circuitId, const QString& circuitName);
     bool linkSegmentToCircuit(const QString& segmentId, const QString& circuitId);
 
@@ -112,6 +112,6 @@ private:
     QJsonArray getPointMachinesData();
     QJsonArray getTextLabelsData();
 
-    // ✅ NEW: Track circuits data method
+    // ✅ NEW: Track Segment circuits data method
     QJsonArray getTrackCircuitMappings();
 };

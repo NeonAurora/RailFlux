@@ -45,9 +45,9 @@ ValidationResult PointMachineBranch::validatePositionChange(
     auto signalResult = checkProtectingSignals(machineId, requestedPosition);
     if (!signalResult.isAllowed()) return signalResult;
 
-    // 8. Track occupancy validation
-    auto trackResult = checkTrackOccupancy(machineId, requestedPosition);
-    if (!trackResult.isAllowed()) return trackResult;
+    // 8. Track Segment occupancy validation
+    auto trackSegmentResult = checkTrackSegmentOccupancy(machineId, requestedPosition);
+    if (!trackSegmentResult.isAllowed()) return trackSegmentResult;
 
     // 9. Conflicting point machines validation
     auto conflictResult = checkConflictingPoints(machineId, requestedPosition);
@@ -137,14 +137,14 @@ ValidationResult PointMachineBranch::checkDetectionLocking(const QString& machin
     auto pmState = getPointMachineState(machineId);
 
     // Check if any detection locks are active
-    for (const QString& lockingTrackId : pmState.detectionLocks) {
-        auto trackData = m_dbManager->getTrackSegmentById(lockingTrackId);
-        if (!trackData.isEmpty() && trackData["occupied"].toBool()) {
+    for (const QString& lockingTrackSegmentId : pmState.detectionLocks) {
+        auto trackSegmentData = m_dbManager->getTrackSegmentById(lockingTrackSegmentId);
+        if (!trackSegmentData.isEmpty() && trackSegmentData["occupied"].toBool()) {
             return ValidationResult::blocked(
-                       QString("Point machine %1 is detection-locked by occupied track %2")
-                           .arg(machineId, lockingTrackId),
+                       QString("Point machine %1 is detection-locked by occupied trackSegment %2")
+                           .arg(machineId, lockingTrackSegmentId),
                        "POINT_MACHINE_DETECTION_LOCKED"
-                       ).addAffectedEntity(lockingTrackId);
+                       ).addAffectedEntity(lockingTrackSegmentId);
         }
     }
 
@@ -178,17 +178,17 @@ ValidationResult PointMachineBranch::checkProtectingSignals(const QString& machi
     return ValidationResult::allowed();
 }
 
-ValidationResult PointMachineBranch::checkTrackOccupancy(const QString& machineId, const QString& requestedPosition) {
-    QStringList affectedTracks = getAffectedTracks(machineId, requestedPosition);
+ValidationResult PointMachineBranch::checkTrackSegmentOccupancy(const QString& machineId, const QString& requestedPosition) {
+    QStringList affectedTrackSegments = getAffectedTrackSegments(machineId, requestedPosition);
 
-    for (const QString& trackId : affectedTracks) {
-        auto trackData = m_dbManager->getTrackSegmentById(trackId);
-        if (!trackData.isEmpty() && trackData["occupied"].toBool()) {
+    for (const QString& trackSegmentId : affectedTrackSegments) {
+        auto trackSegmentData = m_dbManager->getTrackSegmentById(trackSegmentId);
+        if (!trackSegmentData.isEmpty() && trackSegmentData["occupied"].toBool()) {
             return ValidationResult::blocked(
-                       QString("Cannot operate point machine %1: affected track %2 is occupied by %3")
-                           .arg(machineId, trackId, trackData["occupiedBy"].toString()),
-                       "AFFECTED_TRACK_OCCUPIED"
-                       ).addAffectedEntity(trackId);
+                       QString("Cannot operate point machine %1: affected trackSegment %2 is occupied by %3")
+                           .arg(machineId, trackSegmentId, trackSegmentData["occupiedBy"].toString()),
+                       "AFFECTED_TRACK_SEGMENT_OCCUPIED"
+                       ).addAffectedEntity(trackSegmentId);
         }
     }
 
@@ -268,24 +268,24 @@ QStringList PointMachineBranch::getProtectingSignals(const QString& machineId) {
     return QStringList();
 }
 
-QStringList PointMachineBranch::getAffectedTracks(const QString& machineId, const QString& position) {
+QStringList PointMachineBranch::getAffectedTrackSegments(const QString& machineId, const QString& position) {
     auto pmData = m_dbManager->getPointMachineById(machineId);
     if (!pmData.isEmpty()) {
-        // Get track connections from point machine data
-        QVariantMap rootTrack = pmData["rootTrack"].toMap();
-        QVariantMap normalTrack = pmData["normalTrack"].toMap();
-        QVariantMap reverseTrack = pmData["reverseTrack"].toMap();
+        // Get trackSegment connections from point machine data
+        QVariantMap rootTrackSegment = pmData["rootTrackSegment"].toMap();
+        QVariantMap normalTrackSegment = pmData["normalTrackSegment"].toMap();
+        QVariantMap reverseTrackSegment = pmData["reverseTrackSegment"].toMap();
 
-        QStringList tracks;
-        tracks.append(rootTrack["trackId"].toString());
+        QStringList trackSegments;
+        trackSegments.append(rootTrackSegment["trackSegmentId"].toString());
 
         if (position == "NORMAL") {
-            tracks.append(normalTrack["trackId"].toString());
+            trackSegments.append(normalTrackSegment["trackSegmentId"].toString());
         } else {
-            tracks.append(reverseTrack["trackId"].toString());
+            trackSegments.append(reverseTrackSegment["trackSegmentId"].toString());
         }
 
-        return tracks;
+        return trackSegments;
     }
     return QStringList();
 }

@@ -134,15 +134,15 @@ void DatabaseInitializer::performReset() {
             throw std::runtime_error("Failed to populate configuration data");
         }
 
-        // ✅ NEW: Populate track circuits BEFORE track segments
-        updateProgress(45, "Populating track circuits...");
+        // ✅ NEW: Populate trackSegment circuits BEFORE trackSegment segments
+        updateProgress(45, "Populating trackSegment circuits...");
         if (!populateTrackCircuits()) {
-            throw std::runtime_error("Failed to populate track circuits");
+            throw std::runtime_error("Failed to populate trackSegment circuits");
         }
 
-        updateProgress(50, "Populating track segments...");
+        updateProgress(50, "Populating trackSegment segments...");
         if (!populateTrackSegments()) {
-            throw std::runtime_error("Failed to populate track segments");
+            throw std::runtime_error("Failed to populate trackSegment segments");
         }
 
         updateProgress(60, "Populating signals...");
@@ -342,7 +342,7 @@ bool DatabaseInitializer::executeSchemaScript() {
             start_col NUMERIC(10,2) NOT NULL,
             end_row NUMERIC(10,2) NOT NULL,
             end_col NUMERIC(10,2) NOT NULL,
-            track_type VARCHAR(20) DEFAULT 'STRAIGHT',
+            track_segment_type VARCHAR(20) DEFAULT 'STRAIGHT',
             is_assigned BOOLEAN DEFAULT FALSE,
             circuit_id VARCHAR(20) REFERENCES railway_control.track_circuits(circuit_id),
             length_meters NUMERIC(10,2),
@@ -376,7 +376,7 @@ bool DatabaseInitializer::executeSchemaScript() {
             last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             last_changed_by VARCHAR(100),
             interlocked_with INTEGER[],
-            protected_tracks TEXT[],
+            protected_trackSegments TEXT[],
             manual_control_active BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -390,9 +390,9 @@ bool DatabaseInitializer::executeSchemaScript() {
             machine_name VARCHAR(100) NOT NULL,
             junction_row NUMERIC(10,2) NOT NULL,
             junction_col NUMERIC(10,2) NOT NULL,
-            root_track_connection JSONB NOT NULL,
-            normal_track_connection JSONB NOT NULL,
-            reverse_track_connection JSONB NOT NULL,
+            root_track_segment_connection JSONB NOT NULL,
+            normal_track_segment_connection JSONB NOT NULL,
+            reverse_track_segment_connection JSONB NOT NULL,
             current_position_id INTEGER REFERENCES railway_config.point_positions(id),
             operating_status VARCHAR(20) DEFAULT 'CONNECTED' CHECK (
                 operating_status IN ('CONNECTED', 'IN_TRANSITION', 'FAILED', 'LOCKED_OUT')
@@ -451,14 +451,14 @@ bool DatabaseInitializer::executeSchemaScript() {
             )
         ))",
 
-        R"(CREATE TABLE railway_control.signal_track_protection (
+        R"(CREATE TABLE railway_control.signal_track_segment_protection (
             id SERIAL PRIMARY KEY,
             signal_id VARCHAR(20) NOT NULL,
-            protected_track_id VARCHAR(20) NOT NULL,
+            protected_track_segment_id VARCHAR(20) NOT NULL,
             protection_type VARCHAR(50) DEFAULT 'APPROACH',
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(signal_id, protected_track_id, protection_type)
+            UNIQUE(signal_id, protected_track_segment_id, protection_type)
         ))"
     };
 
@@ -596,11 +596,11 @@ bool DatabaseInitializer::executeSchemaScript() {
             BEFORE INSERT OR UPDATE ON railway_audit.event_log
             FOR EACH ROW EXECUTE FUNCTION railway_audit.set_event_date())",
 
-        R"(CREATE TRIGGER trg_track_segments_updated_at
+        R"(CREATE TRIGGER trg_track_segments__updated_at
             BEFORE UPDATE ON railway_control.track_segments
             FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp())",
 
-        R"(CREATE TRIGGER trg_track_circuits_updated_at
+        R"(CREATE TRIGGER trg_track_segment_circuits_updated_at
             BEFORE UPDATE ON railway_control.track_circuits
             FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp())",
 
@@ -626,15 +626,15 @@ bool DatabaseInitializer::executeSchemaScript() {
 
     // Step 9: Create basic indexes (UPDATED: removed broken is_occupied index)
     QStringList basicIndexes = {
-        "CREATE INDEX idx_track_segments_segment_id ON railway_control.track_segments(segment_id)",
-        "CREATE INDEX idx_track_segments_circuit ON railway_control.track_segments(circuit_id)",
-        "CREATE INDEX idx_track_segments_assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE",
-        "CREATE INDEX idx_track_segments_location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col)",
+        "CREATE INDEX idx_track_segments__segment_id ON railway_control.track_segments(segment_id)",
+        "CREATE INDEX idx_track_segments__circuit ON railway_control.track_segments(circuit_id)",
+        "CREATE INDEX idx_track_segments__assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE",
+        "CREATE INDEX idx_track_segments__location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col)",
 
-        // ✅ NEW: Track circuits indexes
-        "CREATE INDEX idx_track_circuits_circuit_id ON railway_control.track_circuits(circuit_id)",
-        "CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE",
-        "CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE",
+        // ✅ NEW: Track Segment circuits indexes
+        "CREATE INDEX idx_track_segment_circuits_circuit_id ON railway_control.track_circuits(circuit_id)",
+        "CREATE INDEX idx_track_segment_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE",
+        "CREATE INDEX idx_track_segment_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE",
 
         "CREATE INDEX idx_signals_signal_id ON railway_control.signals(signal_id)",
         "CREATE INDEX idx_signals_type ON railway_control.signals(signal_type_id)",
@@ -726,7 +726,7 @@ bool DatabaseInitializer::populateConfigurationData() {
     return true;
 }
 
-// ✅ NEW: Populate track circuits FIRST
+// ✅ NEW: Populate trackSegment circuits FIRST
 bool DatabaseInitializer::populateTrackCircuits() {
     QJsonArray circuitData = getTrackCircuitMappings();
 
@@ -753,9 +753,9 @@ bool DatabaseInitializer::populateTrackCircuits() {
     return true;
 }
 
-// ✅ UPDATED: Populate track segments WITHOUT occupancy fields
+// ✅ UPDATED: Populate trackSegment segments WITHOUT occupancy fields
 bool DatabaseInitializer::populateTrackSegments() {
-    QJsonArray trackData = getTrackSegmentsData();
+    QJsonArray trackSegmentData = getTrackSegmentsData();
 
     QString insertQuery = R"(
         INSERT INTO railway_control.track_segments
@@ -764,21 +764,21 @@ bool DatabaseInitializer::populateTrackSegments() {
         ON CONFLICT (segment_id) DO NOTHING
     )";
 
-    for (const auto& trackValue : trackData) {
-        QJsonObject track = trackValue.toObject();
+    for (const auto& trackSegmentValue : trackSegmentData) {
+        QJsonObject trackSegment = trackSegmentValue.toObject();
 
         // ? Handle INVALID circuit_id by setting to NULL
-        QString circuitId = track["circuit_id"].toString();
+        QString circuitId = trackSegment["circuit_id"].toString();
         QVariant circuitIdValue = (circuitId == "INVALID") ? QVariant() : QVariant(circuitId);
 
         QVariantList params = {
-            track["id"].toString(),
-            track["startRow"].toDouble(),
-            track["startCol"].toDouble(),
-            track["endRow"].toDouble(),
-            track["endCol"].toDouble(),
+            trackSegment["id"].toString(),
+            trackSegment["startRow"].toDouble(),
+            trackSegment["startCol"].toDouble(),
+            trackSegment["endRow"].toDouble(),
+            trackSegment["endCol"].toDouble(),
             circuitIdValue,  // ? NULL for INVALID circuits
-            track["assigned"].toBool()
+            trackSegment["assigned"].toBool()
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -890,19 +890,19 @@ bool DatabaseInitializer::populatePointMachines() {
             positionId = positionQuery.value(0).toInt();
         }
 
-        // Convert track connections to properly formatted JSON strings
-        QJsonObject rootTrack = point["rootTrack"].toObject();
-        QJsonObject normalTrack = point["normalTrack"].toObject();
-        QJsonObject reverseTrack = point["reverseTrack"].toObject();
+        // Convert trackSegment connections to properly formatted JSON strings
+        QJsonObject rootTrackSegment = point["rootTrackSegment"].toObject();
+        QJsonObject normalTrackSegment = point["normalTrackSegment"].toObject();
+        QJsonObject reverseTrackSegment = point["reverseTrackSegment"].toObject();
 
-        QString rootTrackJson = QString::fromUtf8(QJsonDocument(rootTrack).toJson(QJsonDocument::Compact));
-        QString normalTrackJson = QString::fromUtf8(QJsonDocument(normalTrack).toJson(QJsonDocument::Compact));
-        QString reverseTrackJson = QString::fromUtf8(QJsonDocument(reverseTrack).toJson(QJsonDocument::Compact));
+        QString rootTrackSegmentJson = QString::fromUtf8(QJsonDocument(rootTrackSegment).toJson(QJsonDocument::Compact));
+        QString normalTrackSegmentJson = QString::fromUtf8(QJsonDocument(normalTrackSegment).toJson(QJsonDocument::Compact));
+        QString reverseTrackSegmentJson = QString::fromUtf8(QJsonDocument(reverseTrackSegment).toJson(QJsonDocument::Compact));
 
         QString insertQuery = R"(
             INSERT INTO railway_control.point_machines
             (machine_id, machine_name, junction_row, junction_col,
-             root_track_connection, normal_track_connection, reverse_track_connection,
+             root_track_segment_connection, normal_track_segment_connection, reverse_track_segment_connection,
              current_position_id, operating_status, transition_time_ms)
             VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?)
         )";
@@ -912,9 +912,9 @@ bool DatabaseInitializer::populatePointMachines() {
             point["name"].toString(),
             point["junctionPoint"].toObject()["row"].toDouble(),
             point["junctionPoint"].toObject()["col"].toDouble(),
-            rootTrackJson,
-            normalTrackJson,
-            reverseTrackJson,
+            rootTrackSegmentJson,
+            normalTrackSegmentJson,
+            reverseTrackSegmentJson,
             positionId,
             point["operatingStatus"].toString("CONNECTED"),
             3000 // Default transition time
@@ -969,12 +969,16 @@ bool DatabaseInitializer::populateInterlockingRules() {
         ('Signal HM001 protects Circuit W22T', 'SIGNAL', 'HM001', 'TRACK_CIRCUIT', 'W22T', 'MUST_BE_CLEAR', 'PROTECTING', 900)
         ON CONFLICT DO NOTHING)",
 
-        R"(INSERT INTO railway_control.signal_track_protection (signal_id, protected_track_id, protection_type) VALUES
+        R"(INSERT INTO railway_control.signal_track_segment_protection (signal_id, protected_track_segment_id, protection_type) VALUES
         ('OT001', 'T1S3', 'APPROACH'),
         ('HM001', 'T1S5', 'APPROACH'),
         ('HM001', 'T1S6', 'CLEARING'),
         ('ST001', 'T4S2', 'APPROACH'),
-        ('ST002', 'T1S6', 'CLEARING')
+        ('ST002', 'T1S8', 'CLEARING'),
+        ('ST002', 'T1S9', 'CLEARING'),
+        ('ST002', 'T1S10', 'CLEARING'),
+        ('AS001', 'T1S11', 'CLEARING'),
+        ('AS001', 'T1S12', 'CLEARING')
         ON CONFLICT DO NOTHING)"
     };
 
@@ -1102,8 +1106,8 @@ bool DatabaseInitializer::createAdvancedFunctions() {
         END;
         $$ LANGUAGE plpgsql)",
 
-        // ✅ NEW: Track circuits notification function
-        R"(CREATE OR REPLACE FUNCTION railway_control.notify_track_circuit_changes()
+        // ✅ NEW: Track Segment circuits notification function
+        R"(CREATE OR REPLACE FUNCTION railway_control.notify_track_segment_circuit_changes()
         RETURNS TRIGGER AS $$
         DECLARE
             payload JSON;
@@ -1122,8 +1126,8 @@ bool DatabaseInitializer::createAdvancedFunctions() {
         END;
         $$ LANGUAGE plpgsql)",
 
-        // Track segments notification function
-        R"(CREATE OR REPLACE FUNCTION railway_control.notify_track_changes()
+        // Track Segment segments notification function
+        R"(CREATE OR REPLACE FUNCTION railway_control.notify_track_segment_changes()
         RETURNS TRIGGER AS $$
         DECLARE
             payload JSON;
@@ -1142,7 +1146,7 @@ bool DatabaseInitializer::createAdvancedFunctions() {
         $$ LANGUAGE plpgsql)",
 
         // ✅ NEW: Circuit-based occupancy update function
-        R"(CREATE OR REPLACE FUNCTION railway_control.update_track_circuit_occupancy(
+        R"(CREATE OR REPLACE FUNCTION railway_control.update_track_segment_circuit_occupancy(
             circuit_id_param VARCHAR,
             is_occupied_param BOOLEAN,
             occupied_by_param VARCHAR DEFAULT NULL,
@@ -1155,7 +1159,7 @@ bool DatabaseInitializer::createAdvancedFunctions() {
             -- Set operator context for audit logging
             PERFORM set_config('railway.operator_id', operator_id_param, true);
 
-            -- Update track circuit occupancy
+            -- Update trackSegment circuit occupancy
             UPDATE railway_control.track_circuits
             SET
                 is_occupied = is_occupied_param,
@@ -1171,8 +1175,8 @@ bool DatabaseInitializer::createAdvancedFunctions() {
         END;
         $$ LANGUAGE plpgsql)",
 
-        // ✅ UPDATED: Legacy track occupancy function (maps to circuit)
-        R"(CREATE OR REPLACE FUNCTION railway_control.update_track_occupancy(
+        // ✅ UPDATED: Legacy trackSegment occupancy function (maps to circuit)
+        R"(CREATE OR REPLACE FUNCTION railway_control.update_track_segment_occupancy(
             segment_id_param VARCHAR,
             is_occupied_param BOOLEAN,
             occupied_by_param VARCHAR DEFAULT NULL,
@@ -1194,7 +1198,7 @@ bool DatabaseInitializer::createAdvancedFunctions() {
             END IF;
 
             -- Update the circuit occupancy
-            SELECT railway_control.update_track_circuit_occupancy(
+            SELECT railway_control.update_track_segment_circuit_occupancy(
                 circuit_id_val,
                 is_occupied_param,
                 occupied_by_param,
@@ -1307,11 +1311,11 @@ bool DatabaseInitializer::createAdvancedFunctions() {
 bool DatabaseInitializer::createAdvancedTriggers() {
     QStringList advancedTriggers = {
         // Audit triggers
-        R"(CREATE TRIGGER trg_track_segments_audit
+        R"(CREATE TRIGGER trg_track_segments__audit
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_segments
             FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes())",
 
-        R"(CREATE TRIGGER trg_track_circuits_audit
+        R"(CREATE TRIGGER trg_track_segment_circuits_audit
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_circuits
             FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes())",
 
@@ -1324,13 +1328,13 @@ bool DatabaseInitializer::createAdvancedTriggers() {
             FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes())",
 
         // Notification triggers
-        R"(CREATE TRIGGER trg_track_segments_notify
+        R"(CREATE TRIGGER trg_track_segments__notify
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_segments
-            FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_changes())",
+            FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_segment_changes())",
 
-        R"(CREATE TRIGGER trg_track_circuits_notify
+        R"(CREATE TRIGGER trg_track_segment_circuits_notify
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_circuits
-            FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_circuit_changes())",
+            FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_segment_circuit_changes())",
 
         R"(CREATE TRIGGER trg_signals_notify
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.signals
@@ -1359,7 +1363,7 @@ bool DatabaseInitializer::createGinIndexes() {
         "CREATE INDEX idx_event_log_old_values ON railway_audit.event_log USING gin(old_values)",
         "CREATE INDEX idx_event_log_new_values ON railway_audit.event_log USING gin(new_values)",
         "CREATE INDEX idx_event_log_replay_data ON railway_audit.event_log USING gin(replay_data)",
-        "CREATE INDEX idx_track_circuits_protecting_signals ON railway_control.track_circuits USING gin(protecting_signals)"
+        "CREATE INDEX idx_track_segment_circuits_protecting_signals ON railway_control.track_circuits USING gin(protecting_signals)"
     };
 
     qDebug() << "Creating GIN indexes...";
@@ -1376,7 +1380,7 @@ bool DatabaseInitializer::createGinIndexes() {
 bool DatabaseInitializer::createViews() {
     QStringList views = {
         // ✅ CRITICAL: Main view for segment occupancy from circuit occupancy
-        R"(CREATE OR REPLACE VIEW railway_control.v_track_segments_with_occupancy AS
+        R"(CREATE OR REPLACE VIEW railway_control.v_track_segments__with_occupancy AS
         SELECT
             ts.id,
             ts.segment_id,
@@ -1385,7 +1389,7 @@ bool DatabaseInitializer::createViews() {
             ts.start_col,
             ts.end_row,
             ts.end_col,
-            ts.track_type,
+            ts.track_segment_type,
             ts.is_assigned,
             ts.circuit_id,
             ts.length_meters,
@@ -1437,9 +1441,9 @@ bool DatabaseInitializer::createViews() {
             pm.machine_name,
             pm.junction_row,
             pm.junction_col,
-            pm.root_track_connection,
-            pm.normal_track_connection,
-            pm.reverse_track_connection,
+            pm.root_track_segment_connection,
+            pm.normal_track_segment_connection,
+            pm.reverse_track_segment_connection,
             pp.position_code as current_position,
             pp.position_name as current_position_name,
             pm.operating_status,
@@ -1454,8 +1458,8 @@ bool DatabaseInitializer::createViews() {
         FROM railway_control.point_machines pm
         LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id)",
 
-        // ✅ UPDATED: Track occupancy summary using circuits
-        R"(CREATE VIEW railway_control.v_track_occupancy AS
+        // ✅ UPDATED: Track Segment occupancy summary using circuits
+        R"(CREATE VIEW railway_control.v_track_segment_occupancy AS
         SELECT
             COUNT(DISTINCT ts.segment_id) as total_segments,
             COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true) as occupied_count,
@@ -1657,7 +1661,7 @@ void DatabaseInitializer::updateProgress(int value, const QString& operation) {
 QJsonArray DatabaseInitializer::getTrackSegmentsData() {
     return QJsonArray {
         QJsonObject{{"id", "T1S1"}, {"startRow", 110}, {"startCol", 0}, {"endRow", 110}, {"endCol", 12}, {"circuit_id", "INVALID"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S2"}, {"startRow", 110}, {"startCol", 13}, {"endRow", 110}, {"endCol", 34}, {"circuit_id", "A42"}, {"assigned", false}},
+        QJsonObject{{"id", "T1S2"}, {"startRow", 110}, {"startCol", 13}, {"endRow", 110}, {"endCol", 34}, {"circuit_id", "A42T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S3"}, {"startRow", 110}, {"startCol", 35}, {"endRow", 110}, {"endCol", 67}, {"circuit_id", "6T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}},
@@ -1682,7 +1686,7 @@ QJsonArray DatabaseInitializer::getTrackSegmentsData() {
 // ✅ NEW: Circuit mapping data
 QJsonArray DatabaseInitializer::getTrackCircuitMappings() {
     return QJsonArray {
-        QJsonObject{{"circuit_id", "A42"}, {"circuit_name", "Approach Block A42"}},
+        QJsonObject{{"circuit_id", "A42T"}, {"circuit_name", "Approach Block A42T"}},
         QJsonObject{{"circuit_id", "6T"}, {"circuit_name", "Main Line Section 6T"}},
         QJsonObject{{"circuit_id", "5T"}, {"circuit_name", "Main Line Section 5T"}},
         QJsonObject{{"circuit_id", "W22T"}, {"circuit_name", "Junction W22T Circuit"}},
@@ -1739,32 +1743,32 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
 QJsonArray DatabaseInitializer::getStarterSignalsData() {
     return QJsonArray {
         QJsonObject{
-            {"id", "ST001"}, {"name", "Starter A1"}, {"type", "STARTER"},
-            {"row", 83}, {"col", 220}, {"direction", "UP"},
-            {"currentAspect", "RED"}, {"aspectCount", 2},
-            {"possibleAspects", QJsonArray{"RED", "YELLOW"}},
-            {"isActive", true}, {"location", "Platform_A_Departure"}
-        },
-        QJsonObject{
-            {"id", "ST002"}, {"name", "Starter A2"}, {"type", "STARTER"},
+            {"id", "ST001"}, {"name", "Starter A2"}, {"type", "STARTER"},
             {"row", 103}, {"col", 217}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         },
         QJsonObject{
-            {"id", "ST003"}, {"name", "Starter B1"}, {"type", "STARTER"},
-            {"row", 91}, {"col", 150}, {"direction", "DOWN"},
+            {"id", "ST002"}, {"name", "Starter A1"}, {"type", "STARTER"},
+            {"row", 83}, {"col", 220}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "YELLOW"}},
-            {"isActive", true}, {"location", "Junction_Loop_Entry"}
+            {"isActive", true}, {"location", "Platform_A_Departure"}
         },
         QJsonObject{
-            {"id", "ST004"}, {"name", "Starter B2"}, {"type", "STARTER"},
+            {"id", "ST003"}, {"name", "Starter B2"}, {"type", "STARTER"},
             {"row", 115}, {"col", 152}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
+        },
+        QJsonObject{
+            {"id", "ST004"}, {"name", "Starter B1"}, {"type", "STARTER"},
+            {"row", 91}, {"col", 150}, {"direction", "DOWN"},
+            {"currentAspect", "RED"}, {"aspectCount", 2},
+            {"possibleAspects", QJsonArray{"RED", "YELLOW"}},
+            {"isActive", true}, {"location", "Junction_Loop_Entry"}
         }
     };
 }
@@ -1793,30 +1797,30 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         QJsonObject{
             {"id", "PM001"}, {"name", "Junction A"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 121.2}}},
-            {"rootTrack", QJsonObject{{"trackId", "T1S5"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"normalTrack", QJsonObject{{"trackId", "T1S6"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"reverseTrack", QJsonObject{{"trackId", "T5S1"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
+            {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T1S5"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T1S6"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"reverseTrackSegment", QJsonObject{{"trackSegmentId", "T5S1"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         },
         QJsonObject{
             {"id", "PM002"}, {"name", "Junction B"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 143.3}}},
-            {"rootTrack", QJsonObject{{"trackId", "T4S2"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"normalTrack", QJsonObject{{"trackId", "T4S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"reverseTrack", QJsonObject{{"trackId", "T5S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
+            {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T4S2"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T4S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"reverseTrackSegment", QJsonObject{{"trackSegmentId", "T5S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         },
         QJsonObject{
             {"id", "PM003"}, {"name", "Junction C"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 235.6}}},
-            {"rootTrack", QJsonObject{{"trackId", "T4S4"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"normalTrack", QJsonObject{{"trackId", "T4S5"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"reverseTrack", QJsonObject{{"trackId", "T6S1"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
+            {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T4S4"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T4S5"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"reverseTrackSegment", QJsonObject{{"trackSegmentId", "T6S1"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         },
         QJsonObject{
             {"id", "PM004"}, {"name", "Junction D"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 259.5}}},
-            {"rootTrack", QJsonObject{{"trackId", "T1S9"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"normalTrack", QJsonObject{{"trackId", "T1S8"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
-            {"reverseTrack", QJsonObject{{"trackId", "T6S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
+            {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T1S9"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T1S8"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
+            {"reverseTrackSegment", QJsonObject{{"trackSegmentId", "T6S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}}
         }
     };
 }

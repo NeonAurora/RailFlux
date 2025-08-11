@@ -77,7 +77,7 @@ public:
                                                                const QString& requestedPosition,
                                                                const QString& operatorId = "HMI_USER");
 
-    // ✅ REMOVED: validateTrackAssignment - track occupancy is hardware-driven, no validation needed
+    // ✅ REMOVED: validateTrackSegmentAssignment - trackSegment occupancy is hardware-driven, no validation needed
 
     // ✅ SYSTEM MANAGEMENT
     Q_INVOKABLE bool initialize();
@@ -86,8 +86,8 @@ public:
     Q_INVOKABLE int getActiveInterlocksCount() const;
 
 public slots:
-    // ✅ REACTIVE INTERLOCKING: Called when hardware detects track occupancy changes
-    void reactToTrackOccupancyChange(const QString& trackSectionId, bool wasOccupied, bool isOccupied);
+    // ✅ REACTIVE INTERLOCKING: Called when hardware detects trackSegment occupancy changes
+    void reactToTrackSegmentOccupancyChange(const QString& trackSegmentId, bool wasOccupied, bool isOccupied);
 
 signals:
     // ✅ OPERATIONAL SIGNALS
@@ -99,17 +99,17 @@ signals:
 
     // ✅ SAFETY SIGNALS
     void criticalSafetyViolation(const QString& entityId, const QString& violation);
-    void systemFreezeRequired(const QString& trackSectionId, const QString& reason, const QString& details);
+    void systemFreezeRequired(const QString& trackSegmentId, const QString& reason, const QString& details);
 
 private slots:
     // ✅ FAILURE HANDLING: Internal slot for handling critical failures
     void handleCriticalFailure(const QString& entityId, const QString& reason);
-    void handleInterlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error);
+    void handleInterlockingFailure(const QString& trackSegmentId, const QString& failedSignals, const QString& error);
 
 private:
     DatabaseManager* m_dbManager;
     std::unique_ptr<SignalBranch> m_signalBranch;
-    std::unique_ptr<TrackCircuitBranch> m_trackBranch;
+    std::unique_ptr<TrackCircuitBranch> m_trackSegmentBranch;
     std::unique_ptr<PointMachineBranch> m_pointBranch;
 
     // ✅ PERFORMANCE MONITORING

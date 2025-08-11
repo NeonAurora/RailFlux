@@ -45,12 +45,12 @@ private:
         bool supportsLoop;
     };
 
-    struct ProtectedTracksValidation {
+    struct ProtectedTrackSegmentsValidation {
         bool isValid;
-        QStringList protectedTracks;
+        QStringList protectedTrackSegments;
         QString errorReason;
         QStringList inconsistentSources;
-        QStringList occupiedTracks;
+        QStringList occupiedTrackSegments;
     };
 
     // ============================================================================
@@ -61,7 +61,7 @@ private:
                                              const QString& currentAspect,
                                              const QString& requestedAspect);
 
-    ValidationResult checkTrackProtection(const QString& signalId,
+    ValidationResult checkTrackSegmentProtection(const QString& signalId,
                                           const QString& requestedAspect);
 
     ValidationResult checkInterlockedSignals(const QString& signalId,
@@ -70,28 +70,28 @@ private:
     ValidationResult checkSignalActive(const QString& signalId);
 
     // ============================================================================
-    // PROTECTED TRACKS DATA SOURCES (Triple Redundancy)
+    // PROTECTED TRACK SEGMENTS DATA SOURCES (Triple Redundancy)
     // ============================================================================
 
-    ProtectedTracksValidation validateProtectedTracks(const QString& signalId);
+    ProtectedTrackSegmentsValidation validateProtectedTrackSegments(const QString& signalId);
 
-    QStringList getProtectedTracksFromSignalData(const QString& signalId);
-    QStringList getProtectedTracksFromInterlockingRules(const QString& signalId);
-    QStringList getProtectedTracksFromProtectionTable(const QString& signalId);
+    QStringList getProtectedTrackSegmentsFromSignalData(const QString& signalId);
+    QStringList getProtectedTrackSegmentsFromInterlockingRules(const QString& signalId);
+    QStringList getProtectedTrackSegmentsFromProtectionTable(const QString& signalId);
 
-    bool validateTrackConsistency(const QStringList& fromSignalData,
+    bool validateTrackSegmentConsistency(const QStringList& fromSignalData,
                                   const QStringList& fromInterlockingRules,
                                   const QStringList& fromProtectionTable,
-                                  ProtectedTracksValidation& result);
+                                  ProtectedTrackSegmentsValidation& result);
 
-    bool validateTrackOccupancy(const QStringList& protectedTracks,
-                                ProtectedTracksValidation& result);
+    bool validateTrackSegmentOccupancy(const QStringList& protectedTrackSegments,
+                                ProtectedTrackSegmentsValidation& result);
 
     // ============================================================================
     // SIMPLIFIED ACCESS METHODS (for external use)
     // ============================================================================
 
-    QStringList getProtectedTracks(const QString& signalId);        // ✅ Still needed
+    QStringList getProtectedTrackSegments(const QString& signalId);        // ✅ Still needed
     QStringList getInterlockedSignals(const QString& signalId);
     QStringList getSignalCapabilities(const QString& signalId);
 

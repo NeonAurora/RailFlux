@@ -15,18 +15,18 @@ Item {
     property real endCol: 0
     property bool isOccupied: false
     property bool isAssigned: false
-    property string occupiedBy: ""            // ✅ NEW: What/who occupies this track
-    property bool isActive: true              // ✅ NEW: Whether track is active/in-service
+    property string occupiedBy: ""            // ✅ NEW: What/who occupies this trackSegment
+    property bool isActive: true              // ✅ NEW: Whether trackSegment is active/in-service
     property int cellSize: 20
-    property string trackType: "STRAIGHT"     // ✅ ENHANCED: Track type from database
+    property string trackSegmentType: "STRAIGHT"     // ✅ ENHANCED: Track Segment type from database
 
     // ============================================================================
     // VISUAL CONFIGURATION CONSTANTS
     // ============================================================================
 
-    // **TRACK VISUAL PROPERTIES**
-    readonly property real trackThickness: 8
-    readonly property real trackRadius: 2
+    // **TRACK SEGMENT VISUAL PROPERTIES**
+    readonly property real trackSegmentThickness: 8
+    readonly property real trackSegmentRadius: 2
     readonly property real containerPadding: 8
     readonly property real minimumContainerSize: 20
 
@@ -34,19 +34,19 @@ Item {
     readonly property real railLineThickness: 1
     readonly property real railLineMargin: 1
 
-    // **✅ ENHANCED: TRACK STATE COLORS WITH TRACK TYPE SUPPORT**
-    readonly property color trackColorNormal: getTrackTypeColor()
-    readonly property color trackColorOccupied: "#ff3232"       // Red for occupied
-    readonly property color trackColorAssigned: "#ffff00"      // Yellow for assigned
-    readonly property color trackColorInactive: "#606060"      // Dark gray for inactive
+    // **✅ ENHANCED: TRACK SEGMENT STATE COLORS WITH TRACK SEGMENT SEGMENT TYPE SUPPORT**
+    readonly property color trackSegmentColorNormal: getTrackSegmentTypeColor()
+    readonly property color trackSegmentColorOccupied: "#ff3232"       // Red for occupied
+    readonly property color trackSegmentColorAssigned: "#ffff00"      // Yellow for assigned
+    readonly property color trackSegmentColorInactive: "#606060"      // Dark gray for inactive
     readonly property color railLineColor: "#a6a6a6"
 
-    // **✅ NEW: TRACK TYPE SPECIFIC COLORS**
-    readonly property color straightTrackColor: "#a6a6a6"      // Standard gray
-    readonly property color curvedTrackColor: "#9999aa"        // Slightly blue-gray
-    readonly property color sidingTrackColor: "#aa9966"        // Brown-ish for sidings
-    readonly property color platformTrackColor: "#66aa99"      // Teal for platform tracks
-    readonly property color yardTrackColor: "#996699"          // Purple-ish for yard tracks
+    // **✅ NEW: TRACK SEGMENT SEGMENT TYPE SPECIFIC COLORS**
+    readonly property color straightTrackSegmentColor: "#a6a6a6"      // Standard gray
+    readonly property color curvedTrackSegmentColor: "#9999aa"        // Slightly blue-gray
+    readonly property color sidingTrackSegmentColor: "#aa9966"        // Brown-ish for sidings
+    readonly property color platformTrackSegmentColor: "#66aa99"      // Teal for platform trackSegments
+    readonly property color yardTrackSegmentColor: "#996699"          // Purple-ish for yard trackSegments
 
     // **INTERACTION VISUAL PROPERTIES**
     readonly property real hoverOpacity: 0.2
@@ -100,19 +100,19 @@ Item {
     readonly property real containerWidth: Math.max(Math.abs(endX - startX) + (containerPadding * 2), minimumContainerSize)
     readonly property real containerHeight: Math.max(Math.abs(endY - startY) + (containerPadding * 2), minimumContainerSize)
 
-    // **✅ ENHANCED: TRACK STATE COLOR LOGIC WITH INACTIVE SUPPORT**
-    readonly property color currentTrackColor: {
-        if (!isActive) return trackColorInactive;           // Highest priority: Inactive tracks
-        if (isAssigned) return trackColorAssigned;          // High priority: Assignment
-        if (isOccupied) return trackColorOccupied;         // Medium priority: Occupation
-        return trackColorNormal;                           // Default: Normal state (track type specific)
+    // **✅ ENHANCED: TRACK SEGMENT STATE COLOR LOGIC WITH INACTIVE SUPPORT**
+    readonly property color currentTrackSegmentColor: {
+        if (!isActive) return trackSegmentColorInactive;           // Highest priority: Inactive trackSegments
+        if (isAssigned) return trackSegmentColorAssigned;          // High priority: Assignment
+        if (isOccupied) return trackSegmentColorOccupied;         // Medium priority: Occupation
+        return trackSegmentColorNormal;                           // Default: Normal state (trackSegment type specific)
     }
 
     // ============================================================================
     // POSITIONING AND SIZING
     // ============================================================================
 
-    // Position container to encompass the track with padding
+    // Position container to encompass the trackSegment with padding
     x: Math.min(startX, endX) - containerPadding
     y: Math.min(startY, endY) - containerPadding
     width: containerWidth
@@ -121,31 +121,31 @@ Item {
     // ============================================================================
     // SIGNALS
     // ============================================================================
-    signal trackClicked(string segmentId, bool currentState)
-    signal trackHovered(string segmentId)
+    signal trackSegmentClicked(string segmentId, bool currentState)
+    signal trackSegmentHovered(string segmentId)
 
     // ============================================================================
-    // ✅ NEW: HELPER FUNCTIONS FOR TRACK TYPE COLORS
+    // ✅ NEW: HELPER FUNCTIONS FOR TRACK SEGMENT SEGMENT TYPE COLORS
     // ============================================================================
-    function getTrackTypeColor() {
-        switch(trackType.toUpperCase()) {
-            case "STRAIGHT": return straightTrackColor
-            case "CURVED": return curvedTrackColor
-            case "SIDING": return sidingTrackColor
-            case "PLATFORM": return platformTrackColor
-            case "YARD": return yardTrackColor
-            default: return straightTrackColor  // Safe default
+    function getTrackSegmentTypeColor() {
+        switch(trackSegmentType.toUpperCase()) {
+            case "STRAIGHT": return straightTrackSegmentColor
+            case "CURVED": return curvedTrackSegmentColor
+            case "SIDING": return sidingTrackSegmentColor
+            case "PLATFORM": return platformTrackSegmentColor
+            case "YARD": return yardTrackSegmentColor
+            default: return straightTrackSegmentColor  // Safe default
         }
     }
 
-    function getTrackTypeDisplayName() {
-        switch(trackType.toUpperCase()) {
+    function getTrackSegmentTypeDisplayName() {
+        switch(trackSegmentType.toUpperCase()) {
             case "STRAIGHT": return "Main Line"
-            case "CURVED": return "Curved Track"
+            case "CURVED": return "Curved Track Segment"
             case "SIDING": return "Siding"
             case "PLATFORM": return "Platform"
-            case "YARD": return "Yard Track"
-            default: return trackType
+            case "YARD": return "Yard Track Segment"
+            default: return trackSegmentType
         }
     }
 
@@ -153,26 +153,26 @@ Item {
     // VISUAL COMPONENTS
     // ============================================================================
 
-    // **MAIN TRACK RECTANGLE**
+    // **MAIN TRACK SEGMENT RECTANGLE**
     Rectangle {
-        id: trackBed
+        id: trackSegmentBed
 
-        // **POSITION TRACK WITHIN CONTAINER**
+        // **POSITION TRACK SEGMENT WITHIN CONTAINER**
         x: startX - parent.x
         y: startY - parent.y
         width: Math.sqrt(Math.pow(endX - startX, 2) + Math.pow(endY - startY, 2))
-        height: trackThickness
+        height: trackSegmentThickness
 
         transformOrigin: Item.Left
         rotation: Math.atan2(endY - startY, endX - startX) * 180 / Math.PI
 
-        color: currentTrackColor
-        radius: trackRadius
+        color: currentTrackSegmentColor
+        radius: trackSegmentRadius
 
-        // **✅ ENHANCED: INACTIVE TRACK VISUAL EFFECT**
+        // **✅ ENHANCED: INACTIVE TRACK SEGMENT VISUAL EFFECT**
         opacity: isActive ? 1.0 : 0.6
 
-        // **✅ NEW: DASHED PATTERN FOR INACTIVE TRACKS**
+        // **✅ NEW: DASHED PATTERN FOR INACTIVE TRACK SEGMENTS**
         Rectangle {
             anchors.fill: parent
             color: "transparent"
@@ -180,12 +180,12 @@ Item {
             border.width: isActive ? 0 : 1
             radius: parent.radius
 
-            // Dashed border effect for inactive tracks
+            // Dashed border effect for inactive trackSegments
             visible: !isActive
             opacity: 0.5
         }
 
-        // **RAIL LINES** - Visual track details
+        // **RAIL LINES** - Visual trackSegment details
         Rectangle {
             width: parent.width
             height: railLineThickness
@@ -217,10 +217,10 @@ Item {
         }
     }
 
-    // **✅ NEW: OCCUPIED BY LABEL** - Shows what occupies the track
+    // **✅ NEW: OCCUPIED BY LABEL** - Shows what occupies the trackSegment
     Rectangle {
         id: occupiedByLabel
-        anchors.centerIn: trackBed
+        anchors.centerIn: trackSegmentBed
         width: occupiedByText.contentWidth + 8
         height: occupiedByText.contentHeight + 4
         color: occupiedLabelBackground
@@ -239,17 +239,17 @@ Item {
         }
     }
 
-    // **✅ NEW: TRACK NAME LABEL** - Shows segment name for important tracks
+    // **✅ NEW: TRACK SEGMENT NAME LABEL** - Shows segment name for important trackSegments
     Text {
-        id: trackNameLabel
-        anchors.top: trackBed.bottom
-        anchors.horizontalCenter: trackBed.horizontalCenter
+        id: trackSegmentNameLabel
+        anchors.top: trackSegmentBed.bottom
+        anchors.horizontalCenter: trackSegmentBed.horizontalCenter
         anchors.topMargin: 2
         text: segmentName
         color: "#cccccc"
         font.pixelSize: 6
         font.family: "Arial"
-        visible: segmentName !== "" && trackType === "PLATFORM"  // Only show for platform tracks
+        visible: segmentName !== "" && trackSegmentType === "PLATFORM"  // Only show for platform trackSegments
         horizontalAlignment: Text.AlignHCenter
     }
 
@@ -268,19 +268,19 @@ Item {
 
             console.log("Track segment clicked:", segmentId,
                        "Name:", segmentName || "Unnamed",
-                       "Type:", getTrackTypeDisplayName(),
+                       "Type:", getTrackSegmentTypeDisplayName(),
                        "Coordinates:", "(" + startRow + "," + startCol + ") to (" + endRow + "," + endCol + ")",
                        "State:", isAssigned ? "ASSIGNED" : (isOccupied ? "OCCUPIED by " + occupiedBy : "NORMAL"),
                        "Direction:", isHorizontal ? "H" : (isVertical ? "V" : (isTopLeftToBottomRight ? "TL→BR" : "BL→TR")),
                        "Active:", isActive)
-            trackSegment.trackClicked(segmentId, isOccupied)
+            trackSegment.trackSegmentClicked(segmentId, isOccupied)
         }
 
         onEntered: {
-            trackSegment.trackHovered(segmentId)
+            trackSegment.trackSegmentHovered(segmentId)
             // ✅ NEW: Enhanced hover information
-            console.log("🚂 Track Hover:", segmentId,
-                       "Type:", getTrackTypeDisplayName(),
+            console.log("🚂 Track Segment Hover:", segmentId,
+                       "Type:", getTrackSegmentTypeDisplayName(),
                        "Status:", isActive ? "Active" : "Inactive",
                        isOccupied ? ("Occupied by: " + occupiedBy) : "Free")
         }
@@ -301,7 +301,7 @@ Item {
             id: debugText
             anchors.centerIn: parent
             text: segmentId + (segmentName ? " (" + segmentName + ")" : "") +
-                  "\n" + getTrackTypeDisplayName() +
+                  "\n" + getTrackSegmentTypeDisplayName() +
                   "\n(" + startRow + "," + startCol + ")→(" + endRow + "," + endCol + ")" +
                   "\n" + (isActive ? "ACTIVE" : "INACTIVE") +
                   "\n" + (isAssigned ? "ASSIGNED" : (isOccupied ? "OCCUPIED" + (occupiedBy ? " by " + occupiedBy : "") : "NORMAL"))
@@ -322,17 +322,17 @@ Item {
         visible: false  // Set to true to see clickable bounds
     }
 
-    // **✅ NEW: INACTIVE TRACK OVERLAY** - Visual indication for out-of-service tracks
+    // **✅ NEW: INACTIVE TRACK SEGMENT OVERLAY** - Visual indication for out-of-service trackSegments
     Rectangle {
-        anchors.fill: trackBed
+        anchors.fill: trackSegmentBed
         color: "transparent"
         border.color: "#ff6600"
         border.width: 2
-        radius: trackBed.radius
+        radius: trackSegmentBed.radius
         visible: !isActive
         opacity: 0.7
 
-        // "X" pattern for inactive tracks
+        // "X" pattern for inactive trackSegments
         Rectangle {
             width: parent.width * 1.414  // √2 for diagonal
             height: 1

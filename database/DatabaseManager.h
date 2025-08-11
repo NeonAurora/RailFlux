@@ -58,13 +58,13 @@ public:
     // ✅ Real-time notifications
     Q_INVOKABLE void enableRealTimeUpdates();
 
-    // ✅ STREAMLINED: Track Circuit operations (primary occupancy management)
+    // ✅ STREAMLINED: Track Segment Circuit operations (primary occupancy management)
     Q_INVOKABLE QVariantList getTrackCircuitsList();
     Q_INVOKABLE bool updateTrackCircuitOccupancy(const QString& trackCircuitId, bool isOccupied);
     Q_INVOKABLE bool getTrackCircuitOccupancy(const QString& trackCircuitId);
     Q_INVOKABLE QVariantMap getAllTrackCircuitStates();
 
-    // ✅ STREAMLINED: Track Segment operations (UI and physical layout)
+    // ✅ STREAMLINED: Track Segment Segment operations (UI and physical layout)
     Q_INVOKABLE QVariantList getTrackSegmentsList();
     Q_INVOKABLE QVariantList getTrackSegmentsByCircuitId(const QString& trackCircuitId);
     Q_INVOKABLE QVariantMap getTrackSegmentById(const QString& trackSegmentId);
@@ -92,7 +92,7 @@ public:
     Q_INVOKABLE QVariantList getTextLabelsList();
 
     // ✅ Interlocking support
-    Q_INVOKABLE QStringList getProtectedTracks(const QString& signalId);
+    Q_INVOKABLE QStringList getProtectedTrackSegments(const QString& signalId);
     Q_INVOKABLE QStringList getInterlockedSignals(const QString& signalId);
 
 signals:
@@ -107,7 +107,7 @@ signals:
     void trackSegmentsChanged();
     void trackSegmentUpdated(const QString& trackSegmentId);
 
-    // ✅ NEW: Track circuit signals
+    // ✅ NEW: Track Segment circuit signals
     void trackCircuitsChanged();
     void trackCircuitUpdated(const QString& trackCircuitId);
 
@@ -121,7 +121,7 @@ signals:
     void pointMachineUpdated(const QString& machineId);
     void pointMachineStateChanged(int machineId, const QString& newPosition);  // ✅ KEPT: Legacy
 
-    // ✅ Track circuit state (for legacy compatibility)
+    // ✅ Track Segment circuit state (for legacy compatibility)
     void trackCircuitStateChanged(int circuitId, bool isOccupied);
 
     // ✅ Text labels
@@ -163,7 +163,7 @@ private:
 
     // ✅ State tracking for polling
     QHash<int, QString> lastSignalStates;
-    QHash<int, bool> lastTrackStates;  // ✅ Now tracks circuit states
+    QHash<int, bool> lastTrackSegmentStates;  // ✅ Now trackSegments circuit states
     QHash<int, QString> lastPointStates;
 
     // ✅ Private methods
@@ -183,7 +183,7 @@ private:
 
     // ✅ Row conversion helpers
     QVariantMap convertSignalRowToVariant(const QSqlQuery& query);
-    QVariantMap convertTrackRowToVariant(const QSqlQuery& query);
+    QVariantMap convertTrackSegmentRowToVariant(const QSqlQuery& query);
     QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);
 
     // ✅ Current state helpers (for interlocking)

@@ -11,8 +11,8 @@ Item {
     // ✅ REFACTORED: Generic properties
     property string title: ""
     property string message: ""
-    property string entityId: ""           // Generic entity (signal, track, etc.)
-    property string entityType: "SIGNAL"   // SIGNAL, TRACK, SYSTEM, etc.
+    property string entityId: ""           // Generic entity (signal, trackSegment, etc.)
+    property string entityType: "SIGNAL"   // SIGNAL, TRACK_SEGMENT, SYSTEM, etc.
     property string details: ""
     property string toastType: "WARNING"   // WARNING, ERROR, CRITICAL, INFO
     property int duration: 5000            // 5 seconds (ignored for CRITICAL)
@@ -31,7 +31,7 @@ Item {
 
         // ✅ Set entity type based on entity ID pattern
         if (entityId.startsWith("T")) {
-            entityType = "TRACK"
+            entityType = "TRACK_SEGMENT"
         } else if (entityId.startsWith("ST") || entityId.startsWith("HM") || entityId.startsWith("OT") || entityId.startsWith("AS")) {
             entityType = "SIGNAL"
         } else if (entityId.startsWith("PM")) {
@@ -349,7 +349,7 @@ Item {
 
         switch(entityType) {
             case "SIGNAL": return "Signal: " + entityId
-            case "TRACK": return "Track: " + entityId
+            case "TRACK_SEGMENT": return "Track_Segment: " + entityId
             case "POINT_MACHINE": return "Point Machine: " + entityId
             case "SYSTEM": return "System Component: " + entityId
             default: return "Entity: " + entityId

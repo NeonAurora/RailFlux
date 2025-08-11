@@ -66,51 +66,109 @@ ValidationResult InterlockingRuleEngine::validateControllingSignals(
 
     auto signalInfoIt = m_signalRules.find(signalId);
     if (signalInfoIt == m_signalRules.end()) {
+        qDebug() << "❌ Signal" << signalId << "not found in m_signalRules";
         return ValidationResult::blocked("Signal not found in rules", "SIGNAL_NOT_FOUND");
     }
 
     const SignalInfo& signalInfo = signalInfoIt.value();
 
+    // Get control mode
+    QString controlMode = signalInfo.controlMode.trimmed().toUpper();
+    if (controlMode.isEmpty()) {
+        controlMode = "AND"; // default
+    }
+    qDebug() << "🔍 Signal" << signalId << "control_mode:" << controlMode;
+
+    bool anyControllingAllows = false;
+    QStringList blockingReasons;
+
     for (const QString& controllingSignalId : signalInfo.controlledBy) {
         QString controllingAspect = getCurrentSignalAspect(controllingSignalId);
+        qDebug() << "🔍 Controlling signal:" << controllingSignalId
+                 << "current aspect:" << controllingAspect;
 
         auto controllingInfoIt = m_signalRules.find(controllingSignalId);
         if (controllingInfoIt == m_signalRules.end()) {
+            qDebug() << "⚠️ Controlling signal" << controllingSignalId << "not found in m_signalRules";
             continue;
         }
 
         const SignalInfo& controllingInfo = controllingInfoIt.value();
 
         bool aspectAllowed = false;
-        QString blockingReason;
 
         for (const SignalRule& rule : controllingInfo.rules) {
+            qDebug() << "🔍 Evaluating rule for aspect:" << rule.getWhenAspect();
+
             if (rule.getWhenAspect() == controllingAspect) {
+                qDebug() << "✅ Aspect matches current controlling aspect.";
+
+                qDebug() << "🔍 Checking conditions for rule...";
                 if (!checkConditions(rule.getConditions())) {
-                    // Implement sophisticated controls in future. For now just check if conditions are there
-                    blockingReason = QString("Conditions not met for rule when %1 shows %2")
-                    .arg(controllingSignalId, controllingAspect);
+                    qDebug() << "❌ Conditions failed for controlling signal"
+                             << controllingSignalId << "aspect" << controllingAspect;
+                    blockingReasons.append(
+                        QString("Conditions not met for rule when %1 shows %2")
+                            .arg(controllingSignalId, controllingAspect));
                     continue;
                 }
+                qDebug() << "✅ Conditions passed.";
 
+                qDebug() << "🔍 Checking if rule allows signal" << signalId
+                         << "aspect" << requestedAspect;
                 if (rule.isSignalAspectAllowed(signalId, requestedAspect)) {
+                    qDebug() << "✅ Rule allows requested aspect.";
                     aspectAllowed = true;
-                    break;
+                    break; // No need to check more rules for this controlling signal
+                } else {
+                    qDebug() << "❌ Rule does not allow requested aspect.";
                 }
+            } else {
+                qDebug() << "⚠️ Skipping rule because aspect does not match.";
             }
         }
 
-        if (!aspectAllowed) {
-            return ValidationResult::blocked(
-                       QString("Signal %1 cannot show %2: controlling signal %3 shows %4")
-                           .arg(signalId, requestedAspect, controllingSignalId, controllingAspect),
-                       "CONTROLLING_SIGNAL_RESTRICTION"
-                       ).addAffectedEntity(controllingSignalId);
+        if (controlMode == "AND") {
+            if (!aspectAllowed) {
+                qDebug() << "❌ AND mode: Aspect not allowed by controlling signal"
+                         << controllingSignalId << "- blocking immediately.";
+                return ValidationResult::blocked(
+                           QString("Signal %1 cannot show %2: controlling signal %3 shows %4")
+                               .arg(signalId, requestedAspect, controllingSignalId, controllingAspect),
+                           "CONTROLLING_SIGNAL_RESTRICTION"
+                           ).addAffectedEntity(controllingSignalId);
+            }
+        }
+        else if (controlMode == "OR") {
+            if (aspectAllowed) {
+                qDebug() << "✅ OR mode: Aspect allowed by controlling signal"
+                         << controllingSignalId << "- will allow after checking all.";
+                anyControllingAllows = true;
+            } else {
+                qDebug() << "⚠️ OR mode: Aspect not allowed by controlling signal"
+                         << controllingSignalId;
+            }
         }
     }
 
+    if (controlMode == "OR") {
+        if (anyControllingAllows) {
+            qDebug() << "✅ OR mode: At least one controlling signal allows - returning allowed.";
+            return ValidationResult::allowed(
+                "At least one controlling signal permits the requested aspect");
+        }
+        qDebug() << "❌ OR mode: No controlling signals allow - blocking.";
+        return ValidationResult::blocked(
+            QString("Signal %1 cannot show %2: no controlling signals allow it.\nDetails:\n%3")
+                .arg(signalId, requestedAspect, blockingReasons.join("\n")),
+            "CONTROLLING_SIGNAL_RESTRICTION"
+            );
+    }
+
+    qDebug() << "✅ AND mode: All controlling signals allowed - returning allowed.";
     return ValidationResult::allowed("All controlling signals permit the requested aspect");
 }
+
 
 bool InterlockingRuleEngine::checkConditions(const QList<SignalRule::Condition>& conditions) {
     for (const SignalRule::Condition& condition : conditions) {
@@ -124,7 +182,7 @@ bool InterlockingRuleEngine::checkConditions(const QList<SignalRule::Condition>&
         }
         // ✅ FUTURE: Add track_segment and other condition types
         else if (condition.entityType == "track_segment") {
-            // Future implementation for track occupancy conditions
+            // Future implementation for trackSegment occupancy conditions
             qDebug() << "ℹ️ Track segment conditions not yet implemented:" << condition.entityId;
         }
     }
@@ -161,6 +219,7 @@ bool InterlockingRuleEngine::parseJsonRules(const QJsonObject& rulesObject) {
         SignalInfo signalInfo;
         signalInfo.signalType = signalObject["type"].toString();
         signalInfo.isIndependent = signalObject["independent"].toBool(false);
+        signalInfo.controlMode = signalObject["control_mode"].toString();
 
         // Parse controlled_by array
         QJsonArray controlledByArray = signalObject["controlled_by"].toArray();

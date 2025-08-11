@@ -65,9 +65,9 @@ ApplicationWindow {
         target: globalInterlockingService
 
         // ✅ NEW: Handle system freeze signal
-        function onSystemFreezeRequired(trackId, reason, details) {
+        function onSystemFreezeRequired(trackSegmentId, reason, details) {
             console.log("🚨🚨🚨 SYSTEM FREEZE DETECTED IN QML 🚨🚨🚨")
-            console.log("Track:", trackId)
+            console.log("Track Segment Segment:", trackSegmentId)
             console.log("Reason:", reason)
             console.log("Details:", details)
 
@@ -75,7 +75,7 @@ ApplicationWindow {
             stationLayout.showCriticalAlert(
                 "🚨 SYSTEM FREEZE ACTIVATED",
                 "A critical safety system failure has occurred. All operations are suspended pending manual intervention.",
-                trackId,
+                trackSegmentId,
                 details,
                 false  // No auto-hide
             )
@@ -195,7 +195,7 @@ ApplicationWindow {
                     color: theme.textSecondary
                 }
                 Text {
-                    text: "• DELETE all current track, signal, and point machine states"
+                    text: "• DELETE all current trackSegment, signal, and point machine states"
                     font.pixelSize: 12
                     color: theme.textSecondary
                 }
@@ -426,7 +426,7 @@ ApplicationWindow {
 
                 Text {
                     width: parent.width
-                    text: "• Track segments cleared and ready for operation"
+                    text: "• Track Segment segments cleared and ready for operation"
                     font.pixelSize: 10
                     color: theme.textSecondary
                     horizontalAlignment: Text.AlignHCenter

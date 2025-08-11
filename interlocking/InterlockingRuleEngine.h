@@ -16,7 +16,6 @@ public:
 
     bool loadRulesFromResource(const QString& resourcePath = ":/resources/data/signal_interlocking_rules.json");
 
-    // ✅ RENAMED: Clear function name to avoid confusion
     ValidationResult validateInterlockedSignalAspectChange(const QString& signalId,
                                                            const QString& currentAspect,
                                                            const QString& requestedAspect);
@@ -29,15 +28,15 @@ public:
 private:
     DatabaseManager* m_dbManager;
 
-    // ✅ FIXED: Store objects directly, not unique_ptr
     struct SignalInfo {
         QString signalType;
         bool isIndependent = false;
+        QString controlMode; // ✅ Added field
         QStringList controlledBy;
-        QList<SignalRule> rules;  // ✅ CHANGED: Direct objects, not unique_ptr
+        QList<SignalRule> rules;
     };
 
-    QHash<QString, SignalInfo> m_signalRules;  // ✅ FIXED: No unique_ptr
+    QHash<QString, SignalInfo> m_signalRules;
 
     // Helper methods
     ValidationResult validateControllingSignals(const QString& signalId,
@@ -48,7 +47,7 @@ private:
 
     // JSON parsing
     bool parseJsonRules(const QJsonObject& rulesObject);
-    SignalRule parseRule(const QJsonObject& ruleObject);  // ✅ CHANGED: Return by value
+    SignalRule parseRule(const QJsonObject& ruleObject);
     SignalRule::Condition parseCondition(const QJsonObject& conditionObject);
     SignalRule::AllowedSignal parseAllowedSignal(const QString& signalId, const QJsonArray& aspectsArray);
 };

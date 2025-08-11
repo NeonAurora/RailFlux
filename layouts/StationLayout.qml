@@ -33,15 +33,15 @@ Rectangle {
         }
 
         console.log("Refreshing all station data from database")
-        refreshTrackData()
+        refreshTrackSegmentData()
         refreshSignalData()
         refreshPointMachineData()
         refreshTextLabelData()
     }
 
-    function getTrackDataById(trackId) {
+    function getTrackSegmentDataById(trackSegmentId) {
         for (var i = 0; i < trackSegmentsModel.length; i++) {
-            if (trackSegmentsModel[i].id === trackId) {
+            if (trackSegmentsModel[i].id === trackSegmentId) {
                 return trackSegmentsModel[i];
             }
         }
@@ -58,12 +58,12 @@ Rectangle {
         return "NORMAL"; // Safe default
     }
 
-    function refreshTrackData() {
+    function refreshTrackSegmentData() {
         if (!dbManager || !dbManager.isConnected) return
 
-        console.log("Refreshing track segments from database")
+        console.log("Refreshing trackSegment segments from database")
         trackSegmentsModel = dbManager.getTrackSegmentsList()
-        console.log("Loaded", trackSegmentsModel.length, "track segments")
+        console.log("Loaded", trackSegmentsModel.length, "trackSegment segments")
     }
 
     function refreshSignalData() {
@@ -102,20 +102,20 @@ Rectangle {
 
     // ✅ UPDATED: Signal handlers now update database instead of StationData.js
     // ✅ REFACTORED: Direct hardware simulation (no validation)
-    function handleTrackClick(trackSectionId, currentState) {
-        console.log("🚂 HARDWARE SIMULATION: Track section", trackSectionId, "occupancy changed to:", !currentState)
+    function handleTrackSegmentClick(trackSegmentId, currentState) {
+        console.log("🚂 HARDWARE SIMULATION: Track Segment section", trackSegmentId, "occupancy changed to:", !currentState)
 
         if (!dbManager || !dbManager.isConnected) {
-            console.error("❌ CRITICAL: Database not connected - track occupancy change lost!")
+            console.error("❌ CRITICAL: Database not connected - trackSegment occupancy change lost!")
             return
         }
 
         // ✅ SIMULATE: Hardware directly updates database (no validation)
         var newState = !currentState
-        var success = dbManager.updateTrackOccupancy(trackSectionId, newState)
+        var success = dbManager.updateTrackSegmentOccupancy(trackSegmentId, newState)
 
         if (!success) {
-            console.error("🚨 CRITICAL: Failed to update track occupancy - system may be unsafe!")
+            console.error("🚨 CRITICAL: Failed to update trackSegment occupancy - system may be unsafe!")
         }
         // ✅ Reactive interlocking will be triggered automatically by database change
     }
@@ -366,7 +366,7 @@ Rectangle {
         // ✅ Handle real-time notifications (if available)
         function onTrackSegmentUpdated(segmentId) {
             console.log("StationLayout: Track segment updated:", segmentId)
-            refreshTrackData()
+            refreshTrackSegmentData()
         }
 
         function onSignalUpdated(signalId) {
@@ -381,8 +381,8 @@ Rectangle {
 
         // ✅ Handle batch updates
         function onTrackSegmentsChanged() {
-            console.log("StationLayout: Track segments changed")
-            refreshTrackData()
+            console.log("StationLayout: Track Segment segments changed")
+            refreshTrackSegmentData()
         }
 
         function onSignalsChanged() {
@@ -424,7 +424,7 @@ Rectangle {
         gridSize: stationLayout.cellSize
         showGrid: stationLayout.showGrid
 
-        // ✅ UPDATED: Track segments from database
+        // ✅ UPDATED: Track Segment segments from database
         Repeater {
             model: trackSegmentsModel
 
@@ -435,13 +435,13 @@ Rectangle {
                 startCol: modelData.startCol
                 endRow: modelData.endRow
                 endCol: modelData.endCol
-                trackType: modelData.trackType || "STRAIGHT"  // ✅ NEW
+                trackSegmentType: modelData.trackSegmentType || "STRAIGHT"  // ✅ NEW
                 cellSize: stationLayout.cellSize
                 isOccupied: modelData.occupied
                 isAssigned: modelData.assigned
                 occupiedBy: modelData.occupiedBy || ""  // ✅ NEW
                 isActive: modelData.isActive !== false  // ✅ NEW
-                onTrackClicked: stationLayout.handleTrackClick(segmentId, isOccupied)
+                onTrackSegmentClicked: stationLayout.handleTrackSegmentClick(segmentId, isOccupied)
             }
         }
 
@@ -455,16 +455,16 @@ Rectangle {
                 position: modelData.position // ✅ Convert 1/2 to NORMAL/REVERSE
                 operatingStatus: modelData.operatingStatus
                 junctionPoint: modelData.junctionPoint
-                rootTrack: modelData.rootTrack
-                normalTrack: modelData.normalTrack
-                reverseTrack: modelData.reverseTrack
+                rootTrackSegment: modelData.rootTrackSegment
+                normalTrackSegment: modelData.normalTrackSegment
+                reverseTrackSegment: modelData.reverseTrackSegment
                 transitionTime: modelData.transitionTime || 3000
                 isLocked: modelData.isLocked || false
                 lockReason: modelData.lockReason || ""
                 cellSize: stationLayout.cellSize
 
-                // ✅ CRITICAL: Pass track lookup function
-                trackDataLookup: stationLayout.getTrackDataById
+                // ✅ CRITICAL: Pass trackSegment lookup function
+                trackSegmentDataLookup: stationLayout.getTrackSegmentDataById
 
                 onPointMachineClicked: function(machineId, currentPosition) {
                     stationLayout.handlePointMachineClick(machineId, currentPosition)
@@ -730,7 +730,7 @@ Rectangle {
                     Row {
                         width: parent.width
                         Text {
-                            text: "Tracks:"
+                            text: "Track Segments:"
                             color: "#a0aec0"
                             font.pixelSize: 9
                             width: 60

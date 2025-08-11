@@ -25,7 +25,7 @@ private:
     ValidationResult checkOperationalStatus(const QString& machineId);
     ValidationResult checkLockingStatus(const QString& machineId);
     ValidationResult checkProtectingSignals(const QString& machineId, const QString& requestedPosition);
-    ValidationResult checkTrackOccupancy(const QString& machineId, const QString& requestedPosition);
+    ValidationResult checkTrackSegmentOccupancy(const QString& machineId, const QString& requestedPosition);
     ValidationResult checkRouteConflicts(const QString& machineId, const QString& requestedPosition);
     ValidationResult checkTimeLocking(const QString& machineId);
     ValidationResult checkDetectionLocking(const QString& machineId);
@@ -33,10 +33,10 @@ private:
 
     // Helper methods
     QStringList getProtectingSignals(const QString& machineId);
-    QStringList getAffectedTracks(const QString& machineId, const QString& position);
+    QStringList getAffectedTrackSegments(const QString& machineId, const QString& position);
     QStringList getConflictingPointMachines(const QString& machineId);
     bool areAllProtectingSignalsAtRed(const QStringList& signalIds);
-    bool areAffectedTracksClear(const QStringList& trackIds);
+    bool areAffectedTrackSegmentsClear(const QStringList& trackSegmentIds);
     bool isInTransition(const QString& machineId);
 
     struct PointMachineState {

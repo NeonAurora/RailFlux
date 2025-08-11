@@ -48,20 +48,20 @@ InterlockingService::InterlockingService(DatabaseManager* dbManager, QObject* pa
 
     // ✅ CREATE VALIDATION BRANCHES
     m_signalBranch = std::make_unique<SignalBranch>(dbManager, this);
-    m_trackBranch = std::make_unique<TrackCircuitBranch>(dbManager, this);
+    m_trackSegmentBranch = std::make_unique<TrackCircuitBranch>(dbManager, this);
     m_pointBranch = std::make_unique<PointMachineBranch>(dbManager, this);
 
     // ✅ CONNECT SAFETY SIGNALS: TrackCircuitBranch safety signals
-    connect(m_trackBranch.get(), &TrackCircuitBranch::systemFreezeRequired,
+    connect(m_trackSegmentBranch.get(), &TrackCircuitBranch::systemFreezeRequired,
             this, &InterlockingService::systemFreezeRequired);
 
-    connect(m_trackBranch.get(), &TrackCircuitBranch::interlockingFailure,
+    connect(m_trackSegmentBranch.get(), &TrackCircuitBranch::interlockingFailure,
             this, &InterlockingService::handleInterlockingFailure);
 
-    connect(m_trackBranch.get(), &TrackCircuitBranch::automaticInterlockingCompleted,
-            this, [this](const QString& trackSectionId, const QStringList& affectedSignals) {
-                qDebug() << "✅ Automatic interlocking completed for track section" << trackSectionId;
-                emit automaticProtectionActivated(trackSectionId,
+    connect(m_trackSegmentBranch.get(), &TrackCircuitBranch::automaticInterlockingCompleted,
+            this, [this](const QString& trackSegmentId, const QStringList& affectedSignals) {
+                qDebug() << "✅ Automatic interlocking completed for trackSegment section" << trackSegmentId;
+                emit automaticProtectionActivated(trackSegmentId,
                                                   QString("Automatic signal protection activated for %1 signals").arg(affectedSignals.size()));
             });
 
@@ -161,37 +161,37 @@ ValidationResult InterlockingService::validatePointMachineOperation(
 }
 
 // ============================================================================
-// ✅ REACTIVE INTERLOCKING: Hardware-driven track occupancy changes
+// ✅ REACTIVE INTERLOCKING: Hardware-driven trackSegment occupancy changes
 // ============================================================================
 
-void InterlockingService::reactToTrackOccupancyChange(
-    const QString& trackSectionId, bool wasOccupied, bool isOccupied) {
+void InterlockingService::reactToTrackSegmentOccupancyChange(
+    const QString& trackSegmentId, bool wasOccupied, bool isOccupied) {
 
     if (!m_isOperational) {
-        qCritical() << "🚨 CRITICAL: Interlocking system offline during track occupancy change!";
-        emit systemFreezeRequired(trackSectionId, "Interlocking system not operational",
-                                  QString("Track occupancy change detected while system offline: %1")
+        qCritical() << "🚨 CRITICAL: Interlocking system offline during trackSegment occupancy change!";
+        emit systemFreezeRequired(trackSegmentId, "Interlocking system not operational",
+                                  QString("Track Segment occupancy change detected while system offline: %1")
                                       .arg(QDateTime::currentDateTime().toString()));
         return;
     }
 
-    if (!m_trackBranch) {
+    if (!m_trackSegmentBranch) {
         qCritical() << "🚨 CRITICAL: TrackCircuitBranch not initialized during occupancy change!";
-        emit systemFreezeRequired(trackSectionId, "Track circuit branch not available",
-                                  QString("Track occupancy change cannot be processed: %1")
+        emit systemFreezeRequired(trackSegmentId, "Track Segment circuit branch not available",
+                                  QString("Track Segment occupancy change cannot be processed: %1")
                                       .arg(QDateTime::currentDateTime().toString()));
         return;
     }
 
-    qDebug() << "🎯 REACTIVE INTERLOCKING: Track section" << trackSectionId
+    qDebug() << "🎯 REACTIVE INTERLOCKING: Track Segment section" << trackSegmentId
              << "occupancy changed:" << wasOccupied << "→" << isOccupied;
 
-    // ✅ ENFORCE INTERLOCKING: Only when track becomes occupied (safety-critical transition)
+    // ✅ ENFORCE INTERLOCKING: Only when trackSegment becomes occupied (safety-critical transition)
     if (!wasOccupied && isOccupied) {
-        qDebug() << "🚨 SAFETY-CRITICAL TRANSITION: Track section" << trackSectionId << "became occupied";
-        m_trackBranch->enforceTrackOccupancyInterlocking(trackSectionId, wasOccupied, isOccupied);
+        qDebug() << "🚨 SAFETY-CRITICAL TRANSITION: Track Segment section" << trackSegmentId << "became occupied";
+        m_trackSegmentBranch->enforceTrackSegmentOccupancyInterlocking(trackSegmentId, wasOccupied, isOccupied);
     } else {
-        qDebug() << "🟢 Non-critical transition for track section" << trackSectionId << "- no interlocking action needed";
+        qDebug() << "🟢 Non-critical transition for trackSegment section" << trackSegmentId << "- no interlocking action needed";
     }
 }
 
@@ -252,12 +252,12 @@ void InterlockingService::handleCriticalFailure(const QString& entityId, const Q
     emit operationalStateChanged(m_isOperational);
 }
 
-void InterlockingService::handleInterlockingFailure(const QString& trackSectionId, const QString& failedSignals, const QString& error) {
+void InterlockingService::handleInterlockingFailure(const QString& trackSegmentId, const QString& failedSignals, const QString& error) {
     qCritical() << "🚨 INTERLOCKING ENFORCEMENT FAILURE:";
-    qCritical() << "  Track Section:" << trackSectionId;
+    qCritical() << "  Track Segment Section:" << trackSegmentId;
     qCritical() << "  Failed Signals:" << failedSignals;
     qCritical() << "  Error:" << error;
 
     // ✅ TREAT AS CRITICAL FAILURE: This is a safety system failure
-    handleCriticalFailure(trackSectionId, QString("Failed to enforce signal protection: %1").arg(error));
+    handleCriticalFailure(trackSegmentId, QString("Failed to enforce signal protection: %1").arg(error));
 }
