@@ -135,14 +135,14 @@ void DatabaseInitializer::performReset() {
         }
 
         // ✅ NEW: Populate trackSegment circuits BEFORE trackSegment segments
-        updateProgress(45, "Populating trackSegment circuits...");
+        updateProgress(45, "Populating track_segment circuits...");
         if (!populateTrackCircuits()) {
-            throw std::runtime_error("Failed to populate trackSegment circuits");
+            throw std::runtime_error("Failed to populate track_segment circuits");
         }
 
-        updateProgress(50, "Populating trackSegment segments...");
+        updateProgress(50, "Populating track_segment segments...");
         if (!populateTrackSegments()) {
-            throw std::runtime_error("Failed to populate trackSegment segments");
+            throw std::runtime_error("Failed to populate track_segment segments");
         }
 
         updateProgress(60, "Populating signals...");
@@ -258,7 +258,10 @@ bool DatabaseInitializer::executeSchemaScript() {
     QStringList schemaCreationQueries = {
         "CREATE SCHEMA IF NOT EXISTS railway_control;",
         "CREATE SCHEMA IF NOT EXISTS railway_audit;",
-        "CREATE SCHEMA IF NOT EXISTS railway_config;"
+        "CREATE SCHEMA IF NOT EXISTS railway_config;",
+        "COMMENT ON SCHEMA railway_control IS 'Main railway control system operational data';",
+        "COMMENT ON SCHEMA railway_audit IS 'Audit trail and event logging for compliance';",
+        "COMMENT ON SCHEMA railway_config IS 'Configuration and lookup tables';",
     };
 
     qDebug() << "Creating schemas...";
@@ -376,7 +379,7 @@ bool DatabaseInitializer::executeSchemaScript() {
             last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             last_changed_by VARCHAR(100),
             interlocked_with INTEGER[],
-            protected_trackSegments TEXT[],
+            protected_track_segments TEXT[],
             manual_control_active BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -596,11 +599,11 @@ bool DatabaseInitializer::executeSchemaScript() {
             BEFORE INSERT OR UPDATE ON railway_audit.event_log
             FOR EACH ROW EXECUTE FUNCTION railway_audit.set_event_date())",
 
-        R"(CREATE TRIGGER trg_track_segments__updated_at
+        R"(CREATE TRIGGER trg_track_segments_updated_at
             BEFORE UPDATE ON railway_control.track_segments
             FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp())",
 
-        R"(CREATE TRIGGER trg_track_segment_circuits_updated_at
+        R"(CREATE TRIGGER trg_track_circuits_updated_at
             BEFORE UPDATE ON railway_control.track_circuits
             FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp())",
 
@@ -614,7 +617,11 @@ bool DatabaseInitializer::executeSchemaScript() {
 
         R"(CREATE TRIGGER trg_signals_aspect_changed
             BEFORE UPDATE ON railway_control.signals
-            FOR EACH ROW EXECUTE FUNCTION railway_control.update_signal_change_time())"
+            FOR EACH ROW EXECUTE FUNCTION railway_control.update_signal_change_time())",
+
+        R"(CREATE TRIGGER trg_text_labels_updated_at
+            BEFORE UPDATE ON railway_control.text_labels
+            FOR EACH ROW EXECUTE FUNCTION railway_control.update_timestamp())"
     };
 
     qDebug() << "Creating essential triggers...";
@@ -626,23 +633,23 @@ bool DatabaseInitializer::executeSchemaScript() {
 
     // Step 9: Create basic indexes (UPDATED: removed broken is_occupied index)
     QStringList basicIndexes = {
-        "CREATE INDEX idx_track_segments__segment_id ON railway_control.track_segments(segment_id)",
-        "CREATE INDEX idx_track_segments__circuit ON railway_control.track_segments(circuit_id)",
-        "CREATE INDEX idx_track_segments__assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE",
-        "CREATE INDEX idx_track_segments__location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col)",
+        "CREATE INDEX idx_track_segments_id ON railway_control.track_segments(segment_id)",
+        "CREATE INDEX idx_track_segments_circuit ON railway_control.track_segments(circuit_id)",
+        "CREATE INDEX idx_track_segments_assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE",
+        "CREATE INDEX idx_track_segments_location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col)",
 
         // ✅ NEW: Track Segment circuits indexes
-        "CREATE INDEX idx_track_segment_circuits_circuit_id ON railway_control.track_circuits(circuit_id)",
-        "CREATE INDEX idx_track_segment_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE",
-        "CREATE INDEX idx_track_segment_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE",
+        "CREATE INDEX idx_track_circuits_id ON railway_control.track_circuits(circuit_id)",
+        "CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE",
+        "CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE",
 
-        "CREATE INDEX idx_signals_signal_id ON railway_control.signals(signal_id)",
+        "CREATE INDEX idx_signals_id ON railway_control.signals(signal_id)",
         "CREATE INDEX idx_signals_type ON railway_control.signals(signal_type_id)",
         "CREATE INDEX idx_signals_location ON railway_control.signals USING btree(location_row, location_col)",
         "CREATE INDEX idx_signals_active ON railway_control.signals(is_active) WHERE is_active = TRUE",
         "CREATE INDEX idx_signals_last_changed ON railway_control.signals(last_changed_at)",
 
-        "CREATE INDEX idx_point_machines_machine_id ON railway_control.point_machines(machine_id)",
+        "CREATE INDEX idx_point_machines_id ON railway_control.point_machines(machine_id)",
         "CREATE INDEX idx_point_machines_position ON railway_control.point_machines(current_position_id)",
         "CREATE INDEX idx_point_machines_status ON railway_control.point_machines(operating_status)",
         "CREATE INDEX idx_point_machines_junction ON railway_control.point_machines USING btree(junction_row, junction_col)",
@@ -718,6 +725,7 @@ bool DatabaseInitializer::populateConfigurationData() {
     insertSignalAspect("DOUBLE_YELLOW", "Double Yellow", "#f6ad55", 1);
     insertSignalAspect("WHITE", "Calling On", "#ffffff", 0);
     insertSignalAspect("BLUE", "Shunt", "#3182ce", 0);
+    insertSignalAspect("OFF", "Inactive", "#cccccc", 0);
 
     // Insert point positions
     insertPointPosition("NORMAL", "Normal Position");
@@ -1159,7 +1167,7 @@ bool DatabaseInitializer::createAdvancedFunctions() {
             -- Set operator context for audit logging
             PERFORM set_config('railway.operator_id', operator_id_param, true);
 
-            -- Update trackSegment circuit occupancy
+            -- Update track_segment circuit occupancy
             UPDATE railway_control.track_circuits
             SET
                 is_occupied = is_occupied_param,
@@ -1295,6 +1303,85 @@ bool DatabaseInitializer::createAdvancedFunctions() {
             PERFORM pg_notify('railway_changes', payload::TEXT);
             RETURN COALESCE(NEW, OLD);
         END;
+        $$ LANGUAGE plpgsql)",
+
+        R"(CREATE OR REPLACE FUNCTION railway_control.update_track_segment_assignment(
+            segment_id_param VARCHAR,
+            is_assigned_param BOOLEAN,
+            operator_id_param VARCHAR DEFAULT 'system'
+        )
+        RETURNS BOOLEAN AS $$
+        DECLARE
+            rows_affected INTEGER;
+        BEGIN
+            PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+            UPDATE railway_control.track_segments
+            SET is_assigned = is_assigned_param
+            WHERE segment_id = segment_id_param;
+
+            GET DIAGNOSTICS rows_affected = ROW_COUNT;
+            RETURN rows_affected > 0;
+        END;
+        $$ LANGUAGE plpgsql)",
+        R"(CREATE OR REPLACE FUNCTION railway_control.get_system_status()
+        RETURNS JSON AS $$
+        DECLARE
+            result JSON;
+           track_segment_stats RECORD;
+            circuit_stats RECORD;
+            signal_stats RECORD;
+            point_stats RECORD;
+        BEGIN
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE is_assigned) as assigned
+            INTO track_segment_stats
+            FROM railway_control.track_segments
+            WHERE is_active = TRUE;
+
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE is_occupied) as occupied
+            INTO circuit_stats
+            FROM railway_control.track_circuits
+            WHERE is_active = TRUE;
+
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE is_active) as active
+            INTO signal_stats
+            FROM railway_control.signals;
+
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE operating_status = 'CONNECTED') as connected,
+                COUNT(*) FILTER (WHERE operating_status = 'IN_TRANSITION') as in_transition
+            INTO point_stats
+            FROM railway_control.point_machines;
+
+            result := json_build_object(
+                'timestamp', extract(epoch from now()),
+                'track_segments', json_build_object(
+                    'total_segments', track_segment_stats.total,
+                    'assigned_segments', track_segment_stats.assigned,
+                    'total_circuits', circuit_stats.total,
+                    'occupied_circuits', circuit_stats.occupied,
+                    'available_segments', track_segment_stats.total - track_segment_stats.assigned
+                ),
+                'signals', json_build_object(
+                    'total', signal_stats.total,
+                    'active', signal_stats.active
+                ),
+                'point_machines', json_build_object(
+                    'total', point_stats.total,
+                    'connected', point_stats.connected,
+                    'in_transition', point_stats.in_transition
+                )
+            );
+
+            RETURN result;
+        END;
         $$ LANGUAGE plpgsql)"
     };
 
@@ -1311,11 +1398,11 @@ bool DatabaseInitializer::createAdvancedFunctions() {
 bool DatabaseInitializer::createAdvancedTriggers() {
     QStringList advancedTriggers = {
         // Audit triggers
-        R"(CREATE TRIGGER trg_track_segments__audit
+        R"(CREATE TRIGGER trg_track_segments_audit
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_segments
             FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes())",
 
-        R"(CREATE TRIGGER trg_track_segment_circuits_audit
+        R"(CREATE TRIGGER trg_track_circuits_audit
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_circuits
             FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes())",
 
@@ -1328,11 +1415,11 @@ bool DatabaseInitializer::createAdvancedTriggers() {
             FOR EACH ROW EXECUTE FUNCTION railway_audit.log_changes())",
 
         // Notification triggers
-        R"(CREATE TRIGGER trg_track_segments__notify
+        R"(CREATE TRIGGER trg_track_segments_notify
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_segments
             FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_segment_changes())",
 
-        R"(CREATE TRIGGER trg_track_segment_circuits_notify
+        R"(CREATE TRIGGER trg_track_circuits_notify
             AFTER INSERT OR UPDATE OR DELETE ON railway_control.track_circuits
             FOR EACH ROW EXECUTE FUNCTION railway_control.notify_track_segment_circuit_changes())",
 
@@ -1363,7 +1450,14 @@ bool DatabaseInitializer::createGinIndexes() {
         "CREATE INDEX idx_event_log_old_values ON railway_audit.event_log USING gin(old_values)",
         "CREATE INDEX idx_event_log_new_values ON railway_audit.event_log USING gin(new_values)",
         "CREATE INDEX idx_event_log_replay_data ON railway_audit.event_log USING gin(replay_data)",
-        "CREATE INDEX idx_track_segment_circuits_protecting_signals ON railway_control.track_circuits USING gin(protecting_signals)"
+        "CREATE INDEX idx_track_circuits_protecting_signals ON railway_control.track_circuits USING gin(protecting_signals)",
+        "CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id)",
+        "CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id)",
+        "CREATE INDEX idx_signal_track_segment_protection_signal ON railway_control.signal_track_segment_protection(signal_id)",
+        "CREATE INDEX idx_signal_track_segment_protection_track_segment ON railway_control.signal_track_segment_protection(protected_track_segment_id)",
+        "CREATE INDEX idx_signals_protected_track_segments ON railway_control.signals USING gin(protected_track_segments)",
+        "CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals)",
+        "CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals)"
     };
 
     qDebug() << "Creating GIN indexes...";
@@ -1380,7 +1474,7 @@ bool DatabaseInitializer::createGinIndexes() {
 bool DatabaseInitializer::createViews() {
     QStringList views = {
         // ✅ CRITICAL: Main view for segment occupancy from circuit occupancy
-        R"(CREATE OR REPLACE VIEW railway_control.v_track_segments__with_occupancy AS
+        R"(CREATE OR REPLACE VIEW railway_control.v_track_segments_with_occupancy AS
         SELECT
             ts.id,
             ts.segment_id,

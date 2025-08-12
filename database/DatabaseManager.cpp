@@ -557,7 +557,7 @@ QVariantList DatabaseManager::getTrackSegmentsList() {
     QString trackSegmentSql = R"(
         SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
                track_segment_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
-        FROM railway_control.v_track_segments__with_occupancy
+        FROM railway_control.v_track_segments_with_occupancy
         ORDER BY segment_id
     )";
 
@@ -750,7 +750,7 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) 
     query.prepare(R"(
         SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
                track_segment_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
-        FROM railway_control.v_track_segments__with_occupancy
+        FROM railway_control.v_track_segments_with_occupancy
         WHERE segment_id = ?
     )");
     query.addBindValue(trackSegmentId);
@@ -1072,7 +1072,7 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
     query.prepare(R"(
         SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
                track_segment_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
-        FROM railway_control.v_track_segments__with_occupancy
+        FROM railway_control.v_track_segments_with_occupancy
         WHERE circuit_id = ?
         ORDER BY segment_id
     )");
