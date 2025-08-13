@@ -183,7 +183,7 @@ bool TrackCircuitBranch::enforceSignalToRed(const QString& signalId, const QStri
     }
 
     // ✅ FORCE: Use database manager to set signal to RED (bypasses normal validation)
-    bool success = m_dbManager->updateSignalAspect(signalId, "RED");
+    bool success = m_dbManager->updateSignalAspect(signalId, "MAIN", "RED");
 
     if (success) {
         qDebug() << "✅ ENFORCED: Signal" << signalId << "set to RED";

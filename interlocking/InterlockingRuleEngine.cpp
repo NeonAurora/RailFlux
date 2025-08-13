@@ -61,6 +61,7 @@ ValidationResult InterlockingRuleEngine::validateInterlockedSignalAspectChange(
     return validateControllingSignals(signalId, requestedAspect);
 }
 
+// ✅ UPDATED: Use composite aspect matching in rule evaluation
 ValidationResult InterlockingRuleEngine::validateControllingSignals(
     const QString& signalId, const QString& requestedAspect) {
 
@@ -72,10 +73,9 @@ ValidationResult InterlockingRuleEngine::validateControllingSignals(
 
     const SignalInfo& signalInfo = signalInfoIt.value();
 
-    // Get control mode
     QString controlMode = signalInfo.controlMode.trimmed().toUpper();
     if (controlMode.isEmpty()) {
-        controlMode = "AND"; // default
+        controlMode = "AND";
     }
     qDebug() << "🔍 Signal" << signalId << "control_mode:" << controlMode;
 
@@ -83,9 +83,10 @@ ValidationResult InterlockingRuleEngine::validateControllingSignals(
     QStringList blockingReasons;
 
     for (const QString& controllingSignalId : signalInfo.controlledBy) {
-        QString controllingAspect = getCurrentSignalAspect(controllingSignalId);
+        // ✅ ENHANCED: Get composite aspect instead of just main aspect
+        QString controllingCompositeAspect = getCurrentCompositeAspect(controllingSignalId);
         qDebug() << "🔍 Controlling signal:" << controllingSignalId
-                 << "current aspect:" << controllingAspect;
+                 << "current composite aspect:" << controllingCompositeAspect;
 
         auto controllingInfoIt = m_signalRules.find(controllingSignalId);
         if (controllingInfoIt == m_signalRules.end()) {
@@ -94,22 +95,26 @@ ValidationResult InterlockingRuleEngine::validateControllingSignals(
         }
 
         const SignalInfo& controllingInfo = controllingInfoIt.value();
-
         bool aspectAllowed = false;
 
         for (const SignalRule& rule : controllingInfo.rules) {
-            qDebug() << "🔍 Evaluating rule for aspect:" << rule.getWhenAspect();
+            QString ruleWhenAspect = rule.getWhenAspect();
+            qDebug() << "🔍 Evaluating rule for when_aspect:" << ruleWhenAspect;
 
-            if (rule.getWhenAspect() == controllingAspect) {
-                qDebug() << "✅ Aspect matches current controlling aspect.";
+            // ✅ ENHANCED: Use composite aspect matching
+            bool aspectMatches = doesSignalMatchCompositeAspect(controllingSignalId, ruleWhenAspect);
+
+            if (aspectMatches) {
+                qDebug() << "✅ Composite aspect matches rule requirement:"
+                         << controllingCompositeAspect << "matches" << ruleWhenAspect;
 
                 qDebug() << "🔍 Checking conditions for rule...";
                 if (!checkConditions(rule.getConditions())) {
                     qDebug() << "❌ Conditions failed for controlling signal"
-                             << controllingSignalId << "aspect" << controllingAspect;
+                             << controllingSignalId << "aspect" << controllingCompositeAspect;
                     blockingReasons.append(
                         QString("Conditions not met for rule when %1 shows %2")
-                            .arg(controllingSignalId, controllingAspect));
+                            .arg(controllingSignalId, ruleWhenAspect));
                     continue;
                 }
                 qDebug() << "✅ Conditions passed.";
@@ -119,22 +124,24 @@ ValidationResult InterlockingRuleEngine::validateControllingSignals(
                 if (rule.isSignalAspectAllowed(signalId, requestedAspect)) {
                     qDebug() << "✅ Rule allows requested aspect.";
                     aspectAllowed = true;
-                    break; // No need to check more rules for this controlling signal
+                    break;
                 } else {
                     qDebug() << "❌ Rule does not allow requested aspect.";
                 }
             } else {
-                qDebug() << "⚠️ Skipping rule because aspect does not match.";
+                qDebug() << "⚠️ Skipping rule because composite aspect does not match:"
+                         << controllingCompositeAspect << "!=" << ruleWhenAspect;
             }
         }
 
+        // ✅ SAME: Control mode logic unchanged
         if (controlMode == "AND") {
             if (!aspectAllowed) {
                 qDebug() << "❌ AND mode: Aspect not allowed by controlling signal"
                          << controllingSignalId << "- blocking immediately.";
                 return ValidationResult::blocked(
                            QString("Signal %1 cannot show %2: controlling signal %3 shows %4")
-                               .arg(signalId, requestedAspect, controllingSignalId, controllingAspect),
+                               .arg(signalId, requestedAspect, controllingSignalId, controllingCompositeAspect),
                            "CONTROLLING_SIGNAL_RESTRICTION"
                            ).addAffectedEntity(controllingSignalId);
             }
@@ -151,6 +158,7 @@ ValidationResult InterlockingRuleEngine::validateControllingSignals(
         }
     }
 
+    // ✅ SAME: Final evaluation logic unchanged
     if (controlMode == "OR") {
         if (anyControllingAllows) {
             qDebug() << "✅ OR mode: At least one controlling signal allows - returning allowed.";
@@ -187,6 +195,126 @@ bool InterlockingRuleEngine::checkConditions(const QList<SignalRule::Condition>&
         }
     }
     return true;
+}
+
+// ✅ ENHANCED: Replace getCurrentSignalAspect with composite aspect support
+QString InterlockingRuleEngine::getCurrentCompositeAspect(const QString& signalId) {
+    if (!m_dbManager) {
+        qWarning() << "❌ Database manager not available";
+        return "RED";
+    }
+
+    auto signalData = m_dbManager->getSignalById(signalId);
+
+    // ✅ DEBUG: Print the entire signal data
+    qDebug() << "🔍🔍🔍 FULL SIGNAL DATA DUMP for" << signalId << "🔍🔍🔍";
+    qDebug() << "  Raw QVariantMap contents:";
+    for (auto it = signalData.begin(); it != signalData.end(); ++it) {
+        qDebug() << "    " << it.key() << ":" << it.value().toString()
+        << "(" << it.value().typeName() << ")";
+    }
+    qDebug() << "🔍🔍🔍 END SIGNAL DATA DUMP 🔍🔍🔍";
+
+    QString mainAspect = signalData.value("currentAspect", "RED").toString();
+
+    // ✅ FIXED: Use correct camelCase key names
+    QString callingOnAspect = signalData.value("callingOnAspect", "OFF").toString();
+    QString loopAspect = signalData.value("loopAspect", "OFF").toString();
+
+    qDebug() << "🔍 Signal" << signalId << "aspects extraction:";
+    qDebug() << "  Main (currentAspect):" << mainAspect;
+    qDebug() << "  Calling-On (callingOnAspect):" << callingOnAspect;
+    qDebug() << "  Loop (loopAspect):" << loopAspect;
+
+    // ✅ BUILD: Composite aspect based on active subsidiary signals
+    QString compositeAspect = mainAspect;
+
+    // ✅ CALLING-ON: Add if active (WHITE)
+    if (callingOnAspect == "WHITE") {
+        compositeAspect += "_CALLING";
+        qDebug() << "  ✅ Added CALLING component";
+    } else {
+        qDebug() << "  ❌ No CALLING component (aspect is:" << callingOnAspect << ")";
+    }
+
+    // ✅ LOOP: Add if active (YELLOW)
+    if (loopAspect == "YELLOW") {
+        compositeAspect += "_LOOP";
+        qDebug() << "  ✅ Added LOOP component";
+    } else {
+        qDebug() << "  ❌ No LOOP component (aspect is:" << loopAspect << ")";
+    }
+
+    qDebug() << "🎯 Final composite aspect for" << signalId << ":" << compositeAspect;
+    return compositeAspect;
+}
+
+// ✅ NEW: Check if an aspect string is composite
+bool InterlockingRuleEngine::isCompositeAspect(const QString& aspect) {
+    return aspect.contains("_CALLING") || aspect.contains("_LOOP");
+}
+
+// ✅ NEW: Parse composite aspect into components
+QVariantMap InterlockingRuleEngine::parseCompositeAspect(const QString& compositeAspect) {
+    QVariantMap components;
+
+    QString aspect = compositeAspect;
+
+    // ✅ EXTRACT: Calling-on component
+    if (aspect.contains("_CALLING")) {
+        components["calling_on"] = "WHITE";
+        aspect = aspect.replace("_CALLING", "");
+    } else {
+        components["calling_on"] = "OFF";
+    }
+
+    // ✅ EXTRACT: Loop component
+    if (aspect.contains("_LOOP")) {
+        components["loop"] = "YELLOW";
+        aspect = aspect.replace("_LOOP", "");
+    } else {
+        components["loop"] = "OFF";
+    }
+
+    // ✅ REMAINING: Main aspect
+    components["main"] = aspect.isEmpty() ? "RED" : aspect;
+
+    qDebug() << "🔧 Parsed composite aspect" << compositeAspect << "→"
+             << "Main:" << components["main"].toString()
+             << "Calling-On:" << components["calling_on"].toString()
+             << "Loop:" << components["loop"].toString();
+
+    return components;
+}
+
+// ✅ NEW: Check if signal's current state matches a composite aspect requirement
+bool InterlockingRuleEngine::doesSignalMatchCompositeAspect(const QString& signalId, const QString& compositeAspect) {
+    if (!isCompositeAspect(compositeAspect)) {
+        // ✅ SIMPLE: Just check main aspect for non-composite
+        QString currentMainAspect = getCurrentSignalAspect(signalId);
+        return currentMainAspect == compositeAspect;
+    }
+
+    // ✅ COMPLEX: Parse composite aspect and check all components
+    auto requiredComponents = parseCompositeAspect(compositeAspect);
+    auto signalData = m_dbManager->getSignalById(signalId);
+
+    QString currentMainAspect = signalData.value("currentAspect", "RED").toString();
+
+    // ✅ FIXED: Use correct camelCase key names
+    QString currentCallingOn = signalData.value("callingOnAspect", "OFF").toString();
+    QString currentLoop = signalData.value("loopAspect", "OFF").toString();
+
+    bool mainMatches = (currentMainAspect == requiredComponents["main"].toString());
+    bool callingOnMatches = (currentCallingOn == requiredComponents["calling_on"].toString());
+    bool loopMatches = (currentLoop == requiredComponents["loop"].toString());
+
+    qDebug() << "🎯 Composite aspect check for" << signalId << "vs" << compositeAspect << ":"
+             << "Main:" << currentMainAspect << "==" << requiredComponents["main"].toString() << "?" << mainMatches
+             << "Calling-On:" << currentCallingOn << "==" << requiredComponents["calling_on"].toString() << "?" << callingOnMatches
+             << "Loop:" << currentLoop << "==" << requiredComponents["loop"].toString() << "?" << loopMatches;
+
+    return mainMatches && callingOnMatches && loopMatches;
 }
 
 QString InterlockingRuleEngine::getCurrentSignalAspect(const QString& signalId) {

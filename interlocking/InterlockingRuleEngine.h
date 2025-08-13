@@ -50,4 +50,10 @@ private:
     SignalRule parseRule(const QJsonObject& ruleObject);
     SignalRule::Condition parseCondition(const QJsonObject& conditionObject);
     SignalRule::AllowedSignal parseAllowedSignal(const QString& signalId, const QJsonArray& aspectsArray);
+
+    // ✅ NEW: Composite aspect evaluation
+    QString getCurrentCompositeAspect(const QString& signalId);
+    bool isCompositeAspect(const QString& aspect);
+    QVariantMap parseCompositeAspect(const QString& compositeAspect);
+    bool doesSignalMatchCompositeAspect(const QString& signalId, const QString& compositeAspect);
 };

@@ -67,10 +67,16 @@ public:
     ~InterlockingService();
 
     // ✅ MAIN VALIDATION INTERFACE: Only for operator-initiated actions
-    Q_INVOKABLE ValidationResult validateSignalOperation(const QString& signalId,
+    Q_INVOKABLE ValidationResult validateMainSignalOperation(const QString& signalId,
                                                          const QString& currentAspect,
                                                          const QString& requestedAspect,
                                                          const QString& operatorId = "HMI_USER");
+
+    Q_INVOKABLE ValidationResult validateSubsidiarySignalOperation(const QString& signalId,
+                                                     const QString& aspectType,
+                                                     const QString& currentAspect,
+                                                     const QString& requestedAspect,
+                                                     const QString& operatorId = "HMI_USER");
 
     Q_INVOKABLE ValidationResult validatePointMachineOperation(const QString& machineId,
                                                                const QString& currentPosition,

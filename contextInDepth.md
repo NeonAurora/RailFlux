@@ -313,7 +313,7 @@ class DatabaseManager : public QObject {
     Q_INVOKABLE QVariantMap getSignalById(const QString& signalId);
 
     // === SAFETY-CRITICAL UPDATES ===
-    Q_INVOKABLE bool updateSignalAspect(const QString& signalId, const QString& newAspect);
+    Q_INVOKABLE bool updateSignalAspect(const QString& signalId, const QString& aspectType, const QString& newAspect);
     Q_INVOKABLE bool updatePointMachinePosition(const QString& machineId, const QString& newPosition);
 
     // === REAL-TIME SIGNALS ===
@@ -352,13 +352,13 @@ private:
 ### Safety-Critical Update Pattern
 
 ```cpp
-bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString& newAspect) {
+bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString& aspectType, const QString& newAspect) {
     // 1. Get current state
     QString currentAspect = getCurrentSignalAspect(signalId);
     
     // 2. Interlocking validation
     if (m_interlockingService) {
-        auto validation = m_interlockingService->validateSignalOperation(
+        auto validation = m_interlockingService->validateMainSignalOperation(
             signalId, currentAspect, newAspect, "HMI_USER");
         
         if (!validation.isAllowed()) {
@@ -406,7 +406,7 @@ class InterlockingService : public QObject {
 
 public:
     // === VALIDATION API (Operator Actions) ===
-    Q_INVOKABLE ValidationResult validateSignalOperation(
+    Q_INVOKABLE ValidationResult validateMainSignalOperation(
         const QString& signalId, 
         const QString& currentAspect,
         const QString& requestedAspect, 
@@ -458,7 +458,7 @@ Each validation branch handles specific entity types:
 
 ```cpp
 // Example: SignalBranch validation flow
-ValidationResult SignalBranch::validateAspectChange(
+ValidationResult SignalBranch::validateMainAspectChange(
     const QString& signalId,
     const QString& currentAspect, 
     const QString& requestedAspect,
@@ -892,7 +892,7 @@ connect(dbManager, &DatabaseManager::signalsChanged,
 OuterSignal {
     onSignalClicked: function(signalId, currentAspect) {
         // Call C++ method directly
-        globalDatabaseManager.updateSignalAspect(signalId, "GREEN")
+        globalDatabaseManager.updateSignalAspect(signalId,"MAIN , "GREEN")
     }
 }
 

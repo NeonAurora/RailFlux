@@ -98,6 +98,7 @@ private:
     int insertSignalType(const QString& typeCode, const QString& typeName, int maxAspects);
     int insertSignalAspect(const QString& aspectCode, const QString& aspectName, const QString& colorCode, int safetyLevel);
     int insertPointPosition(const QString& positionCode, const QString& positionName);
+    int getAspectIdByCode(const QString& aspectCode);
 
     // ✅ NEW: Track Segment circuit helper methods
     bool insertTrackCircuit(const QString& circuitId, const QString& circuitName);

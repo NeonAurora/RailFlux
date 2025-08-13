@@ -152,7 +152,7 @@ Rectangle {
 
         console.log("Changing outer signal", signalId, "from", currentAspect, "to", nextAspect)
 
-        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        var success = dbManager.updateSignalAspect(signalId, "MAIN", nextAspect)
         if (!success) {
             console.error("Failed to update outer signal aspect")
         }
@@ -179,7 +179,7 @@ Rectangle {
 
         console.log("Changing home signal", signalId, "from", currentAspect, "to", nextAspect)
 
-        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        var success = dbManager.updateSignalAspect(signalId, "MAIN", nextAspect)
         if (success) {
             console.log("Home signal aspect updated successfully")
         } else {
@@ -208,7 +208,7 @@ Rectangle {
 
         console.log("Changing starter signal", signalId, "from", currentAspect, "to", nextAspect)
 
-        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        var success = dbManager.updateSignalAspect(signalId, "MAIN", nextAspect)
         if (success) {
             console.log("Starter signal aspect updated successfully")
         } else {
@@ -261,7 +261,7 @@ Rectangle {
 
         console.log("Changing advanced starter signal", signalId, "from", currentAspect, "to", nextAspect)
 
-        var success = dbManager.updateSignalAspect(signalId, nextAspect)
+        var success = dbManager.updateSignalAspect(signalId, "MAIN", nextAspect)
         if (success) {
             console.log("Advanced starter signal aspect updated successfully", nextAspect)
         } else {
@@ -269,8 +269,8 @@ Rectangle {
         }
     }
 
-    function updateSignalAspectDirect(signalId, targetAspect) {
-        console.log("Direct signal aspect change:", signalId, "to", targetAspect)
+    function updateSignalAspectDirect(signalId, aspectType, selectedAspect) {
+        console.log("Direct signal aspect change:", signalId, aspectType, "to", selectedAspect)
 
         if (!dbManager || !dbManager.isConnected) {
             showToast("Database Error", "Cannot update signal - database not connected",
@@ -278,9 +278,10 @@ Rectangle {
             return
         }
 
-        var success = dbManager.updateSignalAspect(signalId, targetAspect)
+        // ✅ NEW: Call with aspect type
+        var success = dbManager.updateSignalAspect(signalId, aspectType, selectedAspect)
         if (!success) {
-            console.error("Failed to update signal aspect directly")
+            console.error("Failed to update signal aspect:", signalId, aspectType, selectedAspect)
         }
     }
 
@@ -410,10 +411,9 @@ Rectangle {
         id: signalContextMenu
         anchors.fill: parent
 
-        onAspectSelected: function(signalId, selectedAspect) {
-            console.log("Context menu aspect selected:", signalId, "→", selectedAspect)
-            // Use existing update function
-            updateSignalAspectDirect(signalId, selectedAspect)
+        onAspectSelected: function(signalId, aspectType, selectedAspect) {
+                console.log("Context menu aspect selected:", signalId, aspectType, "→", selectedAspect)
+                updateSignalAspectDirect(signalId, aspectType, selectedAspect)
         }
     }
 
@@ -519,9 +519,18 @@ Rectangle {
                 onSignalClicked: stationLayout.handleHomeSignalClick(signalId, currentAspect)
 
                 // ✅ ADD THIS CONTEXT MENU HANDLER:
-                onContextMenuRequested: function(signalId, signalName, currentAspect, possibleAspects, x, y) {
-                    signalContextMenu.show(x, y, signalId, signalName, currentAspect, possibleAspects)
-                }
+                onContextMenuRequested: function(signalId, signalName, currentAspect, possibleAspects,
+                                                       callingOnAspect, loopAspect, x, y) {
+                            console.log("🏠 DEBUG: Home signal context menu requested:")
+                            console.log("  - Signal:", signalId, signalName)
+                            console.log("  - Main aspect:", currentAspect)
+                            console.log("  - Calling-On:", callingOnAspect)
+                            console.log("  - Loop:", loopAspect)
+
+                            // ✅ Pass all parameters including subsidiary signals
+                            signalContextMenu.show(x, y, signalId, signalName, currentAspect, possibleAspects,
+                                                  callingOnAspect, loopAspect)
+                        }
             }
         }
 

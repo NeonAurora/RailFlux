@@ -173,7 +173,8 @@ Item {
 
     signal signalClicked(string signalId, string currentAspect)
     signal contextMenuRequested(string signalId, string signalName, string currentAspect,
-                              var possibleAspects, real x, real y)
+                              var possibleAspects, string callingOnAspect, string loopAspect,
+                              real x, real y)
 
     // ============================================================================
     // ✅ FIXED: UP SIGNAL LAYOUT WITH CORRECT VISIBILITY LOGIC
@@ -511,8 +512,10 @@ Item {
                 homeSignal.signalClicked(signalId, currentAspect)
             } else if (mouse.button === Qt.RightButton) {  // ✅ ADD: Right click context menu
                 console.log("Home signal right-clicked:", signalId, "Showing context menu")
+                // ✅ ENHANCED: Pass subsidiary signal aspects
                 homeSignal.contextMenuRequested(signalId, signalName, currentAspect, possibleAspects,
-                                               mouse.x + homeSignal.x, mouse.y + homeSignal.y)
+                                                callingOnAspect, loopAspect,
+                                                mouse.x + homeSignal.x, mouse.y + homeSignal.y)
             }
         }
 

@@ -368,21 +368,35 @@ bool DatabaseInitializer::executeSchemaScript() {
             location_row NUMERIC(10,2) NOT NULL,
             location_col NUMERIC(10,2) NOT NULL,
             direction VARCHAR(10) NOT NULL CHECK (direction IN ('UP', 'DOWN')),
+
+            -- ✅ MAIN SIGNAL ASPECT (unchanged)
             current_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
-            calling_on_aspect VARCHAR(20) DEFAULT 'OFF',
-            loop_aspect VARCHAR(20) DEFAULT 'OFF',
+
+            -- ✅ SUBSIDIARY SIGNAL ASPECTS (now using aspect IDs instead of VARCHAR)
+            calling_on_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+            loop_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+
+            -- ✅ SIGNAL CONFIGURATION (unchanged)
             loop_signal_configuration VARCHAR(10) DEFAULT 'UR',
             aspect_count INTEGER NOT NULL DEFAULT 2,
             possible_aspects TEXT[],
             is_active BOOLEAN DEFAULT TRUE,
             location_description VARCHAR(200),
+
+            -- ✅ AUDIT FIELDS (unchanged)
             last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             last_changed_by VARCHAR(100),
+
+            -- ✅ INTERLOCKING FIELDS (unchanged)
             interlocked_with INTEGER[],
             protected_track_segments TEXT[],
             manual_control_active BOOLEAN DEFAULT FALSE,
+
+            -- ✅ TIMESTAMP FIELDS (unchanged)
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+            -- ✅ CONSTRAINTS (unchanged)
             CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
             CONSTRAINT chk_aspect_count CHECK (aspect_count >= 2 AND aspect_count <= 4)
         ))",
@@ -797,6 +811,26 @@ bool DatabaseInitializer::populateTrackSegments() {
     return true;
 }
 
+int DatabaseInitializer::getAspectIdByCode(const QString& aspectCode) {
+    // ✅ HARDCODED: Based on your specification
+    if (aspectCode == "OFF") return 8;
+    if (aspectCode == "YELLOW") return 2;
+    if (aspectCode == "WHITE") return 6;
+
+    // ✅ FALLBACK: Query database for other aspects
+    QSqlQuery query(db);
+    query.prepare("SELECT id FROM railway_config.signal_aspects WHERE aspect_code = ?");
+    query.addBindValue(aspectCode);
+
+    if (query.exec() && query.next()) {
+        return query.value(0).toInt();
+    }
+
+    // ✅ DEFAULT: Return OFF aspect ID if not found
+    qWarning() << "⚠️ Aspect code not found:" << aspectCode << "- defaulting to OFF";
+    return 8; // OFF
+}
+
 // Rest of the methods remain the same...
 bool DatabaseInitializer::populateSignals() {
     // Combine all signal types
@@ -817,7 +851,7 @@ bool DatabaseInitializer::populateSignals() {
         QJsonObject signal = signalValue.toObject();
         QString signalType = signal["type"].toString();
 
-        // Get type ID
+        // ✅ Get signal type ID
         QSqlQuery typeQuery(db);
         typeQuery.prepare("SELECT id FROM railway_config.signal_types WHERE type_code = ?");
         typeQuery.addBindValue(signalType);
@@ -828,18 +862,26 @@ bool DatabaseInitializer::populateSignals() {
         }
         int typeId = typeQuery.value(0).toInt();
 
-        // Get aspect ID
+        // ✅ Get main signal aspect ID
         QString currentAspect = signal["currentAspect"].toString();
         QSqlQuery aspectQuery(db);
         aspectQuery.prepare("SELECT id FROM railway_config.signal_aspects WHERE aspect_code = ?");
         aspectQuery.addBindValue(currentAspect);
 
-        int aspectId = 1; // Default to RED
+        int aspectId = 1; // Default to RED (assuming RED has id=1)
         if (aspectQuery.exec() && aspectQuery.next()) {
             aspectId = aspectQuery.value(0).toInt();
         }
 
-        // Convert possible aspects array to PostgreSQL array format
+        // ✅ NEW: Get calling-on aspect ID
+        QString callingOnAspectStr = signal["callingOnAspect"].toString("OFF");
+        int callingOnAspectId = getAspectIdByCode(callingOnAspectStr);
+
+        // ✅ NEW: Get loop aspect ID
+        QString loopAspectStr = signal["loopAspect"].toString("OFF");
+        int loopAspectId = getAspectIdByCode(loopAspectStr);
+
+        // ✅ Convert possible aspects array to PostgreSQL array format
         QJsonArray possibleAspects = signal["possibleAspects"].toArray();
         QStringList aspectsList;
         for (const auto& aspect : possibleAspects) {
@@ -847,15 +889,17 @@ bool DatabaseInitializer::populateSignals() {
         }
         QString aspectsArrayStr = "{" + aspectsList.join(",") + "}";
 
+        // ✅ UPDATED: Insert query with new aspect ID columns
         QString insertQuery = R"(
             INSERT INTO railway_control.signals
             (signal_id, signal_name, signal_type_id, location_row, location_col,
-             direction, current_aspect_id, calling_on_aspect, loop_aspect,
+             direction, current_aspect_id, calling_on_aspect_id, loop_aspect_id,
              loop_signal_configuration, aspect_count, possible_aspects,
              is_active, location_description)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         )";
 
+        // ✅ UPDATED: Parameters with aspect IDs instead of strings
         QVariantList params = {
             signal["id"].toString(),
             signal["name"].toString(),
@@ -863,9 +907,9 @@ bool DatabaseInitializer::populateSignals() {
             signal["row"].toDouble(),
             signal["col"].toDouble(),
             signal["direction"].toString(),
-            aspectId,
-            signal["callingOnAspect"].toString("OFF"),
-            signal["loopAspect"].toString("OFF"),
+            aspectId,                                                    // current_aspect_id
+            callingOnAspectId,                                          // calling_on_aspect_id
+            loopAspectId,                                               // loop_aspect_id
             signal["loopSignalConfiguration"].toString("UR"),
             signal["aspectCount"].toInt(2),
             aspectsArrayStr,
@@ -1241,6 +1285,63 @@ bool DatabaseInitializer::createAdvancedFunctions() {
         END;
         $$ LANGUAGE plpgsql)",
 
+        R"(CREATE OR REPLACE FUNCTION railway_control.update_subsidiary_signal_aspect(
+            signal_id_param VARCHAR,
+            aspect_type_param VARCHAR,
+            aspect_code_param VARCHAR,
+            operator_id_param VARCHAR DEFAULT 'system'
+        )
+        RETURNS BOOLEAN AS $$
+        DECLARE
+            aspect_id_val INTEGER;
+            rows_affected INTEGER;
+            column_name VARCHAR;
+        BEGIN
+            -- Set operator context for audit logging
+            PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+            -- Validate aspect type
+            IF aspect_type_param NOT IN ('CALLING_ON', 'LOOP') THEN
+                RAISE EXCEPTION 'Invalid subsidiary aspect type: %. Must be CALLING_ON or LOOP', aspect_type_param;
+            END IF;
+
+            -- Get aspect ID
+            aspect_id_val := railway_config.get_aspect_id(aspect_code_param);
+            IF aspect_id_val IS NULL THEN
+                RAISE EXCEPTION 'Invalid aspect code: %', aspect_code_param;
+            END IF;
+
+            -- Determine which column to update
+            IF aspect_type_param = 'CALLING_ON' THEN
+                column_name := 'calling_on_aspect_id';
+            ELSIF aspect_type_param = 'LOOP' THEN
+                column_name := 'loop_aspect_id';
+            END IF;
+
+            -- Update the appropriate subsidiary signal column
+            IF aspect_type_param = 'CALLING_ON' THEN
+                UPDATE railway_control.signals
+                SET calling_on_aspect_id = aspect_id_val,
+                    last_changed_at = CURRENT_TIMESTAMP,
+                    last_changed_by = operator_id_param
+                WHERE signal_id = signal_id_param;
+            ELSIF aspect_type_param = 'LOOP' THEN
+                UPDATE railway_control.signals
+                SET loop_aspect_id = aspect_id_val,
+                    last_changed_at = CURRENT_TIMESTAMP,
+                    last_changed_by = operator_id_param
+                WHERE signal_id = signal_id_param;
+            END IF;
+
+            GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+            -- Log the change for audit trail
+            -- Future Reference
+
+            RETURN rows_affected > 0;
+        END;
+        $$ LANGUAGE plpgsql)",
+
         R"(CREATE OR REPLACE FUNCTION railway_control.update_point_position(
             machine_id_param VARCHAR,
             position_code_param VARCHAR,
@@ -1499,7 +1600,7 @@ bool DatabaseInitializer::createViews() {
         LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id)",
 
         // Complete signal information view
-        R"(CREATE VIEW railway_control.v_signals_complete AS
+        R"(CREATE OR REPLACE VIEW railway_control.v_signals_complete AS
         SELECT
             s.id,
             s.signal_id,
@@ -1509,23 +1610,53 @@ bool DatabaseInitializer::createViews() {
             s.location_row,
             s.location_col,
             s.direction,
-            sa.aspect_code as current_aspect,
-            sa.aspect_name as current_aspect_name,
-            sa.color_code as current_aspect_color,
-            s.calling_on_aspect,
-            s.loop_aspect,
+
+            -- ✅ MAIN SIGNAL ASPECT (unchanged)
+            sa_main.aspect_code as current_aspect,
+            sa_main.aspect_name as current_aspect_name,
+            sa_main.color_code as current_aspect_color,
+
+            -- ✅ CALLING-ON SUBSIDIARY SIGNAL
+            COALESCE(sa_calling.aspect_code, 'OFF') as calling_on_aspect,
+            COALESCE(sa_calling.aspect_name, 'Off/Dark') as calling_on_aspect_name,
+            COALESCE(sa_calling.color_code, '#404040') as calling_on_aspect_color,
+
+            -- ✅ LOOP SUBSIDIARY SIGNAL
+            COALESCE(sa_loop.aspect_code, 'OFF') as loop_aspect,
+            COALESCE(sa_loop.aspect_name, 'Off/Dark') as loop_aspect_name,
+            COALESCE(sa_loop.color_code, '#404040') as loop_aspect_color,
+
+            -- ✅ SIGNAL CONFIGURATION (unchanged)
             s.loop_signal_configuration,
             s.aspect_count,
             s.possible_aspects,
             s.is_active,
             s.location_description,
+
+            -- ✅ AUDIT FIELDS (unchanged)
             s.last_changed_at,
             s.last_changed_by,
+
+            -- ✅ INTERLOCKING FIELDS (unchanged)
+            s.interlocked_with,
+            s.protected_track_segments,
+            s.manual_control_active,
+
+            -- ✅ TIMESTAMP FIELDS (unchanged)
             s.created_at,
             s.updated_at
+
         FROM railway_control.signals s
         JOIN railway_config.signal_types st ON s.signal_type_id = st.id
-        LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id)",
+
+        -- ✅ MAIN SIGNAL ASPECT JOIN (unchanged)
+        LEFT JOIN railway_config.signal_aspects sa_main ON s.current_aspect_id = sa_main.id
+
+        -- ✅ CALLING-ON ASPECT JOIN (new)
+        LEFT JOIN railway_config.signal_aspects sa_calling ON s.calling_on_aspect_id = sa_calling.id
+
+        -- ✅ LOOP ASPECT JOIN (new)
+        LEFT JOIN railway_config.signal_aspects sa_loop ON s.loop_aspect_id = sa_loop.id)",
 
         // Complete point machine information view
         R"(CREATE VIEW railway_control.v_point_machines_complete AS
@@ -1820,7 +1951,7 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"row", 102}, {"col", 84}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
-            {"callingOnAspect", "OFF"}, {"loopAspect", "OFF"}, {"loopSignalConfiguration", "UR"},
+            {"callingOnAspect", "WHITE"}, {"loopAspect", "YELLOW"}, {"loopSignalConfiguration", "UR"},
             {"isActive", true}, {"location", "Platform_A_Entry"}
         },
         QJsonObject{

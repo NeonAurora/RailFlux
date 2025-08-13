@@ -13,10 +13,16 @@ public:
     explicit SignalBranch(DatabaseManager* dbManager, QObject* parent = nullptr);
 
     // ✅ Main validation interface
-    ValidationResult validateAspectChange(const QString& signalId,
+    ValidationResult validateMainAspectChange(const QString& signalId,
                                           const QString& currentAspect,
                                           const QString& requestedAspect,
                                           const QString& operatorId);
+
+    ValidationResult validateSubsidiaryAspectChange(const QString& signalId,
+                                                    const QString& aspectType,
+                                                    const QString& currentAspect,
+                                                    const QString& requestedAspect,
+                                                    const QString& operatorId);
 
 private:
     // ============================================================================
@@ -68,6 +74,26 @@ private:
                                              const QString& requestedAspect);
 
     ValidationResult checkSignalActive(const QString& signalId);
+
+    ValidationResult validateSubsidiaryTransition(const QString& signalId,
+                                                  const QString& aspectType,
+                                                  const QString& currentAspect,
+                                                  const QString& requestedAspect);
+
+    ValidationResult validateCallingOnSafetyRules(const QString& signalId,
+                                                  const QString& currentAspect,
+                                                  const QString& requestedAspect);
+
+    ValidationResult validateLoopSignalRules(const QString& signalId,
+                                             const QString& currentAspect,
+                                             const QString& requestedAspect);
+
+    ValidationResult checkSubsidiaryInterlocking(const QString& signalId,
+                                                 const QString& aspectType,
+                                                 const QString& currentAspect,
+                                                 const QString& requestedAspect);
+
+    QString getCurrentMainSignalAspect(const QString& signalId);
 
     // ============================================================================
     // PROTECTED TRACK SEGMENTS DATA SOURCES (Triple Redundancy)

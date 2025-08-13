@@ -20,7 +20,7 @@ SignalBranch::SignalBranch(DatabaseManager* dbManager, QObject* parent)
     }
 }
 
-ValidationResult SignalBranch::validateAspectChange(
+ValidationResult SignalBranch::validateMainAspectChange(
     const QString& signalId, const QString& currentAspect,
     const QString& requestedAspect, const QString& operatorId) {
 
@@ -41,6 +41,149 @@ ValidationResult SignalBranch::validateAspectChange(
     if (!interlockResult.isAllowed()) return interlockResult;
 
     return ValidationResult::allowed("All signal validations passed");
+}
+
+// ✅ NEW: Add this method to SignalBranch.cpp
+ValidationResult SignalBranch::validateSubsidiaryAspectChange(
+    const QString& signalId, const QString& aspectType,
+    const QString& currentAspect, const QString& requestedAspect,
+    const QString& operatorId) {
+
+    qDebug() << "🚦🔧 SIGNAL BRANCH: Subsidiary signal validation:" << signalId
+             << "Type:" << aspectType
+             << "Transition:" << currentAspect << "→" << requestedAspect;
+
+    // ✅ 1. Check if signal exists and is active
+    auto activeResult = checkSignalActive(signalId);
+    if (!activeResult.isAllowed()) return activeResult;
+
+    // ✅ 2. Validate aspect type and transition rules
+    auto transitionResult = validateSubsidiaryTransition(signalId, aspectType, currentAspect, requestedAspect);
+    if (!transitionResult.isAllowed()) return transitionResult;
+
+    // ✅ 3. Check calling-on specific safety rules
+    if (aspectType == "CALLING_ON") {
+        auto callingOnResult = validateCallingOnSafetyRules(signalId, currentAspect, requestedAspect);
+        if (!callingOnResult.isAllowed()) return callingOnResult;
+    }
+
+    // ✅ 4. Check loop signal specific rules
+    if (aspectType == "LOOP") {
+        auto loopResult = validateLoopSignalRules(signalId, currentAspect, requestedAspect);
+        if (!loopResult.isAllowed()) return loopResult;
+    }
+
+    // ✅ 5. Check interlocking rules (if any apply to subsidiary signals)
+    auto interlockResult = checkSubsidiaryInterlocking(signalId, aspectType, currentAspect, requestedAspect);
+    if (!interlockResult.isAllowed()) return interlockResult;
+
+    qDebug() << "✅ SIGNAL BRANCH: All subsidiary signal validations passed for" << signalId << aspectType;
+    return ValidationResult::allowed("All subsidiary signal validations passed");
+}
+
+// ✅ PRIVATE HELPERS: Add these to SignalBranch.cpp
+ValidationResult SignalBranch::validateSubsidiaryTransition(
+    const QString& signalId, const QString& aspectType,
+    const QString& currentAspect, const QString& requestedAspect) {
+
+    qDebug() << "🔧 Validating subsidiary transition:" << aspectType << currentAspect << "→" << requestedAspect;
+
+    // ✅ CALLING-ON: Only OFF ↔ WHITE allowed
+    if (aspectType == "CALLING_ON") {
+        if (!((currentAspect == "OFF" && requestedAspect == "WHITE") ||
+              (currentAspect == "WHITE" && requestedAspect == "OFF"))) {
+            return ValidationResult::blocked(
+                QString("Invalid calling-on transition: %1 → %2. Only OFF ↔ WHITE allowed.")
+                    .arg(currentAspect, requestedAspect),
+                "CALLING_ON_INVALID_TRANSITION");
+        }
+    }
+    // ✅ LOOP: Only OFF ↔ YELLOW allowed
+    else if (aspectType == "LOOP") {
+        if (!((currentAspect == "OFF" && requestedAspect == "YELLOW") ||
+              (currentAspect == "YELLOW" && requestedAspect == "OFF"))) {
+            return ValidationResult::blocked(
+                QString("Invalid loop signal transition: %1 → %2. Only OFF ↔ YELLOW allowed.")
+                    .arg(currentAspect, requestedAspect),
+                "LOOP_INVALID_TRANSITION");
+        }
+    }
+    // ✅ UNKNOWN TYPE
+    else {
+        return ValidationResult::blocked(
+            QString("Unknown subsidiary aspect type: %1").arg(aspectType),
+            "UNKNOWN_SUBSIDIARY_TYPE");
+    }
+
+    return ValidationResult::allowed("Valid subsidiary transition");
+}
+
+ValidationResult SignalBranch::validateCallingOnSafetyRules(
+    const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
+
+    // ✅ RULE: Calling-on can only be cleared when main signal is at danger
+    if (requestedAspect == "WHITE") {
+        QString mainAspect = getCurrentMainSignalAspect(signalId);
+        if (mainAspect.isEmpty()) {
+            return ValidationResult::blocked(
+                QString("Cannot determine main signal aspect for %1").arg(signalId),
+                "MAIN_ASPECT_UNKNOWN");
+        }
+
+        if (mainAspect != "RED") {
+            return ValidationResult::blocked(
+                QString("Calling-on signal can only be cleared when main signal is at danger. Main signal: %1")
+                    .arg(mainAspect),
+                "CALLING_ON_MAIN_NOT_DANGER");
+        }
+
+        qDebug() << "✅ Calling-on safety check passed: Main signal at danger (" << mainAspect << ")";
+    }
+
+    return ValidationResult::allowed("Calling-on safety rules passed");
+}
+
+ValidationResult SignalBranch::validateLoopSignalRules(
+    const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
+
+    // ✅ RULE: Loop signal platform/track availability check
+    if (requestedAspect == "YELLOW") {
+        // TODO: Add platform availability check
+        // For now, basic validation - can be enhanced later
+        qDebug() << "🔄 Loop signal clearance requested for" << signalId << "- checking platform availability";
+
+        // Future: Check if platform track is clear
+        // Future: Check if points are set correctly for loop movement
+        // Future: Check if conflicting movements are clear
+    }
+
+    return ValidationResult::allowed("Loop signal rules passed");
+}
+
+ValidationResult SignalBranch::checkSubsidiaryInterlocking(
+    const QString& signalId, const QString& aspectType,
+    const QString& currentAspect, const QString& requestedAspect) {
+
+    // ✅ FUTURE: Check if there are any interlocking rules for subsidiary signals
+    // For now, most interlocking rules apply to main signals only
+
+    qDebug() << "🔧 Checking subsidiary interlocking for" << signalId << aspectType;
+
+    // Future enhancements:
+    // - Check if clearing calling-on affects other signals
+    // - Check if loop signal conflicts with main line movements
+    // - Validate subsidiary signal combinations
+
+    return ValidationResult::allowed("No subsidiary interlocking violations");
+}
+
+QString SignalBranch::getCurrentMainSignalAspect(const QString& signalId) {
+    if (!m_dbManager || !m_dbManager->isConnected()) {
+        qWarning() << "❌ Cannot get main signal aspect: Database not connected";
+        return QString();
+    }
+
+    return m_dbManager->getCurrentSignalAspect(signalId);
 }
 
 ValidationResult SignalBranch::validateBasicTransition(

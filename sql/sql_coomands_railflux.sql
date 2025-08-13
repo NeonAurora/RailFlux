@@ -116,21 +116,35 @@ CREATE TABLE railway_control.signals (
     location_row NUMERIC(10,2) NOT NULL,
     location_col NUMERIC(10,2) NOT NULL,
     direction VARCHAR(10) NOT NULL CHECK (direction IN ('UP', 'DOWN')),
+
+    -- ✅ MAIN SIGNAL ASPECT (unchanged)
     current_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
-    calling_on_aspect VARCHAR(20) DEFAULT 'OFF',
-    loop_aspect VARCHAR(20) DEFAULT 'OFF',
+
+    -- ✅ SUBSIDIARY SIGNAL ASPECTS (now using aspect IDs instead of VARCHAR)
+    calling_on_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+    loop_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+
+    -- ✅ SIGNAL CONFIGURATION (unchanged)
     loop_signal_configuration VARCHAR(10) DEFAULT 'UR',
     aspect_count INTEGER NOT NULL DEFAULT 2,
     possible_aspects TEXT[],
     is_active BOOLEAN DEFAULT TRUE,
     location_description VARCHAR(200),
+
+    -- ✅ AUDIT FIELDS (unchanged)
     last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     last_changed_by VARCHAR(100),
+
+    -- ✅ INTERLOCKING FIELDS (unchanged)
     interlocked_with INTEGER[],
     protected_track_segments TEXT[],
     manual_control_active BOOLEAN DEFAULT FALSE,
+
+    -- ✅ TIMESTAMP FIELDS (unchanged)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- ✅ CONSTRAINTS (unchanged)
     CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
     CONSTRAINT chk_aspect_count CHECK (aspect_count >= 2 AND aspect_count <= 4)
 );
@@ -297,6 +311,7 @@ CREATE INDEX idx_signals_type ON railway_control.signals(signal_type_id);
 CREATE INDEX idx_signals_location ON railway_control.signals USING btree(location_row, location_col);
 CREATE INDEX idx_signals_active ON railway_control.signals(is_active) WHERE is_active = TRUE;
 CREATE INDEX idx_signals_last_changed ON railway_control.signals(last_changed_at);
+CREATE INDEX idx_signals_aspects ON railway_control.signals(current_aspect_id, calling_on_aspect_id, loop_aspect_id);
 
 -- Point machines
 CREATE INDEX idx_point_machines_id ON railway_control.point_machines(machine_id);
@@ -611,9 +626,9 @@ SELECT
 FROM railway_control.track_segments ts
 LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id;
 
--- Complete signal information view
-CREATE VIEW railway_control.v_signals_complete AS
-SELECT 
+-- ✅ UPDATED: v_signals_complete view with subsidiary signal aspect joins
+CREATE OR REPLACE VIEW railway_control.v_signals_complete AS
+SELECT
     s.id,
     s.signal_id,
     s.signal_name,
@@ -622,23 +637,53 @@ SELECT
     s.location_row,
     s.location_col,
     s.direction,
-    sa.aspect_code as current_aspect,
-    sa.aspect_name as current_aspect_name,
-    sa.color_code as current_aspect_color,
-    s.calling_on_aspect,
-    s.loop_aspect,
+
+    -- ✅ MAIN SIGNAL ASPECT (unchanged)
+    sa_main.aspect_code as current_aspect,
+    sa_main.aspect_name as current_aspect_name,
+    sa_main.color_code as current_aspect_color,
+
+    -- ✅ CALLING-ON SUBSIDIARY SIGNAL
+    COALESCE(sa_calling.aspect_code, 'OFF') as calling_on_aspect,
+    COALESCE(sa_calling.aspect_name, 'Off/Dark') as calling_on_aspect_name,
+    COALESCE(sa_calling.color_code, '#404040') as calling_on_aspect_color,
+
+    -- ✅ LOOP SUBSIDIARY SIGNAL
+    COALESCE(sa_loop.aspect_code, 'OFF') as loop_aspect,
+    COALESCE(sa_loop.aspect_name, 'Off/Dark') as loop_aspect_name,
+    COALESCE(sa_loop.color_code, '#404040') as loop_aspect_color,
+
+    -- ✅ SIGNAL CONFIGURATION (unchanged)
     s.loop_signal_configuration,
     s.aspect_count,
     s.possible_aspects,
     s.is_active,
     s.location_description,
+
+    -- ✅ AUDIT FIELDS (unchanged)
     s.last_changed_at,
     s.last_changed_by,
+
+    -- ✅ INTERLOCKING FIELDS (unchanged)
+    s.interlocked_with,
+    s.protected_track_segments,
+    s.manual_control_active,
+
+    -- ✅ TIMESTAMP FIELDS (unchanged)
     s.created_at,
     s.updated_at
+
 FROM railway_control.signals s
 JOIN railway_config.signal_types st ON s.signal_type_id = st.id
-LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id;
+
+-- ✅ MAIN SIGNAL ASPECT JOIN (unchanged)
+LEFT JOIN railway_config.signal_aspects sa_main ON s.current_aspect_id = sa_main.id
+
+-- ✅ CALLING-ON ASPECT JOIN (new)
+LEFT JOIN railway_config.signal_aspects sa_calling ON s.calling_on_aspect_id = sa_calling.id
+
+-- ✅ LOOP ASPECT JOIN (new)
+LEFT JOIN railway_config.signal_aspects sa_loop ON s.loop_aspect_id = sa_loop.id;
 
 -- Complete point machine information view
 CREATE VIEW railway_control.v_point_machines_complete AS
@@ -756,6 +801,72 @@ BEGIN
     WHERE signal_id = signal_id_param;
     
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
+    RETURN rows_affected > 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ✅ NEW: Function to update subsidiary signal aspects
+CREATE OR REPLACE FUNCTION railway_control.update_subsidiary_signal_aspect(
+    signal_id_param VARCHAR,
+    aspect_type_param VARCHAR,
+    aspect_code_param VARCHAR,
+    operator_id_param VARCHAR DEFAULT 'system'
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    aspect_id_val INTEGER;
+    rows_affected INTEGER;
+    column_name VARCHAR;
+BEGIN
+    -- Set operator context for audit logging
+    PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+    -- Validate aspect type
+    IF aspect_type_param NOT IN ('CALLING_ON', 'LOOP') THEN
+        RAISE EXCEPTION 'Invalid subsidiary aspect type: %. Must be CALLING_ON or LOOP', aspect_type_param;
+    END IF;
+
+    -- Get aspect ID
+    aspect_id_val := railway_config.get_aspect_id(aspect_code_param);
+    IF aspect_id_val IS NULL THEN
+        RAISE EXCEPTION 'Invalid aspect code: %', aspect_code_param;
+    END IF;
+
+    -- Determine which column to update
+    IF aspect_type_param = 'CALLING_ON' THEN
+        column_name := 'calling_on_aspect_id';
+    ELSIF aspect_type_param = 'LOOP' THEN
+        column_name := 'loop_aspect_id';
+    END IF;
+
+    -- Update the appropriate subsidiary signal column
+    IF aspect_type_param = 'CALLING_ON' THEN
+        UPDATE railway_control.signals
+        SET calling_on_aspect_id = aspect_id_val,
+            last_changed_at = CURRENT_TIMESTAMP,
+            last_changed_by = operator_id_param
+        WHERE signal_id = signal_id_param;
+    ELSIF aspect_type_param = 'LOOP' THEN
+        UPDATE railway_control.signals
+        SET loop_aspect_id = aspect_id_val,
+            last_changed_at = CURRENT_TIMESTAMP,
+            last_changed_by = operator_id_param
+        WHERE signal_id = signal_id_param;
+    END IF;
+
+    GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+    -- Log the change for audit trail
+    IF rows_affected > 0 THEN
+        INSERT INTO railway_control.signal_change_log (
+            signal_id, aspect_type, old_aspect_id, new_aspect_id,
+            changed_by, changed_at, change_reason
+        ) VALUES (
+            signal_id_param, aspect_type_param, NULL, aspect_id_val,
+            operator_id_param, CURRENT_TIMESTAMP, 'HMI Operation'
+        );
+    END IF;
+
     RETURN rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql;
@@ -979,3 +1090,5 @@ GRANT SELECT ON ALL TABLES IN SCHEMA railway_audit TO railway_auditor;
 COMMENT ON SCHEMA railway_control IS 'Main railway control system operational data';
 COMMENT ON SCHEMA railway_audit IS 'Audit trail and event logging for compliance';
 COMMENT ON SCHEMA railway_config IS 'Configuration and lookup tables';
+
+

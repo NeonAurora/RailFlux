@@ -6,6 +6,7 @@
 #include <QProcess>
 #include <QFile>
 #include <QFileInfo>
+#include <QString>
 #include "../interlocking/InterlockingService.h"
 
 DatabaseManager::DatabaseManager(QObject* parent)
@@ -16,7 +17,7 @@ DatabaseManager::DatabaseManager(QObject* parent)
     connect(pollingTimer.get(), &QTimer::timeout, this, &DatabaseManager::pollDatabase);
     pollingTimer->setInterval(POLLING_INTERVAL_MS);
 
-    // ✅ ADD: Health monitoring for notifications
+    // ADD: Health monitoring for notifications
     m_notificationHealthTimer = new QTimer(this);
     connect(m_notificationHealthTimer, &QTimer::timeout, this, &DatabaseManager::checkNotificationHealth);
     m_notificationHealthTimer->start(100000); // Check every minute
@@ -36,21 +37,21 @@ bool DatabaseManager::connectToDatabase()
 {
     // Try system PostgreSQL first
     if (connectToSystemPostgreSQL()) {
-        qDebug() << "✅ Connected to system PostgreSQL";
-        enableRealTimeUpdates();  // ✅ Enable LISTEN/NOTIFY
+        qDebug() << "Connected to system PostgreSQL";
+        enableRealTimeUpdates();  // Enable LISTEN/NOTIFY
         return true;
     }
 
-    qDebug() << "🔄 System PostgreSQL unavailable, starting portable mode...";
+    qDebug() << "System PostgreSQL unavailable, starting portable mode...";
 
     // Fall back to portable PostgreSQL
     if (startPortableMode()) {
-        qDebug() << "✅ Connected to portable PostgreSQL";
-        enableRealTimeUpdates();  // ✅ Enable LISTEN/NOTIFY
+        qDebug() << "Connected to portable PostgreSQL";
+        enableRealTimeUpdates();  // Enable LISTEN/NOTIFY
         return true;
     }
 
-    // ✅ Set disconnected state and emit signal
+    // Set disconnected state and emit signal
     connected = false;
     m_isConnected = false;
     emit connectionStateChanged(connected);
@@ -62,18 +63,18 @@ bool DatabaseManager::connectToDatabase()
 bool DatabaseManager::connectToSystemPostgreSQL()
 {
     try {
-        // ✅ CRITICAL: Check if connection already exists and is open
+        // CRITICAL: Check if connection already exists and is open
         if (QSqlDatabase::contains("system_connection")) {
             QSqlDatabase existingDb = QSqlDatabase::database("system_connection");
             if (existingDb.isOpen() && existingDb.isValid()) {
-                qDebug() << "✅ Using existing system PostgreSQL connection";
+                qDebug() << "Using existing system PostgreSQL connection";
                 db = existingDb;
                 connected = true;
                 m_isConnected = true;
                 return true;
             }
-            // ✅ CRITICAL: Only remove if connection is actually closed
-            qDebug() << "🔄 Removing stale system connection";
+            // CRITICAL: Only remove if connection is actually closed
+            qDebug() << "Removing stale system connection";
             m_notificationsEnabled = false;
             m_notificationsWorking = false;
             QSqlDatabase::removeDatabase("system_connection");
@@ -90,11 +91,11 @@ bool DatabaseManager::connectToSystemPostgreSQL()
             connected = true;
             m_isConnected = true;
             emit connectionStateChanged(connected);
-            qDebug() << "✅ Connected to system PostgreSQL";
+            qDebug() << "Connected to system PostgreSQL";
             return true;
         }
     } catch (...) {
-        qDebug() << "❌ System PostgreSQL connection failed";
+        qDebug() << "System PostgreSQL connection failed";
     }
 
     connected = false;
@@ -116,7 +117,7 @@ bool DatabaseManager::startPortableMode()
         }
     }
 
-    // ✅ Check if server is already running before starting
+    // Check if server is already running before starting
     if (!isPortableServerRunning()) {
         if (!startPortablePostgreSQL()) {
             return false;
@@ -124,10 +125,10 @@ bool DatabaseManager::startPortableMode()
         // Wait for server to start
         // QThread::sleep(1);
     } else {
-        qDebug() << "✅ Portable PostgreSQL server already running";
+        qDebug() << "Portable PostgreSQL server already running";
     }
 
-    // ✅ Remove existing connection if it exists
+    // Remove existing connection if it exists
     if (QSqlDatabase::contains("portable_connection")) {
         m_notificationsEnabled = false;
         m_notificationsWorking = false;
@@ -147,13 +148,13 @@ bool DatabaseManager::startPortableMode()
             m_isConnected = true;
             m_connectionStatus = "Connected to Portable PostgreSQL";
 
-            setupDatabase();  // ✅ This will create the schema/tables
+            setupDatabase();  // This will create the schema/tables
             emit connectionStateChanged(connected);
-            qDebug() << "✅ Portable PostgreSQL connected with schema created";
+            qDebug() << "Portable PostgreSQL connected with schema created";
             return true;
         }
     } catch (const std::exception& e) {
-        qDebug() << "❌ Portable PostgreSQL connection failed:" << e.what();
+        qDebug() << "Portable PostgreSQL connection failed:" << e.what();
     }
 
     connected = false;
@@ -167,31 +168,31 @@ bool DatabaseManager::initializePortableDatabase()
     QString initdbPath = m_postgresPath + "/bin/initdb.exe";
 
     if (!QFile::exists(initdbPath)) {
-        qDebug() << "❌ PostgreSQL binaries not found at:" << m_postgresPath;
+        qDebug() << "PostgreSQL binaries not found at:" << m_postgresPath;
         return false;
     }
 
     QProcess initProcess;
     QStringList arguments;
     arguments << "-D" << m_dataPath
-              << "-U" << "postgres"      // ✅ CHANGED: Use postgres user
-              << "-A" << "trust"         // ✅ Start with trust, convert later
+              << "-U" << "postgres"      // CHANGED: Use postgres user
+              << "-A" << "trust"         // Start with trust, convert later
               << "-E" << "UTF8";
 
     qDebug() << "🔧 Initializing portable database with postgres user...";
     initProcess.start(initdbPath, arguments);
 
     if (!initProcess.waitForFinished(100)) {
-        qDebug() << "❌ Database initialization timed out";
+        qDebug() << "Database initialization timed out";
         return false;
     }
 
     if (initProcess.exitCode() != 0) {
-        qDebug() << "❌ Database initialization failed:" << initProcess.readAllStandardError();
+        qDebug() << "Database initialization failed:" << initProcess.readAllStandardError();
         return false;
     }
 
-    qDebug() << "✅ Portable database initialized with postgres user";
+    qDebug() << "Portable database initialized with postgres user";
     return true;
 }
 
@@ -212,28 +213,28 @@ bool DatabaseManager::startPortablePostgreSQL()
     QStringList arguments;
     arguments << "-D" << m_dataPath
               << "-l" << logPath
-              << "start";  // ✅ REMOVED: -o port argument (port is in postgresql.conf)
+              << "start";  // REMOVED: -o port argument (port is in postgresql.conf)
 
     qDebug() << "🚀 Starting portable PostgreSQL server...";
     qDebug() << "Command:" << pgCtlPath << arguments.join(" ");
 
     m_postgresProcess->start(pgCtlPath, arguments);
 
-    if (!m_postgresProcess->waitForFinished(100)) {  // ✅ Increased timeout
-        qDebug() << "❌ Failed to start PostgreSQL server (timeout)";
+    if (!m_postgresProcess->waitForFinished(100)) {  // Increased timeout
+        qDebug() << "Failed to start PostgreSQL server (timeout)";
         return false;
     }
 
     if (m_postgresProcess->exitCode() != 0) {
         QString errorOutput = m_postgresProcess->readAllStandardError();
         QString standardOutput = m_postgresProcess->readAllStandardOutput();
-        qDebug() << "❌ PostgreSQL server start failed with exit code:" << m_postgresProcess->exitCode();
+        qDebug() << "PostgreSQL server start failed with exit code:" << m_postgresProcess->exitCode();
         qDebug() << "Error output:" << errorOutput;
         qDebug() << "Standard output:" << standardOutput;
         return false;
     }
 
-    qDebug() << "✅ Portable PostgreSQL server started on port" << m_portablePort;
+    qDebug() << "Portable PostgreSQL server started on port" << m_portablePort;
     return true;
 }
 
@@ -264,53 +265,53 @@ bool DatabaseManager::stopPortablePostgreSQL()
     QStringList arguments;
     arguments << "-D" << m_dataPath << "stop";
 
-    qDebug() << "🛑 Stopping portable PostgreSQL server...";
+    qDebug() << "Stopping portable PostgreSQL server...";
     stopProcess.start(pgCtlPath, arguments);
 
     if (stopProcess.waitForFinished(5000)) {
-        qDebug() << "✅ PostgreSQL server stopped successfully";
+        qDebug() << "PostgreSQL server stopped successfully";
         return true;
     }
 
-    qDebug() << "⚠️ PostgreSQL server stop timed out";
+    qDebug() << "PostgreSQL server stop timed out";
     return false;
 }
 
 void DatabaseManager::enableRealTimeUpdates() {
     if (m_notificationsEnabled) {
-        qDebug() << "ℹ️ Real-time updates already enabled";
+        qDebug() << "Real-time updates already enabled";
         return;
     }
 
     if (!connected || !db.isOpen()) {
-        qWarning() << "❌ Cannot enable real-time updates - database not connected";
+        qWarning() << "Cannot enable real-time updates - database not connected";
         return;
     }
 
-    // ✅ Check if driver supports notifications
+    // Check if driver supports notifications
     if (!db.driver()->hasFeature(QSqlDriver::EventNotifications)) {
-        qWarning() << "❌ Database driver does not support event notifications";
+        qWarning() << "Database driver does not support event notifications";
         return;
     }
 
-    // ✅ Use subscribeToNotification
+    // Use subscribeToNotification
     if (db.driver()->subscribeToNotification("railway_changes")) {
-        qDebug() << "✅ Subscribed to railway_changes notifications";
+        qDebug() << "Subscribed to railway_changes notifications";
 
-        // ✅ ENHANCED: Connect with health tracking
+        // ENHANCED: Connect with health tracking
         QObject::connect(db.driver(), &QSqlDriver::notification,
                          this, [this](const QString& name, QSqlDriver::NotificationSource source, const QVariant& payload) {
-                             // ✅ TRACK SEGMENT: Update health indicators
+                             // TRACK SEGMENT: Update health indicators
                              m_lastNotificationReceived = QDateTime::currentDateTime();
                              m_notificationsWorking = true;
 
                              qDebug() << "🔔 NOTIFICATION RECEIVED:" << name << "Payload:" << payload.toString();
                              this->handleDatabaseNotification(name, payload);
 
-                             // ✅ HYBRID: Reduce polling frequency
+                             // HYBRID: Reduce polling frequency
                              if (pollingTimer->interval() != POLLING_INTERVAL_SLOW) {
                                  pollingTimer->setInterval(POLLING_INTERVAL_SLOW);
-                                 qDebug() << "📉 Reduced polling to" << POLLING_INTERVAL_SLOW << "ms - notifications working";
+                                 qDebug() << "Reduced polling to" << POLLING_INTERVAL_SLOW << "ms - notifications working";
                              }
                          });
 
@@ -322,10 +323,10 @@ void DatabaseManager::enableRealTimeUpdates() {
         if (testQuery.exec("SELECT pg_notify('railway_changes', "
                            "'{\"test\": \"startup\", \"timestamp\": \"" +
                            QString::number(QDateTime::currentSecsSinceEpoch()) + "\"}'::text)")) {
-            qDebug() << "✅ Test notification sent";
+            qDebug() << "Test notification sent";
         }
     } else {
-        qWarning() << "❌ Failed to subscribe to railway_changes notifications";
+        qWarning() << "Failed to subscribe to railway_changes notifications";
     }
 }
 
@@ -337,14 +338,14 @@ void DatabaseManager::checkNotificationHealth() {
     if (m_lastNotificationReceived.isValid() &&
         m_lastNotificationReceived.secsTo(now) > 300) {
 
-        qWarning() << "❌ No notifications for 1 seconds - assuming failure";
+        qWarning() << "No notifications for 1 seconds - assuming failure";
         m_notificationsWorking = false;
 
-        // ✅ UPDATE: Emit signal when changing interval
+        // UPDATE: Emit signal when changing interval
         pollingTimer->setInterval(POLLING_INTERVAL_FAST);
-        emit pollingIntervalChanged(POLLING_INTERVAL_FAST); // ✅ ADD
+        emit pollingIntervalChanged(POLLING_INTERVAL_FAST); // ADD
 
-        qDebug() << "📈 Increased polling to" << POLLING_INTERVAL_FAST << "ms (notification failover)";
+        qDebug() << "Increased polling to" << POLLING_INTERVAL_FAST << "ms (notification failover)";
     }
 }
 
@@ -352,13 +353,13 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
     qDebug() << "🔔 NOTIFICATION HANDLER CALLED:" << name << payload.toString();
 
     if (name != "railway_changes") {
-        qDebug() << "⚠️ Unexpected notification channel:" << name;
+        qDebug() << "Unexpected notification channel:" << name;
         return;
     }
 
     QString payloadStr = payload.toString();
     if (payloadStr.isEmpty()) {
-        qWarning() << "❌ Empty notification payload";
+        qWarning() << "Empty notification payload";
         return;
     }
 
@@ -366,7 +367,7 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
     QJsonDocument doc = QJsonDocument::fromJson(payloadStr.toUtf8(), &parseError);
 
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "❌ JSON parse error:" << parseError.errorString() << "Payload:" << payloadStr;
+        qWarning() << "JSON parse error:" << parseError.errorString() << "Payload:" << payloadStr;
         return;
     }
 
@@ -375,50 +376,50 @@ void DatabaseManager::handleDatabaseNotification(const QString& name, const QVar
     QString operation = obj["operation"].toString();
     QString entityId = obj["entity_id"].toString();
 
-    qDebug() << "✅ Parsed notification:" << table << operation << entityId;
+    qDebug() << "Parsed notification:" << table << operation << entityId;
 
-    // ✅ ADD: Update polling interval when notifications are working
+    // ADD: Update polling interval when notifications are working
     if (pollingTimer && pollingTimer->isActive() && pollingTimer->interval() != POLLING_INTERVAL_SLOW) {
         pollingTimer->setInterval(POLLING_INTERVAL_SLOW);
         emit pollingIntervalChanged(POLLING_INTERVAL_SLOW);
-        qDebug() << "📉 Reduced polling to" << POLLING_INTERVAL_SLOW << "ms - notifications working";
+        qDebug() << "Reduced polling to" << POLLING_INTERVAL_SLOW << "ms - notifications working";
     }
 
-    // ✅ UPDATE: Mark notifications as working (for health monitoring)
+    // UPDATE: Mark notifications as working (for health monitoring)
     m_notificationsWorking = true;
     m_lastNotificationReceived = QDateTime::currentDateTime();
 
-    // ✅ SAFETY: No cache refreshing - just emit signals for UI updates
+    // SAFETY: No cache refreshing - just emit signals for UI updates
     if (obj["test"].toString() == "startup") {
-        qDebug() << "✅ Test notification received - system working";
+        qDebug() << "Test notification received - system working";
         return; // ← Don't trigger data refresh
     }
 
     if (table == "signals") {
         emit signalsChanged();
         emit signalUpdated(entityId);
-        qDebug() << "📡 Emitted signalsChanged and signalUpdated(" << entityId << ")";
+        qDebug() << "Emitted signalsChanged and signalUpdated(" << entityId << ")";
     } else if (table == "point_machines") {
         emit pointMachinesChanged();
         emit pointMachineUpdated(entityId);
-        qDebug() << "📡 Emitted pointMachinesChanged and pointMachineUpdated(" << entityId << ")";
+        qDebug() << "Emitted pointMachinesChanged and pointMachineUpdated(" << entityId << ")";
     } else if (table == "track_segments") {
-        emit trackSegmentsChanged();  // ✅ FIXED: Consistent naming
-        emit trackSegmentUpdated(entityId);  // ✅ FIXED: Consistent naming
-        qDebug() << "📡 Emitted trackSegmentsChanged and trackSegmentUpdated(" << entityId << ")";
-    } else if (table == "track_circuits") {  // ✅ NEW: Handle circuit notifications
+        emit trackSegmentsChanged();  // FIXED: Consistent naming
+        emit trackSegmentUpdated(entityId);  // FIXED: Consistent naming
+        qDebug() << "Emitted trackSegmentsChanged and trackSegmentUpdated(" << entityId << ")";
+    } else if (table == "track_circuits") {  // NEW: Handle circuit notifications
         emit trackCircuitsChanged();
-        emit trackSegmentsChanged(); // ✅ Segments depend on circuits
-        qDebug() << "📡 Emitted trackCircuitsChanged and trackSegmentsChanged (circuit affects segments)";
+        emit trackSegmentsChanged(); // Segments depend on circuits
+        qDebug() << "Emitted trackCircuitsChanged and trackSegmentsChanged (circuit affects segments)";
     }
 
     emit dataUpdated();
-    qDebug() << "📡 Emitted dataUpdated()";
+    qDebug() << "Emitted dataUpdated()";
 }
 
 int DatabaseManager::getCurrentPollingInterval() const {
-    // ✅ ADD: Debug logging
-    qDebug() << "🔍 getCurrentPollingInterval() called:";
+    // ADD: Debug logging
+    qDebug() << "getCurrentPollingInterval() called:";
     qDebug() << "   pollingTimer exists:" << (pollingTimer != nullptr);
     if (pollingTimer) {
         qDebug() << "   pollingTimer->isActive():" << pollingTimer->isActive();
@@ -438,8 +439,8 @@ int DatabaseManager::getCurrentPollingInterval() const {
 QString DatabaseManager::getPollingIntervalDisplay() const {
     int interval = getCurrentPollingInterval();
 
-    // ✅ ADD: Debug logging
-    qDebug() << "🔍 getPollingIntervalDisplay() called:";
+    // ADD: Debug logging
+    qDebug() << "getPollingIntervalDisplay() called:";
     qDebug() << "   interval from getCurrentPollingInterval():" << interval;
 
     if (interval == 0) {
@@ -469,14 +470,14 @@ QString DatabaseManager::getPollingIntervalDisplay() const {
 
 void DatabaseManager::startPolling() {
     if (connected) {
-        // ✅ INTELLIGENT: Longer interval when notifications are working
+        // INTELLIGENT: Longer interval when notifications are working
         int interval = m_notificationsWorking ? POLLING_INTERVAL_SLOW : POLLING_INTERVAL_FAST;
         pollingTimer->setInterval(interval);
         pollingTimer->start();
 
         emit pollingIntervalChanged(interval);
 
-        qDebug() << "🔍 HYBRID: Database polling started"
+        qDebug() << "HYBRID: Database polling started"
                  << "(interval:" << interval << "ms)"
                  << "Notifications working:" << m_notificationsWorking;
     }
@@ -494,7 +495,7 @@ bool DatabaseManager::isConnected() const {
 void DatabaseManager::pollDatabase() {
     if (!connected) return;
 
-    qDebug() << "🔍 SAFETY POLLING: Direct database state check";
+    qDebug() << "SAFETY POLLING: Direct database state check";
     detectAndEmitChanges();
     emit dataUpdated(); // Trigger QML property updates
 }
@@ -512,13 +513,13 @@ void DatabaseManager::detectAndEmitChanges() {
         }
     }
 
-    // ✅ FIXED: Poll trackSegment circuits for occupancy (not segments)
+    // FIXED: Poll trackSegment circuits for occupancy (not segments)
     QSqlQuery circuitQuery("SELECT circuit_id, is_occupied FROM railway_control.track_circuits", db);
     while (circuitQuery.next()) {
         QString circuitId = circuitQuery.value(0).toString();
         bool isOccupied = circuitQuery.value(1).toBool();
 
-        // ✅ Use circuit_id as key for tracking state changes
+        // Use circuit_id as key for tracking state changes
         int circuitKey = qHash(circuitId);
         if (!lastTrackSegmentStates.contains(circuitKey) || lastTrackSegmentStates[circuitKey] != isOccupied) {
             lastTrackSegmentStates[circuitKey] = isOccupied;
@@ -540,12 +541,12 @@ bool DatabaseManager::isPortableServerRunning()
 
     // If exit code is 0, server is running
     bool isRunning = (checkProcess.exitCode() == 0);
-    qDebug() << "🔍 Portable PostgreSQL server running check:" << isRunning;
+    qDebug() << "Portable PostgreSQL server running check:" << isRunning;
 
     return isRunning;
 }
 
-// ✅ SAFETY: Direct database queries - NO CACHING
+// SAFETY: Direct database queries - NO CACHING
 QVariantList DatabaseManager::getTrackSegmentsList() {
     if (!connected) return QVariantList();
 
@@ -577,25 +578,43 @@ QVariantList DatabaseManager::getAllSignalsList() {
 
     QVariantList signalsList;
     QSqlQuery signalQuery(db);
+
+    // ✅ SIMPLIFIED: Use the enhanced view instead of complex joins
     QString signalSql = R"(
-        SELECT s.signal_id, s.signal_name, st.type_code as signal_type,
-               s.location_row as row, s.location_col as col, s.direction,
-               sa.aspect_code as current_aspect, s.calling_on_aspect, s.loop_aspect,
-               s.loop_signal_configuration, s.aspect_count, s.possible_aspects,
-               s.is_active, s.location_description as location
-        FROM railway_control.signals s
-        JOIN railway_config.signal_types st ON s.signal_type_id = st.id
-        LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id
-        ORDER BY s.signal_id
+        SELECT
+            signal_id,
+            signal_name,
+            signal_type,
+            location_row as row,
+            location_col as col,
+            direction,
+            current_aspect,
+            current_aspect_name,
+            current_aspect_color,
+            calling_on_aspect,
+            calling_on_aspect_name,
+            calling_on_aspect_color,
+            loop_aspect,
+            loop_aspect_name,
+            loop_aspect_color,
+            loop_signal_configuration,
+            aspect_count,
+            possible_aspects,
+            is_active,
+            location_description as location,
+            last_changed_at,
+            last_changed_by
+        FROM railway_control.v_signals_complete
+        ORDER BY signal_id
     )";
 
     if (signalQuery.exec(signalSql)) {
         while (signalQuery.next()) {
             signalsList.append(convertSignalRowToVariant(signalQuery));
         }
-        qDebug() << "✅ Loaded" << signalsList.size() << "signals from database";
+        qDebug() << "✅ Loaded" << signalsList.size() << "signals with complete aspect information from view";
     } else {
-        qWarning() << "❌ SAFETY CRITICAL: Signal query failed:" << signalQuery.lastError().text();
+        qWarning() << "❌ SAFETY CRITICAL: Enhanced signal view query failed:" << signalQuery.lastError().text();
     }
 
     return signalsList;
@@ -604,7 +623,7 @@ QVariantList DatabaseManager::getAllSignalsList() {
 QVariantList DatabaseManager::getAllPointMachinesList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from getAllPointMachinesList()";
+    qDebug() << "SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from getAllPointMachinesList()";
 
     QVariantList points;
     QSqlQuery pointQuery(db);
@@ -622,7 +641,7 @@ QVariantList DatabaseManager::getAllPointMachinesList() {
             points.append(convertPointMachineRowToVariant(pointQuery));
         }
     } else {
-        qWarning() << "❌ SAFETY CRITICAL: Point machine query failed:" << pointQuery.lastError().text();
+        qWarning() << "SAFETY CRITICAL: Point machine query failed:" << pointQuery.lastError().text();
     }
 
     return points;
@@ -631,7 +650,7 @@ QVariantList DatabaseManager::getAllPointMachinesList() {
 QVariantList DatabaseManager::getTextLabelsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getTextLabelsList() - DIRECT DATABASE QUERY";
+    qDebug() << "SAFETY: getTextLabelsList() - DIRECT DATABASE QUERY";
 
     QVariantList labels;
     QSqlQuery labelQuery(db);
@@ -651,7 +670,7 @@ QVariantList DatabaseManager::getTextLabelsList() {
             labels.append(label);
         }
     } else {
-        qWarning() << "❌ SAFETY CRITICAL: Text label query failed:" << labelQuery.lastError().text();
+        qWarning() << "SAFETY CRITICAL: Text label query failed:" << labelQuery.lastError().text();
     }
 
     return labels;
@@ -713,31 +732,49 @@ QVariantList DatabaseManager::getAdvanceStarterSignalsList() {
     return result;
 }
 
-// ✅ SAFETY: Individual object queries - DIRECT DATABASE
+// SAFETY: Individual object queries - DIRECT DATABASE
 QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
     if (!connected) return QVariantMap();
 
-    qDebug() << "🔍 SAFETY: getSignalById(" << signalId << ") - DIRECT DATABASE QUERY";
+    qDebug() << "SAFETY: getSignalById(" << signalId << ") - QUERYING COMPLETE SIGNAL VIEW";
 
     QSqlQuery query(db);
     query.prepare(R"(
-        SELECT s.signal_id, s.signal_name, st.type_code as signal_type,
-               s.location_row as row, s.location_col as col, s.direction,
-               sa.aspect_code as current_aspect, s.calling_on_aspect, s.loop_aspect,
-               s.loop_signal_configuration, s.aspect_count, s.possible_aspects,
-               s.is_active, s.location_description as location
-        FROM railway_control.signals s
-        JOIN railway_config.signal_types st ON s.signal_type_id = st.id
-        LEFT JOIN railway_config.signal_aspects sa ON s.current_aspect_id = sa.id
-        WHERE s.signal_id = ?
+        SELECT
+            signal_id,
+            signal_name,
+            signal_type,
+            signal_type_name,
+            location_row as row,
+            location_col as col,
+            direction,
+            current_aspect,
+            current_aspect_name,
+            current_aspect_color,
+            calling_on_aspect,
+            calling_on_aspect_name,
+            calling_on_aspect_color,
+            loop_aspect,
+            loop_aspect_name,
+            loop_aspect_color,
+            loop_signal_configuration,
+            aspect_count,
+            possible_aspects,
+            is_active,
+            location_description as location,
+            last_changed_at,
+            last_changed_by
+        FROM railway_control.v_signals_complete
+        WHERE signal_id = ?
     )");
+
     query.addBindValue(signalId);
 
     if (query.exec() && query.next()) {
         return convertSignalRowToVariant(query);
     }
 
-    qWarning() << "❌ SAFETY: Signal" << signalId << "not found in database";
+    qWarning() << "SAFETY: Signal" << signalId << "not found in complete view";
     return QVariantMap();
 }
 
@@ -766,7 +803,7 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) 
 QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
     if (!connected) return QVariantMap();
 
-    qDebug() << "🔍 SAFETY: getPointMachineById(" << machineId << ") - DIRECT DATABASE QUERY";
+    qDebug() << "SAFETY: getPointMachineById(" << machineId << ") - DIRECT DATABASE QUERY";
 
     QSqlQuery query(db);
     query.prepare(R"(
@@ -783,52 +820,51 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
         return convertPointMachineRowToVariant(query);
     }
 
-    qWarning() << "❌ SAFETY: Point machine" << machineId << "not found in database";
+    qWarning() << "SAFETY: Point machine" << machineId << "not found in database";
     return QVariantMap();
 }
 
-// ✅ SAFETY: Update operations - NO CACHE INVALIDATION
-bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString& newAspect) {
+bool DatabaseManager::updateMainSignalAspect(const QString& signalId, const QString& newAspect) {
     if (!connected) return false;
 
     QElapsedTimer timer;
     timer.start();
 
-    qDebug() << "🔄 SAFETY: Updating signal:" << signalId << "to aspect:" << newAspect;
+    qDebug() << "SAFETY: Updating MAIN signal aspect:" << signalId << "to aspect:" << newAspect;
 
-    // ✅ NEW: Get current aspect for interlocking validation
+    // Get current main aspect for interlocking validation
     QString currentAspect = getCurrentSignalAspect(signalId);
     if (currentAspect.isEmpty()) {
-        qWarning() << "❌ Could not get current aspect for signal:" << signalId;
-        emit operationBlocked(signalId, "Signal not found or invalid state");
+        qWarning() << "Could not get current main aspect for signal:" << signalId;
+        emit operationBlocked(signalId, "Signal not found or invalid main aspect state");
         return false;
     }
 
-    // ✅ NEW: Interlocking validation (if service is available)
+    // Main signal interlocking validation
     if (m_interlockingService) {
-        auto validation = m_interlockingService->validateSignalOperation(
+        auto validation = m_interlockingService->validateMainSignalOperation(
             signalId, currentAspect, newAspect, "HMI_USER");
 
         if (!validation.isAllowed()) {
-            qDebug() << "🚨 Signal operation blocked by interlocking:" << validation.getReason();
+            qDebug() << "Main signal operation blocked by interlocking:" << validation.getReason();
             emit operationBlocked(signalId, validation.getReason());
             return false;
         }
 
-        qDebug() << "✅ Interlocking validation passed for signal" << signalId;
+        qDebug() << "Main signal interlocking validation passed for signal" << signalId;
     } else {
-        qWarning() << "⚠️ Interlocking service not available - proceeding without validation";
+        qWarning() << "Interlocking service not available - proceeding without validation";
     }
 
-    // ✅ EXISTING: Original database update logic
+    // Database transaction for main signal update
     QSqlQuery query(db);
 
-    // Start explicit transaction
     if (!db.transaction()) {
-        qWarning() << "❌ Failed to start transaction:" << db.lastError().text();
+        qWarning() << "Failed to start transaction for main signal:" << db.lastError().text();
         return false;
     }
 
+    // Call existing main signal update function
     query.prepare("SELECT railway_control.update_signal_aspect(?, ?, 'HMI_USER')");
     query.addBindValue(signalId);
     query.addBindValue(newAspect);
@@ -837,60 +873,189 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId, const QString&
     if (query.exec() && query.next()) {
         success = query.value(0).toBool();
         if (success && db.commit()) {
-            // ✅ EXISTING: Verify the change actually happened
+            // Verify main aspect change
             QSqlQuery verifyQuery(db);
             verifyQuery.prepare("SELECT current_aspect_id FROM railway_control.signals WHERE signal_id = ?");
             verifyQuery.addBindValue(signalId);
             if (verifyQuery.exec() && verifyQuery.next()) {
                 int currentAspectId = verifyQuery.value(0).toInt();
-                qDebug() << "🔍 SAFETY: Signal" << signalId << "now has aspect_id:" << currentAspectId;
+                qDebug() << "SAFETY: Main signal" << signalId << "now has aspect_id:" << currentAspectId;
             }
 
-            // ✅ EXISTING: Emit signals
+            // Emit success signals
             emit signalUpdated(signalId);
             emit signalsChanged();
 
-            qDebug() << "✅ Signal operation completed in" << timer.elapsed() << "ms";
-            return success;
+            qDebug() << "Main signal operation completed in" << timer.elapsed() << "ms";
+            return true;
         } else {
-            qWarning() << "❌ Query failed:" << query.lastError().text();
+            qWarning() << "Main signal update failed:" << query.lastError().text();
             db.rollback();
-            success = false;
-            return success;
+            return false;
         }
+    } else {
+        qWarning() << "Main signal query execution failed:" << query.lastError().text();
+        db.rollback();
+        return false;
     }
+}
+
+bool DatabaseManager::updateSubsidiarySignalAspect(const QString& signalId,
+                                                   const QString& aspectType,
+                                                   const QString& newAspect) {
+    if (!connected) return false;
+
+    QElapsedTimer timer;
+    timer.start();
+
+    qDebug() << "SAFETY: Updating SUBSIDIARY signal aspect:" << signalId
+             << "type:" << aspectType << "to aspect:" << newAspect;
+
+    // Validate aspect type
+    if (aspectType != "CALLING_ON" && aspectType != "LOOP") {
+        qWarning() << "Invalid subsidiary aspect type:" << aspectType;
+        emit operationBlocked(signalId, "Invalid subsidiary signal type: " + aspectType);
+        return false;
+    }
+
+    // Get current subsidiary aspect for validation
+    QString currentSubsidiaryAspect = getCurrentSubsidiaryAspect(signalId, aspectType);
+    if (currentSubsidiaryAspect.isEmpty()) {
+        qWarning() << "Could not get current subsidiary aspect for signal:" << signalId << "type:" << aspectType;
+        emit operationBlocked(signalId, "Signal not found or invalid subsidiary aspect state");
+        return false;
+    }
+
+    // Interlocking validation for subsidiary signals
+    if (m_interlockingService) {
+        auto validation = m_interlockingService->validateSubsidiarySignalOperation(
+            signalId, aspectType, currentSubsidiaryAspect, newAspect, "HMI_USER");
+
+        if (!validation.isAllowed()) {
+            qDebug() << "Subsidiary signal operation blocked by interlocking:" << validation.getReason();
+            emit operationBlocked(signalId, validation.getReason());
+            return false;
+        }
+
+        qDebug() << "Subsidiary signal interlocking validation passed for signal" << signalId;
+    } else {
+        qWarning() << "Interlocking service not available - proceeding without validation";
+    }
+
+    // Database transaction for subsidiary signal update
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "Failed to start transaction for subsidiary signal:" << db.lastError().text();
+        return false;
+    }
+
+    // Call subsidiary signal update function (TO BE CREATED)
+    query.prepare("SELECT railway_control.update_subsidiary_signal_aspect(?, ?, ?, 'HMI_USER')");
+    query.addBindValue(signalId);
+    query.addBindValue(aspectType);
+    query.addBindValue(newAspect);
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify subsidiary aspect change
+            QString columnName = (aspectType == "CALLING_ON") ? "calling_on_aspect" : "loop_aspect";
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare(QString("SELECT %1 FROM railway_control.signals WHERE signal_id = ?").arg(columnName));
+            verifyQuery.addBindValue(signalId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString currentValue = verifyQuery.value(0).toString();
+                qDebug() << "SAFETY: Subsidiary signal" << signalId << aspectType
+                         << "now has value:" << currentValue;
+            }
+
+            // Emit success signals
+            emit signalUpdated(signalId);
+            emit signalsChanged();
+
+            qDebug() << "Subsidiary signal operation completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "Subsidiary signal update failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
+    } else {
+        qWarning() << "Subsidiary signal query execution failed:" << query.lastError().text();
+        db.rollback();
+        return false;
+    }
+}
+
+// SAFETY: Update operations - NO CACHE INVALIDATION
+bool DatabaseManager::updateSignalAspect(const QString& signalId,
+                                         const QString& aspectType,
+                                         const QString& newAspect) {
+    if (!connected) {
+        qWarning() << "Database not connected - cannot update signal aspect";
+        return false;
+    }
+
+    qDebug() << "ROUTER: Signal aspect update request:"
+             << "Signal:" << signalId
+             << "Type:" << aspectType
+             << "New aspect:" << newAspect;
+
+    // Validate aspect type parameter
+    if (aspectType != "MAIN" && aspectType != "CALLING_ON" && aspectType != "LOOP") {
+        qWarning() << "Invalid aspect type:" << aspectType
+                   << "Must be 'MAIN', 'CALLING_ON', or 'LOOP'";
+        emit operationBlocked(signalId, "Invalid aspect type: " + aspectType);
+        return false;
+    }
+
+    // Route to appropriate function based on aspect type
+    if (aspectType == "MAIN") {
+        qDebug() << "ROUTER: Routing to updateMainSignalAspect()";
+        return updateMainSignalAspect(signalId, newAspect);
+    }
+    else if (aspectType == "CALLING_ON" || aspectType == "LOOP") {
+        qDebug() << "ROUTER: Routing to updateSubsidiarySignalAspect()";
+        return updateSubsidiarySignalAspect(signalId, aspectType, newAspect);
+    }
+
+    // Should never reach here due to validation above
+    qWarning() << "ROUTER: Unexpected routing failure for aspect type:" << aspectType;
+    return false;
 }
 
 bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const QString& newPosition) {
     if (!connected) return false;
 
-    qDebug() << "🔄 SAFETY: Updating point machine:" << machineId << "to position:" << newPosition;
+    qDebug() << "SAFETY: Updating point machine:" << machineId << "to position:" << newPosition;
 
-    // ✅ NEW: Get current position for interlocking validation
+    // NEW: Get current position for interlocking validation
     QString currentPosition = getCurrentPointPosition(machineId);
     if (currentPosition.isEmpty()) {
-        qWarning() << "❌ Could not get current position for point machine:" << machineId;
+        qWarning() << "Could not get current position for point machine:" << machineId;
         emit operationBlocked(machineId, "Point machine not found or invalid state");
         return false;
     }
 
-    // ✅ NEW: Interlocking validation (if service is available)
+    // NEW: Interlocking validation (if service is available)
     if (m_interlockingService) {
         auto validation = m_interlockingService->validatePointMachineOperation(
             machineId, currentPosition, newPosition, "HMI_USER");
 
         if (!validation.isAllowed()) {
-            qDebug() << "🚨 Point machine operation blocked by interlocking:" << validation.getReason();
+            qDebug() << "Point machine operation blocked by interlocking:" << validation.getReason();
             emit operationBlocked(machineId, validation.getReason());
             // return false;
         }
 
-        qDebug() << "✅ Interlocking validation passed for point machine" << machineId;
+        qDebug() << "Interlocking validation passed for point machine" << machineId;
     } else {
-        qWarning() << "⚠️ Interlocking service not available - proceeding without validation";
+        qWarning() << "Interlocking service not available - proceeding without validation";
     }
 
-    // ✅ EXISTING: Original database update logic
+    // EXISTING: Original database update logic
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_point_position(?, ?, 'HMI_USER')");
     query.addBindValue(machineId);
@@ -905,13 +1070,13 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
         return success;
     }
 
-    qWarning() << "❌ SAFETY CRITICAL: Point machine update failed:" << query.lastError().text();
+    qWarning() << "SAFETY CRITICAL: Point machine update failed:" << query.lastError().text();
     return false;
 }
 
 QString DatabaseManager::getCurrentSignalAspect(const QString& signalId) {
     if (!connected) {
-        qWarning() << "❌ Database not connected - cannot get signal aspect";
+        qWarning() << "Database not connected - cannot get signal aspect";
         return QString();
     }
 
@@ -925,7 +1090,7 @@ QString DatabaseManager::getCurrentSignalAspect(const QString& signalId) {
     query.addBindValue(signalId);
 
     if (!query.exec()) {
-        qWarning() << "❌ Failed to get current aspect for signal" << signalId << ":" << query.lastError().text();
+        qWarning() << "Failed to get current aspect for signal" << signalId << ":" << query.lastError().text();
         return QString();
     }
 
@@ -933,7 +1098,41 @@ QString DatabaseManager::getCurrentSignalAspect(const QString& signalId) {
         return query.value(0).toString();
     }
 
-    qWarning() << "⚠️ Signal not found:" << signalId;
+    qWarning() << "Signal not found:" << signalId;
+    return QString();
+}
+
+// ✅ ENHANCED: getCurrentSubsidiaryAspect to work with new schema
+QString DatabaseManager::getCurrentSubsidiaryAspect(const QString& signalId, const QString& aspectType) {
+    if (!connected) return QString();
+
+    QString columnName;
+    if (aspectType == "CALLING_ON") {
+        columnName = "sa_calling.aspect_code";
+    } else if (aspectType == "LOOP") {
+        columnName = "sa_loop.aspect_code";
+    } else {
+        qWarning() << "❌ Invalid subsidiary aspect type:" << aspectType;
+        return QString();
+    }
+
+    QSqlQuery query(db);
+    QString sql = QString(R"(
+        SELECT COALESCE(%1, 'OFF') as aspect_code
+        FROM railway_control.signals s
+        LEFT JOIN railway_config.signal_aspects sa_calling ON s.calling_on_aspect_id = sa_calling.id
+        LEFT JOIN railway_config.signal_aspects sa_loop ON s.loop_aspect_id = sa_loop.id
+        WHERE s.signal_id = ?
+    )").arg(columnName);
+
+    query.prepare(sql);
+    query.addBindValue(signalId);
+
+    if (query.exec() && query.next()) {
+        return query.value(0).toString();
+    }
+
+    qWarning() << "❌ Failed to get current subsidiary aspect:" << query.lastError().text();
     return QString();
 }
 
@@ -979,10 +1178,10 @@ QStringList DatabaseManager::getInterlockedSignals(const QString& signalId) {
 
 void DatabaseManager::setInterlockingService(InterlockingService* service) {
     m_interlockingService = service;
-    qDebug() << "✅ Interlocking service connected to DatabaseManager";
+    qDebug() << "Interlocking service connected to DatabaseManager";
 }
 
-// ✅ ADD: Database access method for interlocking branches
+// ADD: Database access method for interlocking branches
 QSqlDatabase DatabaseManager::getDatabase() const {
     return db;
 }
@@ -991,17 +1190,17 @@ QSqlDatabase DatabaseManager::getDatabase() const {
 bool DatabaseManager::updateTrackSegmentOccupancy(const QString& trackSegmentId, bool isOccupied) {
     if (!connected) return false;
 
-    qDebug() << "🔄 HARDWARE: Track segment occupancy change:" << trackSegmentId << "→" << isOccupied;
+    qDebug() << "HARDWARE: Track segment occupancy change:" << trackSegmentId << "→" << isOccupied;
     qDebug() << "             (This updates the CIRCUIT that contains this segment)";
 
-    // ✅ Get previous state for interlocking comparison
+    // Get previous state for interlocking comparison
     bool wasOccupied = false;
     auto currentTrackSegmentData = getTrackSegmentById(trackSegmentId);
     if (!currentTrackSegmentData.isEmpty()) {
         wasOccupied = currentTrackSegmentData["occupied"].toBool();
     }
 
-    // ✅ UPDATED: Use the wrapper function that maps segment to circuit
+    // UPDATED: Use the wrapper function that maps segment to circuit
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_track_segment_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
     query.addBindValue(trackSegmentId);
@@ -1010,7 +1209,7 @@ bool DatabaseManager::updateTrackSegmentOccupancy(const QString& trackSegmentId,
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            // ✅ REACTIVE: Trigger automatic interlocking enforcement
+            // REACTIVE: Trigger automatic interlocking enforcement
             if (m_interlockingService && m_interlockingService->isOperational()) {
                 QMetaObject::invokeMethod(m_interlockingService,
                                           "reactToTrackSegmentOccupancyChange", Qt::QueuedConnection,
@@ -1019,20 +1218,20 @@ bool DatabaseManager::updateTrackSegmentOccupancy(const QString& trackSegmentId,
                                           Q_ARG(bool, isOccupied));
             }
 
-            emit trackSegmentUpdated(trackSegmentId);  // ✅ FIXED: Consistent naming
-            emit trackSegmentsChanged();               // ✅ FIXED: Consistent naming
+            emit trackSegmentUpdated(trackSegmentId);  // FIXED: Consistent naming
+            emit trackSegmentsChanged();               // FIXED: Consistent naming
         }
         return success;
     }
 
-    qCritical() << "🚨 HARDWARE FAILURE: Track segment occupancy update failed:" << query.lastError().text();
+    qCritical() << "HARDWARE FAILURE: Track segment occupancy update failed:" << query.lastError().text();
     return false;
 }
 
 bool DatabaseManager::updateTrackCircuitOccupancy(const QString& trackCircuitId, bool isOccupied) {
     if (!connected) return false;
 
-    qDebug() << "🔄 CIRCUIT: Track Segment circuit occupancy change:" << trackCircuitId << "→" << isOccupied;
+    qDebug() << "CIRCUIT: Track Segment circuit occupancy change:" << trackCircuitId << "→" << isOccupied;
 
     QSqlQuery query(db);
     query.prepare("SELECT railway_control.update_track_segment_circuit_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
@@ -1042,13 +1241,13 @@ bool DatabaseManager::updateTrackCircuitOccupancy(const QString& trackCircuitId,
     if (query.exec() && query.next()) {
         bool success = query.value(0).toBool();
         if (success) {
-            emit trackCircuitsChanged();  // ✅ NEW: Circuit-specific signal
-            emit trackSegmentsChanged();  // ✅ Also update segments since they depend on circuits
+            emit trackCircuitsChanged();  // NEW: Circuit-specific signal
+            emit trackSegmentsChanged();  // Also update segments since they depend on circuits
         }
         return success;
     }
 
-    qCritical() << "🚨 CIRCUIT FAILURE: Track Segment circuit occupancy update failed:" << query.lastError().text();
+    qCritical() << "CIRCUIT FAILURE: Track Segment circuit occupancy update failed:" << query.lastError().text();
     return false;
 }
 
@@ -1065,7 +1264,7 @@ bool DatabaseManager::getTrackCircuitOccupancy(const QString& trackCircuitId) {
 QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCircuitId) {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ")";
+    qDebug() << "QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ")";
 
     QVariantList segments;
     QSqlQuery query(db);
@@ -1083,7 +1282,7 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
             segments.append(convertTrackSegmentRowToVariant(query));
         }
     } else {
-        qWarning() << "❌ Failed to get segments for circuit" << trackCircuitId << ":" << query.lastError().text();
+        qWarning() << "Failed to get segments for circuit" << trackCircuitId << ":" << query.lastError().text();
     }
 
     return segments;
@@ -1092,7 +1291,7 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
 QVariantList DatabaseManager::getTrackCircuitsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY";
+    qDebug() << "SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY";
 
     QVariantList circuits;
     QSqlQuery query(db);
@@ -1126,7 +1325,7 @@ QVariantList DatabaseManager::getTrackCircuitsList() {
             circuits.append(circuit);
         }
     } else {
-        qWarning() << "❌ SAFETY CRITICAL: Track Segment circuits query failed:" << query.lastError().text();
+        qWarning() << "SAFETY CRITICAL: Track Segment circuits query failed:" << query.lastError().text();
     }
 
     return circuits;
@@ -1136,7 +1335,7 @@ QVariantList DatabaseManager::getTrackCircuitsList() {
 // bool DatabaseManager::updateTrackSegmentAssignment(const QString& segmentId, bool isAssigned) {
 //     if (!connected) return false;
 
-//     qDebug() << "🔄 SAFETY: Updating trackSegment assignment:" << segmentId << "to" << isAssigned;
+//     qDebug() << "SAFETY: Updating trackSegment assignment:" << segmentId << "to" << isAssigned;
 
 //     QSqlQuery query(db);
 //     query.prepare("SELECT railway_control.update_track_segment_assignment(?, ?, 'HMI_USER')");
@@ -1146,18 +1345,18 @@ QVariantList DatabaseManager::getTrackCircuitsList() {
 //     if (query.exec() && query.next()) {
 //         bool success = query.value(0).toBool();
 //         if (success) {
-//             // ✅ SAFETY: No cache invalidation - just emit signals
+//             // SAFETY: No cache invalidation - just emit signals
 //             emit trackSegmentUpdated(segmentId);
 //             emit trackSegmentsChanged();
 //         }
 //         return success;
 //     }
 
-//     qWarning() << "❌ SAFETY CRITICAL: Track Segment assignment update failed:" << query.lastError().text();
+//     qWarning() << "SAFETY CRITICAL: Track Segment assignment update failed:" << query.lastError().text();
 //     return false;
 // }
 
-// ✅ SAFETY: Row conversion helpers (unchanged)
+// SAFETY: Row conversion helpers (unchanged)
 QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
     QVariantMap signal;
     signal["id"] = query.value("signal_id").toString();
@@ -1195,11 +1394,11 @@ QVariantMap DatabaseManager::convertTrackSegmentRowToVariant(const QSqlQuery& qu
     trackSegment["endRow"] = query.value("end_row").toDouble();
     trackSegment["endCol"] = query.value("end_col").toDouble();
     trackSegment["trackSegmentType"] = query.value("track_segment_type").toString();
-    trackSegment["occupied"] = query.value("is_occupied").toBool();  // ✅ Now from circuit via view
+    trackSegment["occupied"] = query.value("is_occupied").toBool();  // Now from circuit via view
     trackSegment["assigned"] = query.value("is_assigned").toBool();
     trackSegment["occupiedBy"] = query.value("occupied_by").toString();
     trackSegment["isActive"] = query.value("is_active").toBool();
-    trackSegment["circuitId"] = query.value("circuit_id").toString();  // ✅ NEW: Include circuit_id
+    trackSegment["circuitId"] = query.value("circuit_id").toString();  // NEW: Include circuit_id
 
     return trackSegment;
 }
@@ -1296,13 +1495,13 @@ bool DatabaseManager::setupDatabase() {
 
     QSqlQuery query(db);
 
-    // ✅ Create railway_control schema if it doesn't exist
+    // Create railway_control schema if it doesn't exist
     if (!query.exec("CREATE SCHEMA IF NOT EXISTS railway_control")) {
-        qDebug() << "❌ Failed to create railway_control schema:" << query.lastError().text();
+        qDebug() << "Failed to create railway_control schema:" << query.lastError().text();
         return false;
     }
 
-    // ✅ Create track_segments table
+    // Create track_segments table
     QString createTrackSegments = R"(
         CREATE TABLE IF NOT EXISTS railway_control.track_segments (
             segment_id SERIAL PRIMARY KEY,
@@ -1322,11 +1521,11 @@ bool DatabaseManager::setupDatabase() {
     )";
 
     if (!query.exec(createTrackSegments)) {
-        qDebug() << "❌ Failed to create track_segments table:" << query.lastError().text();
+        qDebug() << "Failed to create track_segments table:" << query.lastError().text();
         return false;
     }
 
-    // ✅ Create signals table
+    // Create signals table
     QString createSignals = R"(
         CREATE TABLE IF NOT EXISTS railway_control.signals (
             signal_id SERIAL PRIMARY KEY,
@@ -1342,11 +1541,11 @@ bool DatabaseManager::setupDatabase() {
     )";
 
     if (!query.exec(createSignals)) {
-        qDebug() << "❌ Failed to create signals table:" << query.lastError().text();
+        qDebug() << "Failed to create signals table:" << query.lastError().text();
         return false;
     }
 
-    // ✅ Create point_machines table
+    // Create point_machines table
     QString createPointMachines = R"(
         CREATE TABLE IF NOT EXISTS railway_control.point_machines (
             machine_id SERIAL PRIMARY KEY,
@@ -1361,18 +1560,18 @@ bool DatabaseManager::setupDatabase() {
     )";
 
     if (!query.exec(createPointMachines)) {
-        qDebug() << "❌ Failed to create point_machines table:" << query.lastError().text();
+        qDebug() << "Failed to create point_machines table:" << query.lastError().text();
         return false;
     }
 
-    // ✅ Insert some test data
+    // Insert some test data
     query.exec("INSERT INTO railway_control.track_segments (segment_name, start_row, start_col, end_row, end_col, track_segment_type) "
                "VALUES ('Track Segment 1', 0, 0, 0, 10, 'MAIN') ON CONFLICT DO NOTHING");
 
     query.exec("INSERT INTO railway_control.signals (signal_name, current_aspect_id, position_row, position_col, signal_type) "
                "VALUES ('Signal A1', 1, 0, 5, 'HOME') ON CONFLICT DO NOTHING");
 
-    qDebug() << "✅ Railway control schema and tables created successfully";
+    qDebug() << "Railway control schema and tables created successfully";
     return true;
 }
 

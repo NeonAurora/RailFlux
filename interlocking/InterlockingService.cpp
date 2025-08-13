@@ -92,7 +92,7 @@ bool InterlockingService::initialize() {
 // ✅ VALIDATION METHODS: For operator-initiated actions only
 // ============================================================================
 
-ValidationResult InterlockingService::validateSignalOperation(
+ValidationResult InterlockingService::validateMainSignalOperation(
     const QString& signalId, const QString& currentAspect,
     const QString& requestedAspect, const QString& operatorId) {
 
@@ -109,7 +109,7 @@ ValidationResult InterlockingService::validateSignalOperation(
     }
 
     // ✅ DELEGATE TO SIGNAL BRANCH
-    auto result = m_signalBranch->validateAspectChange(signalId, currentAspect, requestedAspect, operatorId);
+    auto result = m_signalBranch->validatMainAspectChange(signalId, currentAspect, requestedAspect, operatorId);
 
     // ✅ RECORD PERFORMANCE
     double responseTime = timer.elapsed();
@@ -123,6 +123,63 @@ ValidationResult InterlockingService::validateSignalOperation(
 
     if (!result.isAllowed()) {
         emit operationBlocked(signalId, result.getReason());
+    }
+
+    return result;
+}
+
+// ✅ SIMPLIFIED: InterlockingService delegates to SignalBranch
+ValidationResult InterlockingService::validateSubsidiarySignalOperation(
+    const QString& signalId, const QString& aspectType,
+    const QString& currentAspect, const QString& requestedAspect,
+    const QString& operatorId) {
+
+    QElapsedTimer timer;
+    timer.start();
+
+    qDebug() << "🚦🔧 SUBSIDIARY SIGNAL VALIDATION:" << signalId
+             << "Type:" << aspectType
+             << "Transition:" << currentAspect << "→" << requestedAspect
+             << "Operator:" << operatorId;
+
+    // ✅ SYSTEM AVAILABILITY CHECK
+    if (!m_isOperational) {
+        qWarning() << "❌ Subsidiary signal validation blocked: Interlocking system not operational";
+        return ValidationResult::blocked("Interlocking system not operational", "SYSTEM_OFFLINE");
+    }
+
+    if (!m_signalBranch) {
+        qCritical() << "🚨 CRITICAL: SignalBranch not initialized for subsidiary signal validation!";
+        return ValidationResult::blocked("Signal validation not available", "SIGNAL_BRANCH_MISSING");
+    }
+
+    // ✅ VALIDATE ASPECT TYPE
+    if (aspectType != "CALLING_ON" && aspectType != "LOOP") {
+        qWarning() << "❌ Invalid subsidiary aspect type:" << aspectType;
+        return ValidationResult::blocked(
+            QString("Invalid subsidiary aspect type: %1").arg(aspectType),
+            "INVALID_ASPECT_TYPE");
+    }
+
+    // ✅ DELEGATE TO SIGNAL BRANCH: Same pattern as main signals
+    auto result = m_signalBranch->validateSubsidiaryAspectChange(
+        signalId, aspectType, currentAspect, requestedAspect, operatorId);
+
+    // ✅ PERFORMANCE MONITORING
+    double responseTime = timer.elapsed();
+    recordResponseTime(responseTime);
+
+    if (responseTime > TARGET_RESPONSE_TIME_MS) {
+        logPerformanceWarning(QString("Subsidiary signal validation (%1)").arg(aspectType), responseTime);
+    }
+
+    qDebug() << "🚦🔧 Subsidiary signal validation completed in" << responseTime << "ms:"
+             << aspectType << result.getReason();
+
+    // ✅ EMIT BLOCKING SIGNAL IF NECESSARY
+    if (!result.isAllowed()) {
+        emit operationBlocked(signalId, result.getReason());
+        qDebug() << "🚨 Subsidiary signal operation blocked:" << signalId << aspectType << result.getReason();
     }
 
     return result;
