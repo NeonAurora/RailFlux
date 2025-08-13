@@ -94,6 +94,9 @@ private:
                                                  const QString& requestedAspect);
 
     QString getCurrentMainSignalAspect(const QString& signalId);
+    QString predictCompositeAspectAfterSubsidiaryChange(const QString& signalId,
+                                                        const QString& aspectType,
+                                                        const QString& newSubsidiaryAspect);
 
     // ============================================================================
     // PROTECTED TRACK SEGMENTS DATA SOURCES (Triple Redundancy)

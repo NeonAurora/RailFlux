@@ -121,7 +121,10 @@ ValidationResult SignalBranch::validateSubsidiaryTransition(
 ValidationResult SignalBranch::validateCallingOnSafetyRules(
     const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
 
-    // ✅ RULE: Calling-on can only be cleared when main signal is at danger
+    qDebug() << "🚦⚪ CALLING-ON VALIDATION:" << signalId
+             << "Current:" << currentAspect << "→ Requested:" << requestedAspect;
+
+    // ✅ RULE 1: Calling-on can only be cleared when main signal is at danger
     if (requestedAspect == "WHITE") {
         QString mainAspect = getCurrentMainSignalAspect(signalId);
         if (mainAspect.isEmpty()) {
@@ -137,7 +140,36 @@ ValidationResult SignalBranch::validateCallingOnSafetyRules(
                 "CALLING_ON_MAIN_NOT_DANGER");
         }
 
-        qDebug() << "✅ Calling-on safety check passed: Main signal at danger (" << mainAspect << ")";
+        qDebug() << "✅ Basic calling-on safety check passed: Main signal at danger (" << mainAspect << ")";
+
+        // ✅ RULE 2: Check interlocking for the resulting composite aspect
+        QString predictedCompositeAspect = predictCompositeAspectAfterSubsidiaryChange(
+            signalId, "CALLING_ON", requestedAspect);
+
+        qDebug() << "🎯 Predicted composite aspect after calling-on change:" << predictedCompositeAspect;
+
+        if (!m_ruleEngine) {
+            qWarning() << "❌ Rule engine not available for calling-on validation";
+            return ValidationResult::blocked("Interlocking rule engine not available", "RULE_ENGINE_MISSING");
+        }
+
+        auto interlockingResult = m_ruleEngine->validateInterlockedSignalAspectChange(
+            signalId, mainAspect, predictedCompositeAspect);
+
+        if (!interlockingResult.isAllowed()) {
+            qDebug() << "❌ Calling-on activation blocked by interlocking:" << interlockingResult.getReason();
+            return ValidationResult::blocked(
+                QString("Calling-on signal cannot be activated: %1").arg(interlockingResult.getReason()),
+                "CALLING_ON_INTERLOCKING_VIOLATION"
+                );
+        }
+
+        qDebug() << "✅ Calling-on activation allowed by interlocking";
+    }
+
+    // ✅ RULE 3: Turning OFF is always allowed
+    if (requestedAspect == "OFF") {
+        qDebug() << "✅ Calling-on signal turning OFF - allowed";
     }
 
     return ValidationResult::allowed("Calling-on safety rules passed");
@@ -146,18 +178,101 @@ ValidationResult SignalBranch::validateCallingOnSafetyRules(
 ValidationResult SignalBranch::validateLoopSignalRules(
     const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
 
-    // ✅ RULE: Loop signal platform/track availability check
-    if (requestedAspect == "YELLOW") {
-        // TODO: Add platform availability check
-        // For now, basic validation - can be enhanced later
-        qDebug() << "🔄 Loop signal clearance requested for" << signalId << "- checking platform availability";
+    qDebug() << "🔄 LOOP SIGNAL VALIDATION:" << signalId
+             << "Current loop:" << currentAspect << "→ Requested:" << requestedAspect;
 
-        // Future: Check if platform track is clear
-        // Future: Check if points are set correctly for loop movement
-        // Future: Check if conflicting movements are clear
+    // ✅ RULE 1: Basic transition validation (already done in validateSubsidiaryTransition)
+
+    // ✅ RULE 2: If turning OFF the loop signal, allow it (no interlocking needed)
+    if (requestedAspect == "OFF") {
+        qDebug() << "✅ Loop signal turning OFF - allowed without interlocking check";
+        return ValidationResult::allowed("Loop signal turning OFF");
     }
 
-    return ValidationResult::allowed("Loop signal rules passed");
+    // ✅ RULE 3: If turning ON the loop signal (YELLOW), check interlocking
+    if (requestedAspect == "YELLOW") {
+        qDebug() << "🔄 Loop signal turning ON - checking interlocking for resulting composite aspect";
+
+        // ✅ PREDICT: What will the composite aspect be after this change?
+        QString predictedCompositeAspect = predictCompositeAspectAfterSubsidiaryChange(
+            signalId, "LOOP", requestedAspect);
+
+        qDebug() << "🎯 Predicted composite aspect after loop change:" << predictedCompositeAspect;
+
+        // ✅ VALIDATE: Use interlocking rule engine to check if this composite aspect is allowed
+        if (!m_ruleEngine) {
+            qWarning() << "❌ Rule engine not available for loop signal validation";
+            return ValidationResult::blocked("Interlocking rule engine not available", "RULE_ENGINE_MISSING");
+        }
+
+        // ✅ INTERLOCKING: Check if the predicted composite aspect is allowed
+        auto interlockingResult = m_ruleEngine->validateInterlockedSignalAspectChange(
+            signalId, getCurrentMainSignalAspect(signalId), predictedCompositeAspect);
+
+        if (!interlockingResult.isAllowed()) {
+            qDebug() << "❌ Loop signal activation blocked by interlocking:" << interlockingResult.getReason();
+            return ValidationResult::blocked(
+                QString("Loop signal cannot be activated: %1").arg(interlockingResult.getReason()),
+                "LOOP_INTERLOCKING_VIOLATION"
+                );
+        }
+
+        qDebug() << "✅ Loop signal activation allowed by interlocking";
+        return ValidationResult::allowed("Loop signal activation permitted by interlocking rules");
+    }
+
+    // ✅ FALLBACK: Unknown requested aspect
+    return ValidationResult::blocked(
+        QString("Unknown loop aspect requested: %1").arg(requestedAspect),
+        "UNKNOWN_LOOP_ASPECT"
+        );
+}
+
+QString SignalBranch::predictCompositeAspectAfterSubsidiaryChange(
+    const QString& signalId, const QString& aspectType, const QString& newSubsidiaryAspect) {
+
+    qDebug() << "🔮 PREDICTING composite aspect for" << signalId
+             << "after changing" << aspectType << "to" << newSubsidiaryAspect;
+
+    // ✅ GET: Current signal state
+    auto signalData = m_dbManager->getSignalById(signalId);
+    QString currentMainAspect = signalData.value("currentAspect", "RED").toString();
+    QString currentCallingOn = signalData.value("callingOnAspect", "OFF").toString();
+    QString currentLoop = signalData.value("loopAspect", "OFF").toString();
+
+    qDebug() << "  Current state - Main:" << currentMainAspect
+             << "Calling-On:" << currentCallingOn
+             << "Loop:" << currentLoop;
+
+    // ✅ SIMULATE: Apply the requested change
+    QString newCallingOn = currentCallingOn;
+    QString newLoop = currentLoop;
+
+    if (aspectType == "CALLING_ON") {
+        newCallingOn = newSubsidiaryAspect;
+    } else if (aspectType == "LOOP") {
+        newLoop = newSubsidiaryAspect;
+    }
+
+    qDebug() << "  After change - Main:" << currentMainAspect
+             << "Calling-On:" << newCallingOn
+             << "Loop:" << newLoop;
+
+    // ✅ BUILD: Predicted composite aspect
+    QString predictedComposite = currentMainAspect;
+
+    if (newCallingOn == "WHITE") {
+        predictedComposite += "_CALLING";
+        qDebug() << "  + Added CALLING component";
+    }
+
+    if (newLoop == "YELLOW") {
+        predictedComposite += "_LOOP";
+        qDebug() << "  + Added LOOP component";
+    }
+
+    qDebug() << "🎯 Predicted composite aspect:" << predictedComposite;
+    return predictedComposite;
 }
 
 ValidationResult SignalBranch::checkSubsidiaryInterlocking(

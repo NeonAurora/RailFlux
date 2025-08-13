@@ -109,7 +109,7 @@ ValidationResult InterlockingService::validateMainSignalOperation(
     }
 
     // ✅ DELEGATE TO SIGNAL BRANCH
-    auto result = m_signalBranch->validatMainAspectChange(signalId, currentAspect, requestedAspect, operatorId);
+    auto result = m_signalBranch->validateMainAspectChange(signalId, currentAspect, requestedAspect, operatorId);
 
     // ✅ RECORD PERFORMANCE
     double responseTime = timer.elapsed();
