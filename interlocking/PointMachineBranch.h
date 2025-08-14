@@ -11,15 +11,24 @@ class PointMachineBranch : public QObject {
 public:
     explicit PointMachineBranch(DatabaseManager* dbManager, QObject* parent = nullptr);
 
+    // === PRIMARY VALIDATION METHODS ===
     ValidationResult validatePositionChange(const QString& machineId,
                                             const QString& currentPosition,
                                             const QString& requestedPosition,
                                             const QString& operatorId);
 
+    // === NEW: PAIRED OPERATION VALIDATION ===
+    ValidationResult validatePairedOperation(const QString& machineId,
+                                             const QString& pairedMachineId,
+                                             const QString& currentPosition,
+                                             const QString& pairedCurrentPosition,
+                                             const QString& newPosition,
+                                             const QString& operatorId);
+
 private:
     DatabaseManager* m_dbManager;
 
-    // Core validation rules
+    // === CORE VALIDATION RULES ===
     ValidationResult checkPointMachineExists(const QString& machineId);
     ValidationResult checkPointMachineActive(const QString& machineId);
     ValidationResult checkOperationalStatus(const QString& machineId);
@@ -31,7 +40,15 @@ private:
     ValidationResult checkDetectionLocking(const QString& machineId);
     ValidationResult checkConflictingPoints(const QString& machineId, const QString& requestedPosition);
 
-    // Helper methods
+    // === NEW: PAIRED-SPECIFIC VALIDATIONS ===
+    ValidationResult checkPairedTrackSegmentOccupancy(const QString& machineId,
+                                                      const QString& pairedMachineId,
+                                                      const QString& newPosition);
+    ValidationResult checkPairedConflicts(const QString& machineId,
+                                          const QString& pairedMachineId,
+                                          const QString& newPosition);
+
+    // === HELPER METHODS ===
     QStringList getProtectingSignals(const QString& machineId);
     QStringList getAffectedTrackSegments(const QString& machineId, const QString& position);
     QStringList getConflictingPointMachines(const QString& machineId);
@@ -39,6 +56,13 @@ private:
     bool areAffectedTrackSegmentsClear(const QStringList& trackSegmentIds);
     bool isInTransition(const QString& machineId);
 
+    // === NEW: PAIRED HELPER METHODS ===
+    QString getCurrentPointPosition(const QString& machineId);
+    QStringList getCombinedAffectedTrackSegments(const QString& machineId,
+                                                 const QString& pairedMachineId,
+                                                 const QString& position);
+
+    // === DATA STRUCTURES ===
     struct PointMachineState {
         QString currentPosition;
         QString operatingStatus;

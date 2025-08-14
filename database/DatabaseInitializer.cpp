@@ -323,160 +323,163 @@ bool DatabaseInitializer::executeSchemaScript() {
     QStringList mainTables = {
         // ✅ FIRST: Create track_circuits table
         R"(CREATE TABLE railway_control.track_circuits (
-            id SERIAL PRIMARY KEY,
-            circuit_id VARCHAR(20) NOT NULL UNIQUE,
-            circuit_name VARCHAR(100),
-            is_occupied BOOLEAN DEFAULT FALSE,
-            occupied_by VARCHAR(50),
-            length_meters NUMERIC(10,2),
-            max_speed_kmh INTEGER,
-            is_active BOOLEAN DEFAULT TRUE,
-            protecting_signals TEXT[],
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        ))",
+        id SERIAL PRIMARY KEY,
+        circuit_id VARCHAR(20) NOT NULL UNIQUE,
+        circuit_name VARCHAR(100),
+        is_occupied BOOLEAN DEFAULT FALSE,
+        occupied_by VARCHAR(50),
+        length_meters NUMERIC(10,2),
+        max_speed_kmh INTEGER,
+        is_active BOOLEAN DEFAULT TRUE,
+        protecting_signals TEXT[],
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    ))",
 
         // ✅ SECOND: Create track_segments table (references track_circuits)
         R"(CREATE TABLE railway_control.track_segments (
-            id SERIAL PRIMARY KEY,
-            segment_id VARCHAR(20) NOT NULL UNIQUE,
-            segment_name VARCHAR(100),
-            start_row NUMERIC(10,2) NOT NULL,
-            start_col NUMERIC(10,2) NOT NULL,
-            end_row NUMERIC(10,2) NOT NULL,
-            end_col NUMERIC(10,2) NOT NULL,
-            track_segment_type VARCHAR(20) DEFAULT 'STRAIGHT',
-            is_assigned BOOLEAN DEFAULT FALSE,
-            circuit_id VARCHAR(20) REFERENCES railway_control.track_circuits(circuit_id),
-            length_meters NUMERIC(10,2),
-            max_speed_kmh INTEGER,
-            is_active BOOLEAN DEFAULT TRUE,
-            protecting_signals TEXT[],
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT chk_coordinates CHECK (
-                start_row >= 0 AND start_col >= 0 AND
-                end_row >= 0 AND end_col >= 0
-            )
-        ))",
+        id SERIAL PRIMARY KEY,
+        segment_id VARCHAR(20) NOT NULL UNIQUE,
+        segment_name VARCHAR(100),
+        start_row NUMERIC(10,2) NOT NULL,
+        start_col NUMERIC(10,2) NOT NULL,
+        end_row NUMERIC(10,2) NOT NULL,
+        end_col NUMERIC(10,2) NOT NULL,
+        track_segment_type VARCHAR(20) DEFAULT 'STRAIGHT',
+        is_assigned BOOLEAN DEFAULT FALSE,
+        circuit_id VARCHAR(20) REFERENCES railway_control.track_circuits(circuit_id),
+        length_meters NUMERIC(10,2),
+        max_speed_kmh INTEGER,
+        is_active BOOLEAN DEFAULT TRUE,
+        protecting_signals TEXT[],
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_coordinates CHECK (
+            start_row >= 0 AND start_col >= 0 AND
+            end_row >= 0 AND end_col >= 0
+        )
+    ))",
 
         R"(CREATE TABLE railway_control.signals (
-            id SERIAL PRIMARY KEY,
-            signal_id VARCHAR(20) NOT NULL UNIQUE,
-            signal_name VARCHAR(100) NOT NULL,
-            signal_type_id INTEGER NOT NULL REFERENCES railway_config.signal_types(id),
-            location_row NUMERIC(10,2) NOT NULL,
-            location_col NUMERIC(10,2) NOT NULL,
-            direction VARCHAR(10) NOT NULL CHECK (direction IN ('UP', 'DOWN')),
+        id SERIAL PRIMARY KEY,
+        signal_id VARCHAR(20) NOT NULL UNIQUE,
+        signal_name VARCHAR(100) NOT NULL,
+        signal_type_id INTEGER NOT NULL REFERENCES railway_config.signal_types(id),
+        location_row NUMERIC(10,2) NOT NULL,
+        location_col NUMERIC(10,2) NOT NULL,
+        direction VARCHAR(10) NOT NULL CHECK (direction IN ('UP', 'DOWN')),
 
-            -- ✅ MAIN SIGNAL ASPECT (unchanged)
-            current_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+        -- ✅ MAIN SIGNAL ASPECT (unchanged)
+        current_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
 
-            -- ✅ SUBSIDIARY SIGNAL ASPECTS (now using aspect IDs instead of VARCHAR)
-            calling_on_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
-            loop_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+        -- ✅ SUBSIDIARY SIGNAL ASPECTS (now using aspect IDs instead of VARCHAR)
+        calling_on_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
+        loop_aspect_id INTEGER REFERENCES railway_config.signal_aspects(id),
 
-            -- ✅ SIGNAL CONFIGURATION (unchanged)
-            loop_signal_configuration VARCHAR(10) DEFAULT 'UR',
-            aspect_count INTEGER NOT NULL DEFAULT 2,
-            possible_aspects TEXT[],
-            is_active BOOLEAN DEFAULT TRUE,
-            location_description VARCHAR(200),
+        -- ✅ SIGNAL CONFIGURATION (unchanged)
+        loop_signal_configuration VARCHAR(10) DEFAULT 'UR',
+        aspect_count INTEGER NOT NULL DEFAULT 2,
+        possible_aspects TEXT[],
+        is_active BOOLEAN DEFAULT TRUE,
+        location_description VARCHAR(200),
 
-            -- ✅ AUDIT FIELDS (unchanged)
-            last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            last_changed_by VARCHAR(100),
+        -- ✅ AUDIT FIELDS (unchanged)
+        last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        last_changed_by VARCHAR(100),
 
-            -- ✅ INTERLOCKING FIELDS (unchanged)
-            interlocked_with INTEGER[],
-            protected_track_segments TEXT[],
-            manual_control_active BOOLEAN DEFAULT FALSE,
+        -- ✅ INTERLOCKING FIELDS (unchanged)
+        interlocked_with INTEGER[],
+        protected_track_segments TEXT[],
+        manual_control_active BOOLEAN DEFAULT FALSE,
 
-            -- ✅ TIMESTAMP FIELDS (unchanged)
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        -- ✅ TIMESTAMP FIELDS (unchanged)
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
-            -- ✅ CONSTRAINTS (unchanged)
-            CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
-            CONSTRAINT chk_aspect_count CHECK (aspect_count >= 2 AND aspect_count <= 4)
-        ))",
+        -- ✅ CONSTRAINTS (unchanged)
+        CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
+        CONSTRAINT chk_aspect_count CHECK (aspect_count >= 2 AND aspect_count <= 4)
+    ))",
 
+        // ✅ FIXED: Added missing comma between constraints
         R"(CREATE TABLE railway_control.point_machines (
-            id SERIAL PRIMARY KEY,
-            machine_id VARCHAR(20) NOT NULL UNIQUE,
-            machine_name VARCHAR(100) NOT NULL,
-            junction_row NUMERIC(10,2) NOT NULL,
-            junction_col NUMERIC(10,2) NOT NULL,
-            root_track_segment_connection JSONB NOT NULL,
-            normal_track_segment_connection JSONB NOT NULL,
-            reverse_track_segment_connection JSONB NOT NULL,
-            current_position_id INTEGER REFERENCES railway_config.point_positions(id),
-            operating_status VARCHAR(20) DEFAULT 'CONNECTED' CHECK (
-                operating_status IN ('CONNECTED', 'IN_TRANSITION', 'FAILED', 'LOCKED_OUT')
-            ),
-            transition_time_ms INTEGER DEFAULT 3000,
-            last_operated_at TIMESTAMP WITH TIME ZONE,
-            last_operated_by VARCHAR(100),
-            operation_count INTEGER DEFAULT 0,
-            safety_interlocks INTEGER[],
-            is_locked BOOLEAN DEFAULT FALSE,
-            lock_reason TEXT,
-            protected_signals TEXT[],
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT chk_junction_location CHECK (junction_row >= 0 AND junction_col >= 0)
-        ))",
+        id SERIAL PRIMARY KEY,
+        machine_id VARCHAR(20) NOT NULL UNIQUE,
+        machine_name VARCHAR(100) NOT NULL,
+        junction_row NUMERIC(10,2) NOT NULL,
+        junction_col NUMERIC(10,2) NOT NULL,
+        root_track_segment_connection JSONB NOT NULL,
+        normal_track_segment_connection JSONB NOT NULL,
+        reverse_track_segment_connection JSONB NOT NULL,
+        current_position_id INTEGER REFERENCES railway_config.point_positions(id),
+        operating_status VARCHAR(20) DEFAULT 'CONNECTED' CHECK (
+            operating_status IN ('CONNECTED', 'IN_TRANSITION', 'FAILED', 'LOCKED_OUT')
+        ),
+        transition_time_ms INTEGER DEFAULT 3000,
+        last_operated_at TIMESTAMP WITH TIME ZONE,
+        last_operated_by VARCHAR(100),
+        operation_count INTEGER DEFAULT 0,
+        safety_interlocks INTEGER[],
+        paired_entity VARCHAR(20),
+        is_locked BOOLEAN DEFAULT FALSE,
+        lock_reason TEXT,
+        protected_signals TEXT[],
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_junction_location CHECK (junction_row >= 0 AND junction_col >= 0),
+        CONSTRAINT chk_no_self_pairing CHECK (machine_id != paired_entity)
+    ))",
 
         R"(CREATE TABLE railway_control.text_labels (
-            id SERIAL PRIMARY KEY,
-            label_text VARCHAR(200) NOT NULL,
-            position_row NUMERIC(10,2) NOT NULL,
-            position_col NUMERIC(10,2) NOT NULL,
-            font_size INTEGER DEFAULT 12,
-            color VARCHAR(7) DEFAULT '#ffffff',
-            font_family VARCHAR(50) DEFAULT 'Arial',
-            is_visible BOOLEAN DEFAULT TRUE,
-            label_type VARCHAR(20) DEFAULT 'INFO',
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        ))",
+        id SERIAL PRIMARY KEY,
+        label_text VARCHAR(200) NOT NULL,
+        position_row NUMERIC(10,2) NOT NULL,
+        position_col NUMERIC(10,2) NOT NULL,
+        font_size INTEGER DEFAULT 12,
+        color VARCHAR(7) DEFAULT '#ffffff',
+        font_family VARCHAR(50) DEFAULT 'Arial',
+        is_visible BOOLEAN DEFAULT TRUE,
+        label_type VARCHAR(20) DEFAULT 'INFO',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    ))",
 
         R"(CREATE TABLE railway_control.system_state (
-            id SERIAL PRIMARY KEY,
-            state_key VARCHAR(100) NOT NULL UNIQUE,
-            state_value JSONB NOT NULL,
-            description TEXT,
-            last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_by VARCHAR(100)
-        ))",
+        id SERIAL PRIMARY KEY,
+        state_key VARCHAR(100) NOT NULL UNIQUE,
+        state_value JSONB NOT NULL,
+        description TEXT,
+        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_by VARCHAR(100)
+    ))",
 
         R"(CREATE TABLE railway_control.interlocking_rules (
-            id SERIAL PRIMARY KEY,
-            rule_name VARCHAR(100) NOT NULL,
-            source_entity_type VARCHAR(20) NOT NULL CHECK (source_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT', 'TRACK_CIRCUIT')),
-            source_entity_id VARCHAR(20) NOT NULL,
-            target_entity_type VARCHAR(20) NOT NULL CHECK (target_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT', 'TRACK_CIRCUIT')),
-            target_entity_id VARCHAR(20) NOT NULL,
-            target_constraint VARCHAR(50) NOT NULL,
-            rule_type VARCHAR(50) NOT NULL,
-            priority INTEGER DEFAULT 100,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT chk_no_self_reference CHECK (
-                NOT (source_entity_type = target_entity_type AND source_entity_id = target_entity_id)
-            )
-        ))",
+        id SERIAL PRIMARY KEY,
+        rule_name VARCHAR(100) NOT NULL,
+        source_entity_type VARCHAR(20) NOT NULL CHECK (source_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT', 'TRACK_CIRCUIT')),
+        source_entity_id VARCHAR(20) NOT NULL,
+        target_entity_type VARCHAR(20) NOT NULL CHECK (target_entity_type IN ('SIGNAL', 'POINT_MACHINE', 'TRACK_SEGMENT', 'TRACK_CIRCUIT')),
+        target_entity_id VARCHAR(20) NOT NULL,
+        target_constraint VARCHAR(50) NOT NULL,
+        rule_type VARCHAR(50) NOT NULL,
+        priority INTEGER DEFAULT 100,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_no_self_reference CHECK (
+            NOT (source_entity_type = target_entity_type AND source_entity_id = target_entity_id)
+        )
+    ))",
 
         R"(CREATE TABLE railway_control.signal_track_segment_protection (
-            id SERIAL PRIMARY KEY,
-            signal_id VARCHAR(20) NOT NULL,
-            protected_track_segment_id VARCHAR(20) NOT NULL,
-            protection_type VARCHAR(50) DEFAULT 'APPROACH',
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(signal_id, protected_track_segment_id, protection_type)
-        ))"
+        id SERIAL PRIMARY KEY,
+        signal_id VARCHAR(20) NOT NULL,
+        protected_track_segment_id VARCHAR(20) NOT NULL,
+        protection_type VARCHAR(50) DEFAULT 'APPROACH',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(signal_id, protected_track_segment_id, protection_type)
+    ))"
     };
 
     qDebug() << "Creating main tables...";
@@ -667,6 +670,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         "CREATE INDEX idx_point_machines_position ON railway_control.point_machines(current_position_id)",
         "CREATE INDEX idx_point_machines_status ON railway_control.point_machines(operating_status)",
         "CREATE INDEX idx_point_machines_junction ON railway_control.point_machines USING btree(junction_row, junction_col)",
+        "CREATE INDEX idx_point_machines_paired_entity ON railway_control.point_machines(paired_entity) WHERE paired_entity IS NOT NULL",
 
         "CREATE INDEX idx_event_log_timestamp ON railway_audit.event_log(event_timestamp)",
         "CREATE INDEX idx_event_log_entity ON railway_audit.event_log(entity_type, entity_id)",
@@ -951,14 +955,22 @@ bool DatabaseInitializer::populatePointMachines() {
         QString normalTrackSegmentJson = QString::fromUtf8(QJsonDocument(normalTrackSegment).toJson(QJsonDocument::Compact));
         QString reverseTrackSegmentJson = QString::fromUtf8(QJsonDocument(reverseTrackSegment).toJson(QJsonDocument::Compact));
 
+        // NEW: Handle paired entity (can be null)
+        QString pairedEntity;
+        if (point.contains("pairedEntity") && !point["pairedEntity"].toString().isEmpty()) {
+            pairedEntity = point["pairedEntity"].toString();
+        }
+
+        // UPDATED: Add paired_entity to INSERT query
         QString insertQuery = R"(
             INSERT INTO railway_control.point_machines
             (machine_id, machine_name, junction_row, junction_col,
              root_track_segment_connection, normal_track_segment_connection, reverse_track_segment_connection,
-             current_position_id, operating_status, transition_time_ms)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?)
+             current_position_id, operating_status, transition_time_ms, paired_entity)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?)
         )";
 
+        // UPDATED: Add paired_entity to params list
         QVariantList params = {
             point["id"].toString(),
             point["name"].toString(),
@@ -969,7 +981,8 @@ bool DatabaseInitializer::populatePointMachines() {
             reverseTrackSegmentJson,
             positionId,
             point["operatingStatus"].toString("CONNECTED"),
-            3000 // Default transition time
+            3000, // Default transition time
+            pairedEntity.isEmpty() ? QVariant() : pairedEntity // NEW: Paired entity (NULL if empty)
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -1366,6 +1379,145 @@ bool DatabaseInitializer::createAdvancedFunctions() {
             WHERE machine_id = machine_id_param;
             GET DIAGNOSTICS rows_affected = ROW_COUNT;
             RETURN rows_affected > 0;
+        END;
+        $$ LANGUAGE plpgsql)",
+
+        R"(CREATE OR REPLACE FUNCTION railway_control.update_point_position_paired(
+            machine_id_param VARCHAR,
+            position_code_param VARCHAR,
+            operator_id_param VARCHAR DEFAULT 'system'
+        )
+        RETURNS JSONB AS $$
+        DECLARE
+            position_id_val INTEGER;
+            paired_machine_id VARCHAR(20);
+            current_position_code VARCHAR(20);
+            paired_current_position_code VARCHAR(20);
+            rows_affected INTEGER;
+            result_json JSONB;
+            position_mismatch BOOLEAN := FALSE;
+        BEGIN
+            -- Set operator context for audit logging
+            PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+            -- Validate position code
+            position_id_val := railway_config.get_position_id(position_code_param);
+            IF position_id_val IS NULL THEN
+                RAISE EXCEPTION 'Invalid position code: %', position_code_param;
+            END IF;
+
+            -- Get current machine info including paired entity
+            SELECT
+                pp.position_code,
+                pm.paired_entity
+            INTO
+                current_position_code,
+                paired_machine_id
+            FROM railway_control.point_machines pm
+            LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
+            WHERE pm.machine_id = machine_id_param;
+
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'Point machine not found: %', machine_id_param;
+            END IF;
+
+            -- Check if requesting same position (no-op)
+            IF current_position_code = position_code_param THEN
+                result_json := jsonb_build_object(
+                    'success', true,
+                    'machines_updated', ARRAY[machine_id_param],
+                    'message', 'Already in requested position',
+                    'position_mismatch', false
+                );
+                RETURN result_json;
+            END IF;
+
+            -- Handle unpaired machine (simple case)
+            IF paired_machine_id IS NULL THEN
+                UPDATE railway_control.point_machines
+                SET
+                    current_position_id = position_id_val,
+                    last_operated_at = CURRENT_TIMESTAMP,
+                    last_operated_by = operator_id_param,
+                    operation_count = operation_count + 1
+                WHERE machine_id = machine_id_param;
+
+                GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+                result_json := jsonb_build_object(
+                    'success', rows_affected > 0,
+                    'machines_updated', ARRAY[machine_id_param],
+                    'message', 'Single point machine updated',
+                    'position_mismatch', false
+                );
+                RETURN result_json;
+            END IF;
+
+            -- Handle paired machine
+            -- Get paired machine current position
+            SELECT pp.position_code
+            INTO paired_current_position_code
+            FROM railway_control.point_machines pm
+            LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
+            WHERE pm.machine_id = paired_machine_id;
+
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'Paired machine not found: %', paired_machine_id;
+            END IF;
+
+            -- Check for position mismatch
+            IF current_position_code != paired_current_position_code THEN
+                position_mismatch := TRUE;
+
+                -- CRITICAL LOG: Position mismatch detected
+                RAISE WARNING 'CRITICAL: Position mismatch detected between paired machines % (%) and % (%)',
+                    machine_id_param, current_position_code,
+                    paired_machine_id, paired_current_position_code;
+
+                -- Update only requesting machine to match its pair
+                UPDATE railway_control.point_machines
+                SET
+                    current_position_id = (
+                        SELECT current_position_id
+                        FROM railway_control.point_machines
+                        WHERE machine_id = paired_machine_id
+                    ),
+                    last_operated_at = CURRENT_TIMESTAMP,
+                    last_operated_by = operator_id_param,
+                    operation_count = operation_count + 1
+                WHERE machine_id = machine_id_param;
+
+                GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+                result_json := jsonb_build_object(
+                    'success', rows_affected > 0,
+                    'machines_updated', ARRAY[machine_id_param],
+                    'message', 'Position mismatch corrected - machine synchronized with pair',
+                    'position_mismatch', true,
+                    'corrected_to_position', paired_current_position_code
+                );
+                RETURN result_json;
+            END IF;
+
+            -- Both machines have same position - update both atomically
+            UPDATE railway_control.point_machines
+            SET
+                current_position_id = position_id_val,
+                last_operated_at = CURRENT_TIMESTAMP,
+                last_operated_by = operator_id_param,
+                operation_count = operation_count + 1
+            WHERE machine_id IN (machine_id_param, paired_machine_id);
+
+            GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+            result_json := jsonb_build_object(
+                'success', rows_affected = 2,
+                'machines_updated', ARRAY[machine_id_param, paired_machine_id],
+                'message', 'Paired machines updated together',
+                'position_mismatch', false
+            );
+
+            RETURN result_json;
         END;
         $$ LANGUAGE plpgsql)",
 
@@ -2021,6 +2173,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
     return QJsonArray {
         QJsonObject{
             {"id", "PM001"}, {"name", "Junction A"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
+            {"pairedEntity", "PM002"}, // NEW: Paired with PM002
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 121.2}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T1S5"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T1S6"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
@@ -2028,6 +2181,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         },
         QJsonObject{
             {"id", "PM002"}, {"name", "Junction B"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
+            {"pairedEntity", "PM001"}, // NEW: Paired with PM001 (bidirectional)
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 143.3}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T4S2"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T4S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
@@ -2035,6 +2189,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         },
         QJsonObject{
             {"id", "PM003"}, {"name", "Junction C"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
+            {"pairedEntity", "PM004"}, // NEW: Paired with PM004
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 235.6}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T4S4"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T4S5"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
@@ -2042,6 +2197,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         },
         QJsonObject{
             {"id", "PM004"}, {"name", "Junction D"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
+            {"pairedEntity", "PM003"}, // NEW: Paired with PM003 (bidirectional)
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 259.5}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T1S9"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T1S8"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},

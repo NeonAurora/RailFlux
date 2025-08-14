@@ -380,6 +380,21 @@ Rectangle {
             refreshPointMachineData()
         }
 
+        function onPairedMachinesUpdated(machineIds) {
+            console.log("Paired machines updated together:", machineIds)
+            // Update UI for all affected machines
+            for (let i = 0; i < machineIds.length; i++) {
+                updatePointMachineDisplay(machineIds[i])
+            }
+        }
+
+        function onPositionMismatchCorrected(machineId, pairedMachineId) {
+                // Show critical warning to operator
+                showCriticalAlert("Position Mismatch Corrected",
+                    `Point machines ${machineId} and ${pairedMachineId} had different positions. ` +
+                    `${machineId} has been synchronized to match its pair.`)
+            }
+
         // ✅ Handle batch updates
         function onTrackSegmentsChanged() {
             console.log("StationLayout: Track Segment segments changed")

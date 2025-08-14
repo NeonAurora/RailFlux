@@ -77,6 +77,7 @@ public:
     Q_INVOKABLE QVariantList getHomeSignalsList();
     Q_INVOKABLE QVariantList getStarterSignalsList();
     Q_INVOKABLE QVariantList getAdvanceStarterSignalsList();
+    Q_INVOKABLE QVariantList getPointMachinesList();
     Q_INVOKABLE QVariantMap getSignalById(const QString& signalId);
     Q_INVOKABLE bool updateSignalAspect(const QString& signalId, const QString& aspectType, const QString& newAspect);
     Q_INVOKABLE QVariantMap getAllSignalStates();
@@ -85,7 +86,6 @@ public:
     // STREAMLINED: Point Machine operations
     Q_INVOKABLE QVariantList getAllPointMachinesList();
     Q_INVOKABLE QVariantMap getPointMachineById(const QString& machineId);
-    Q_INVOKABLE bool updatePointMachinePosition(const QString& machineId, const QString& newPosition);
     Q_INVOKABLE QVariantMap getAllPointMachineStates();
     Q_INVOKABLE QString getPointPosition(int machineId);  // KEPT: Legacy for compatibility
 
@@ -95,6 +95,11 @@ public:
     // Interlocking support
     Q_INVOKABLE QStringList getProtectedTrackSegments(const QString& signalId);
     Q_INVOKABLE QStringList getInterlockedSignals(const QString& signalId);
+
+public slots:
+    // Enhanced update method
+    bool updatePointMachinePosition(const QString& machineId, const QString& newPosition);
+
 
 signals:
     // Connection and system
@@ -127,6 +132,9 @@ signals:
 
     // Text labels
     void textLabelsChanged();
+
+    void pairedMachinesUpdated(const QStringList& machineIds);
+    void positionMismatchCorrected(const QString& machineId, const QString& pairedMachineId);
 
 private slots:
     void pollDatabase();
@@ -188,7 +196,9 @@ private:
     QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);
 
     // Current state helpers (for interlocking)
+    QString getPairedMachine(const QString& machineId);
     QString getCurrentPointPosition(const QString& machineId);
+    QPair<QString, QString> getPairedMachinePositions(const QString& machineId);
 
     bool updateMainSignalAspect(const QString& signalId, const QString& newAspect);
     bool updateSubsidiarySignalAspect(const QString& signalId,

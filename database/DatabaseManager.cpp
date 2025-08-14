@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QString>
+#include <QSqlRecord>
 #include "../interlocking/InterlockingService.h"
 
 DatabaseManager::DatabaseManager(QObject* parent)
@@ -147,8 +148,6 @@ bool DatabaseManager::startPortableMode()
             connected = true;
             m_isConnected = true;
             m_connectionStatus = "Connected to Portable PostgreSQL";
-
-            setupDatabase();  // This will create the schema/tables
             emit connectionStateChanged(connected);
             qDebug() << "Portable PostgreSQL connected with schema created";
             return true;
@@ -806,10 +805,12 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
     qDebug() << "SAFETY: getPointMachineById(" << machineId << ") - DIRECT DATABASE QUERY";
 
     QSqlQuery query(db);
+
+    // FIXED: Added paired_entity to SELECT statement
     query.prepare(R"(
         SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
                pm.root_track_segment_connection, pm.normal_track_segment_connection, pm.reverse_track_segment_connection,
-               pp.position_code as position, pm.operating_status, pm.transition_time_ms
+               pp.position_code as position, pm.operating_status, pm.transition_time_ms, pm.paired_entity
         FROM railway_control.point_machines pm
         LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
         WHERE pm.machine_id = ?
@@ -818,10 +819,40 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
 
     if (query.exec() && query.next()) {
         return convertPointMachineRowToVariant(query);
+    } else {
+        qWarning() << "Failed to get point machine:" << machineId << query.lastError().text();
     }
 
-    qWarning() << "SAFETY: Point machine" << machineId << "not found in database";
     return QVariantMap();
+}
+
+QVariantList DatabaseManager::getPointMachinesList() {
+    if (!connected) return QVariantList();
+
+    qDebug() << "SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from getAllPointMachinesList()";
+
+    QVariantList points;
+    QSqlQuery pointQuery(db);
+
+    // FIXED: Added paired_entity to SELECT statement
+    QString pointSql = R"(
+        SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
+               pm.root_track_segment_connection, pm.normal_track_segment_connection, pm.reverse_track_segment_connection,
+               pp.position_code as position, pm.operating_status, pm.transition_time_ms, pm.paired_entity
+        FROM railway_control.point_machines pm
+        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
+        ORDER BY pm.machine_id
+    )";
+
+    if (pointQuery.exec(pointSql)) {
+        while (pointQuery.next()) {
+            points.append(convertPointMachineRowToVariant(pointQuery));
+        }
+    } else {
+        qWarning() << "SAFETY CRITICAL: Point machine query failed:" << pointQuery.lastError().text();
+    }
+
+    return points;
 }
 
 bool DatabaseManager::updateMainSignalAspect(const QString& signalId, const QString& newAspect) {
@@ -1026,12 +1057,23 @@ bool DatabaseManager::updateSignalAspect(const QString& signalId,
     return false;
 }
 
+QString DatabaseManager::getPairedMachine(const QString& machineId) {
+    QSqlQuery query(db);
+    query.prepare("SELECT paired_entity FROM railway_control.point_machines WHERE machine_id = ?");
+    query.addBindValue(machineId);
+
+    if (query.exec() && query.next()) {
+        return query.value(0).toString();
+    }
+    return QString();
+}
+
 bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const QString& newPosition) {
     if (!connected) return false;
 
     qDebug() << "SAFETY: Updating point machine:" << machineId << "to position:" << newPosition;
 
-    // NEW: Get current position for interlocking validation
+    // Step 1: Get current positions for paired validation
     QString currentPosition = getCurrentPointPosition(machineId);
     if (currentPosition.isEmpty()) {
         qWarning() << "Could not get current position for point machine:" << machineId;
@@ -1039,38 +1081,97 @@ bool DatabaseManager::updatePointMachinePosition(const QString& machineId, const
         return false;
     }
 
-    // NEW: Interlocking validation (if service is available)
-    if (m_interlockingService) {
-        auto validation = m_interlockingService->validatePointMachineOperation(
-            machineId, currentPosition, newPosition, "HMI_USER");
+    // Step 2: Get paired machine info for comprehensive validation
+    QString pairedMachineId = getPairedMachine(machineId);
 
-        if (!validation.isAllowed()) {
-            qDebug() << "Point machine operation blocked by interlocking:" << validation.getReason();
-            emit operationBlocked(machineId, validation.getReason());
-            // return false;
+    if (!pairedMachineId.isEmpty()) {
+        QString pairedCurrentPosition = getCurrentPointPosition(pairedMachineId);
+
+        // === USE PAIRED VALIDATION ===
+        if (m_interlockingService) {
+            auto validation = m_interlockingService->validatePairedPointMachineOperation(
+                machineId, pairedMachineId, currentPosition, pairedCurrentPosition, newPosition, "HMI_USER");
+
+            if (!validation.isAllowed()) {
+                qDebug() << "Paired point machine operation blocked by interlocking:" << validation.getReason();
+                emit operationBlocked(machineId, validation.getReason());
+                return false;
+            }
         }
-
-        qDebug() << "Interlocking validation passed for point machine" << machineId;
     } else {
-        qWarning() << "Interlocking service not available - proceeding without validation";
+        // === SINGLE MACHINE VALIDATION ===
+        if (m_interlockingService) {
+            auto validation = m_interlockingService->validatePointMachineOperation(
+                machineId, currentPosition, newPosition, "HMI_USER");
+
+            if (!validation.isAllowed()) {
+                qDebug() << "Point machine operation blocked by interlocking:" << validation.getReason();
+                emit operationBlocked(machineId, validation.getReason());
+                return false;
+            }
+        }
     }
 
-    // EXISTING: Original database update logic
+    qDebug() << "Interlocking validation passed for all affected machines";
+
+    // Step 3: Execute atomic database operation (rest remains unchanged)
+    if (!db.transaction()) {
+        qWarning() << "SAFETY CRITICAL: Failed to start transaction for point machine update";
+        return false;
+    }
+
     QSqlQuery query(db);
-    query.prepare("SELECT railway_control.update_point_position(?, ?, 'HMI_USER')");
+    query.prepare("SELECT railway_control.update_point_position_paired(?, ?, 'HMI_USER')");
     query.addBindValue(machineId);
     query.addBindValue(newPosition);
 
+    bool success = false;
     if (query.exec() && query.next()) {
-        bool success = query.value(0).toBool();
+        QJsonDocument doc = QJsonDocument::fromJson(query.value(0).toString().toUtf8());
+        QJsonObject result = doc.object();
+
+        success = result["success"].toBool();
+        bool positionMismatch = result["position_mismatch"].toBool();
+        QJsonArray updatedMachines = result["machines_updated"].toArray();
+        QString message = result["message"].toString();
+
         if (success) {
-            emit pointMachineUpdated(machineId);
-            emit pointMachinesChanged();
+            if (db.commit()) {
+                qDebug() << "Point machine update successful:" << message;
+
+                // Emit appropriate signals
+                QStringList machinesList;
+                for (const auto& machine : updatedMachines) {
+                    machinesList.append(machine.toString());
+                    emit pointMachineUpdated(machine.toString());
+                }
+
+                if (machinesList.size() > 1) {
+                    emit pairedMachinesUpdated(machinesList);
+                }
+
+                if (positionMismatch) {
+                    qCritical() << "SAFETY WARNING: Position mismatch corrected for paired machines:"
+                                << machineId << "and" << pairedMachineId;
+                    emit positionMismatchCorrected(machineId, pairedMachineId);
+                }
+
+                emit pointMachinesChanged();
+                return true;
+            } else {
+                qWarning() << "SAFETY CRITICAL: Failed to commit transaction:" << db.lastError().text();
+                db.rollback();
+                return false;
+            }
+        } else {
+            qWarning() << "SAFETY CRITICAL: Point machine update failed:" << message;
+            db.rollback();
+            return false;
         }
-        return success;
     }
 
-    qWarning() << "SAFETY CRITICAL: Point machine update failed:" << query.lastError().text();
+    qWarning() << "SAFETY CRITICAL: Point machine update query failed:" << query.lastError().text();
+    db.rollback();
     return false;
 }
 
@@ -1149,8 +1250,7 @@ QString DatabaseManager::getCurrentPointPosition(const QString& machineId) {
     if (query.exec() && query.next()) {
         return query.value(0).toString();
     }
-
-    return QString(); // Empty string indicates error
+    return QString();
 }
 
 QStringList DatabaseManager::getProtectedTrackSegments(const QString& signalId) {
@@ -1410,6 +1510,24 @@ QVariantMap DatabaseManager::convertPointMachineRowToVariant(const QSqlQuery& qu
     pm["position"] = query.value("position").toString();
     pm["operatingStatus"] = query.value("operating_status").toString();
     pm["transitionTime"] = query.value("transition_time_ms").toInt();
+
+    // NEW: Add paired entity information with error checking
+    if (query.record().contains("paired_entity")) {
+        QString pairedEntity = query.value("paired_entity").toString();
+        pm["pairedEntity"] = pairedEntity.isEmpty() ? QVariant() : pairedEntity;
+        pm["isPaired"] = !pairedEntity.isEmpty();
+    } else {
+        qWarning() << "paired_entity field not found in query results";
+        pm["pairedEntity"] = QVariant();
+        pm["isPaired"] = false;
+    }
+
+    // Add isActive field - default to true if not present in database
+    if (query.record().contains("is_active")) {
+        pm["isActive"] = query.value("is_active").toBool();
+    } else {
+        pm["isActive"] = true; // Default to active if field doesn't exist
+    }
 
     // Junction point
     QVariantMap junctionPoint;

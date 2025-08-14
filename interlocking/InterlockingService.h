@@ -83,6 +83,14 @@ public:
                                                                const QString& requestedPosition,
                                                                const QString& operatorId = "HMI_USER");
 
+    // Add this method to InterlockingService class
+    Q_INVOKABLE ValidationResult validatePairedPointMachineOperation(const QString& machineId,
+                                                                    const QString& pairedMachineId,
+                                                                    const QString& currentPosition,
+                                                                    const QString& pairedCurrentPosition,
+                                                                    const QString& requestedPosition,
+                                                                    const QString& operatorId);
+
     // ✅ REMOVED: validateTrackSegmentAssignment - trackSegment occupancy is hardware-driven, no validation needed
 
     // ✅ SYSTEM MANAGEMENT

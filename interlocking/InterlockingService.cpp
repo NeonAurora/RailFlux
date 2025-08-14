@@ -217,6 +217,43 @@ ValidationResult InterlockingService::validatePointMachineOperation(
     return result;
 }
 
+ValidationResult InterlockingService::validatePairedPointMachineOperation(
+    const QString& machineId,
+    const QString& pairedMachineId,
+    const QString& currentPosition,
+    const QString& pairedCurrentPosition,
+    const QString& requestedPosition,
+    const QString& operatorId) {
+
+    QElapsedTimer timer;
+    timer.start();
+
+    if (!m_isOperational) {
+        return ValidationResult::blocked("Interlocking system not operational", "SYSTEM_OFFLINE");
+    }
+
+    if (!m_pointBranch) {
+        qCritical() << "🚨 CRITICAL: PointMachineBranch not initialized!";
+        return ValidationResult::blocked("Point machine validation not available", "POINT_BRANCH_MISSING");
+    }
+
+    // ✅ DELEGATE TO POINT MACHINE BRANCH FOR PAIRED VALIDATION
+    auto result = m_pointBranch->validatePairedOperation(
+        machineId, pairedMachineId, currentPosition, pairedCurrentPosition, requestedPosition, operatorId);
+
+    // ✅ RECORD PERFORMANCE
+    double responseTime = timer.elapsed();
+    recordResponseTime(responseTime);
+
+    qDebug() << "🔗 Paired point machine validation completed in" << responseTime << "ms:" << result.getReason();
+
+    if (!result.isAllowed()) {
+        emit operationBlocked(machineId, result.getReason());
+    }
+
+    return result;
+}
+
 // ============================================================================
 // ✅ REACTIVE INTERLOCKING: Hardware-driven trackSegment occupancy changes
 // ============================================================================
