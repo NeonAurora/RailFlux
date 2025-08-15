@@ -218,16 +218,6 @@ CREATE TABLE railway_control.interlocking_rules (
     )
 );
 
-CREATE TABLE railway_control.signal_track_segment_protection (
-    id SERIAL PRIMARY KEY,
-    signal_id VARCHAR(20) NOT NULL,
-    protected_track_segment_id VARCHAR(20) NOT NULL,
-    protection_type VARCHAR(50) DEFAULT 'APPROACH',
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(signal_id, protected_track_segment_id, protection_type)
-);
-
 -- ============================================================================
 -- AUDIT AND EVENT LOGGING SYSTEM
 -- ============================================================================
@@ -342,8 +332,6 @@ CREATE INDEX idx_track_circuits_protecting_signals ON railway_control.track_circ
 -- Additional indexes
 CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id);
 CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id);
-CREATE INDEX idx_signal_track_segment_protection_signal ON railway_control.signal_track_segment_protection(signal_id);
-CREATE INDEX idx_signal_track_segment_protection_track_segment ON railway_control.signal_track_segment_protection(protected_track_segment_id);
 CREATE INDEX idx_signals_protected_track_segments ON railway_control.signals USING gin(protected_track_segments);
 CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals);
 CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals);

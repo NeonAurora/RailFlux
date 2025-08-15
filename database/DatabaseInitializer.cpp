@@ -389,7 +389,7 @@ bool DatabaseInitializer::executeSchemaScript() {
 
         -- ✅ INTERLOCKING FIELDS (unchanged)
         interlocked_with INTEGER[],
-        protected_track_segments TEXT[],
+        protected_track_circuits TEXT[],
         manual_control_active BOOLEAN DEFAULT FALSE,
 
         -- ✅ TIMESTAMP FIELDS (unchanged)
@@ -469,16 +469,6 @@ bool DatabaseInitializer::executeSchemaScript() {
         CONSTRAINT chk_no_self_reference CHECK (
             NOT (source_entity_type = target_entity_type AND source_entity_id = target_entity_id)
         )
-    ))",
-
-        R"(CREATE TABLE railway_control.signal_track_segment_protection (
-        id SERIAL PRIMARY KEY,
-        signal_id VARCHAR(20) NOT NULL,
-        protected_track_segment_id VARCHAR(20) NOT NULL,
-        protection_type VARCHAR(50) DEFAULT 'APPROACH',
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(signal_id, protected_track_segment_id, protection_type)
     ))"
     };
 
@@ -752,23 +742,38 @@ bool DatabaseInitializer::populateConfigurationData() {
     return true;
 }
 
-// ✅ NEW: Populate trackSegment circuits FIRST
 bool DatabaseInitializer::populateTrackCircuits() {
     QJsonArray circuitData = getTrackCircuitMappings();
 
     QString insertQuery = R"(
         INSERT INTO railway_control.track_circuits
-        (circuit_id, circuit_name, is_occupied, is_active)
-        VALUES (?, ?, FALSE, TRUE)
+        (circuit_id, circuit_name, is_occupied, is_active, protecting_signals)
+        VALUES (?, ?, FALSE, TRUE, ?)
         ON CONFLICT (circuit_id) DO NOTHING
     )";
 
     for (const auto& value : circuitData) {
         QJsonObject circuit = value.toObject();
 
+        // ✅ CONVERT: JSON array to PostgreSQL TEXT[] format
+        QJsonArray protectingSignalsArray = circuit["protecting_signals"].toArray();
+        QStringList protectingSignalsList;
+        for (const auto& signal : protectingSignalsArray) {
+            protectingSignalsList.append(signal.toString());
+        }
+
+        // ✅ FORMAT: Create PostgreSQL array string {signal1,signal2,signal3}
+        QString protectingSignalsStr;
+        if (protectingSignalsList.isEmpty()) {
+            protectingSignalsStr = "{}";  // Empty array
+        } else {
+            protectingSignalsStr = "{" + protectingSignalsList.join(",") + "}";
+        }
+
         QVariantList params = {
             circuit["circuit_id"].toString(),
-            circuit["circuit_name"].toString()
+            circuit["circuit_name"].toString(),
+            protectingSignalsStr
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -779,23 +784,39 @@ bool DatabaseInitializer::populateTrackCircuits() {
     return true;
 }
 
-// ✅ UPDATED: Populate trackSegment segments WITHOUT occupancy fields
+
+// ✅ UPDATED: Populate track segments WITH protecting signals
 bool DatabaseInitializer::populateTrackSegments() {
     QJsonArray trackSegmentData = getTrackSegmentsData();
 
     QString insertQuery = R"(
         INSERT INTO railway_control.track_segments
-        (segment_id, start_row, start_col, end_row, end_col, circuit_id, is_assigned)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (segment_id, start_row, start_col, end_row, end_col, circuit_id, is_assigned, protecting_signals)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (segment_id) DO NOTHING
     )";
 
     for (const auto& trackSegmentValue : trackSegmentData) {
         QJsonObject trackSegment = trackSegmentValue.toObject();
 
-        // ? Handle INVALID circuit_id by setting to NULL
+        // ✅ HANDLE: INVALID circuit_id by setting to NULL
         QString circuitId = trackSegment["circuit_id"].toString();
         QVariant circuitIdValue = (circuitId == "INVALID") ? QVariant() : QVariant(circuitId);
+
+        // ✅ CONVERT: JSON array to PostgreSQL TEXT[] format
+        QJsonArray protectingSignalsArray = trackSegment["protecting_signals"].toArray();
+        QStringList protectingSignalsList;
+        for (const auto& signal : protectingSignalsArray) {
+            protectingSignalsList.append(signal.toString());
+        }
+
+        // ✅ FORMAT: Create PostgreSQL array string {signal1,signal2,signal3}
+        QString protectingSignalsStr;
+        if (protectingSignalsList.isEmpty()) {
+            protectingSignalsStr = "{}";  // Empty array
+        } else {
+            protectingSignalsStr = "{" + protectingSignalsList.join(",") + "}";
+        }
 
         QVariantList params = {
             trackSegment["id"].toString(),
@@ -803,8 +824,9 @@ bool DatabaseInitializer::populateTrackSegments() {
             trackSegment["startCol"].toDouble(),
             trackSegment["endRow"].toDouble(),
             trackSegment["endCol"].toDouble(),
-            circuitIdValue,  // ? NULL for INVALID circuits
-            trackSegment["assigned"].toBool()
+            circuitIdValue,  // ✅ NULL for INVALID circuits
+            trackSegment["assigned"].toBool(),
+            protectingSignalsStr
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -837,9 +859,10 @@ int DatabaseInitializer::getAspectIdByCode(const QString& aspectCode) {
 
 // Rest of the methods remain the same...
 bool DatabaseInitializer::populateSignals() {
+    updateProgress(40, "Populating signals...");
+
     // Combine all signal types
     QJsonArray allSignals;
-
     QJsonArray outerSignals = getOuterSignalsData();
     QJsonArray homeSignals = getHomeSignalsData();
     QJsonArray starterSignals = getStarterSignalsData();
@@ -877,11 +900,11 @@ bool DatabaseInitializer::populateSignals() {
             aspectId = aspectQuery.value(0).toInt();
         }
 
-        // ✅ NEW: Get calling-on aspect ID
+        // ✅ Get calling-on aspect ID
         QString callingOnAspectStr = signal["callingOnAspect"].toString("OFF");
         int callingOnAspectId = getAspectIdByCode(callingOnAspectStr);
 
-        // ✅ NEW: Get loop aspect ID
+        // ✅ Get loop aspect ID
         QString loopAspectStr = signal["loopAspect"].toString("OFF");
         int loopAspectId = getAspectIdByCode(loopAspectStr);
 
@@ -893,17 +916,32 @@ bool DatabaseInitializer::populateSignals() {
         }
         QString aspectsArrayStr = "{" + aspectsList.join(",") + "}";
 
-        // ✅ UPDATED: Insert query with new aspect ID columns
+        // ✅ NEW: Convert protected track circuits array to PostgreSQL TEXT[]
+        QJsonArray protectedCircuitsArray = signal["protectedTrackCircuits"].toArray();
+        QStringList protectedCircuitsList;
+        for (const auto& circuit : protectedCircuitsArray) {
+            protectedCircuitsList.append(circuit.toString());
+        }
+
+        QString protectedCircuitsStr;
+        if (protectedCircuitsList.isEmpty()) {
+            protectedCircuitsStr = "{}";
+        } else {
+            protectedCircuitsStr = "{" + protectedCircuitsList.join(",") + "}";
+        }
+
+        // ✅ UPDATED: Insert query with protected_track_circuits
         QString insertQuery = R"(
             INSERT INTO railway_control.signals
             (signal_id, signal_name, signal_type_id, location_row, location_col,
              direction, current_aspect_id, calling_on_aspect_id, loop_aspect_id,
              loop_signal_configuration, aspect_count, possible_aspects,
-             is_active, location_description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             protected_track_circuits, is_active, location_description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (signal_id) DO NOTHING
         )";
 
-        // ✅ UPDATED: Parameters with aspect IDs instead of strings
+        // ✅ UPDATED: Parameters with new protected_track_circuits field
         QVariantList params = {
             signal["id"].toString(),
             signal["name"].toString(),
@@ -917,6 +955,7 @@ bool DatabaseInitializer::populateSignals() {
             signal["loopSignalConfiguration"].toString("UR"),
             signal["aspectCount"].toInt(2),
             aspectsArrayStr,
+            protectedCircuitsStr,                                       // ✅ NEW: protected_track_circuits
             signal["isActive"].toBool(true),
             signal["location"].toString()
         };
@@ -1022,39 +1061,39 @@ bool DatabaseInitializer::populateTextLabels() {
 }
 
 bool DatabaseInitializer::populateInterlockingRules() {
-    QStringList interlockingRules = {
-        R"(INSERT INTO railway_control.interlocking_rules (
+    updateProgress(60, "Populating interlocking rules...");
+
+    QJsonArray rulesData = getInterlockingRulesData();
+
+    QString insertQuery = R"(
+        INSERT INTO railway_control.interlocking_rules (
             rule_name, source_entity_type, source_entity_id,
             target_entity_type, target_entity_id, target_constraint,
             rule_type, priority
-        ) VALUES
-        ('Opposing Signals HM001-HM002', 'SIGNAL', 'HM001', 'SIGNAL', 'HM002', 'MUST_BE_RED', 'OPPOSING', 1000),
-        ('Opposing Signals HM002-HM001', 'SIGNAL', 'HM002', 'SIGNAL', 'HM001', 'MUST_BE_RED', 'OPPOSING', 1000),
-        ('Signal OT001 protects Circuit 6T', 'SIGNAL', 'OT001', 'TRACK_CIRCUIT', '6T', 'MUST_BE_CLEAR', 'PROTECTING', 900),
-        ('Signal HM001 protects Circuit W22T', 'SIGNAL', 'HM001', 'TRACK_CIRCUIT', 'W22T', 'MUST_BE_CLEAR', 'PROTECTING', 900),
-        ('Signal ST001 protects Circuit W21T', 'SIGNAL', 'ST001', 'TRACK_CIRCUIT', 'W21T', 'MUST_BE_CLEAR', 'PROTECTING', 900)
-        ON CONFLICT DO NOTHING)",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT DO NOTHING
+    )";
 
-        R"(INSERT INTO railway_control.signal_track_segment_protection (signal_id, protected_track_segment_id, protection_type) VALUES
-        ('OT001', 'T1S3', 'APPROACH'),
-        ('HM001', 'T1S5', 'APPROACH'),
-        ('HM001', 'T1S6', 'CLEARING'),
-        ('ST001', 'T4S2', 'APPROACH'),
-        ('ST002', 'T1S8', 'CLEARING'),
-        ('ST002', 'T1S9', 'CLEARING'),
-        ('ST002', 'T1S10', 'CLEARING'),
-        ('AS001', 'T1S11', 'CLEARING'),
-        ('AS001', 'T1S12', 'CLEARING')
-        ON CONFLICT DO NOTHING)"
-    };
+    for (const auto& value : rulesData) {
+        QJsonObject rule = value.toObject();
 
-    qDebug() << "Populating interlocking rules...";
-    for (const QString& query : interlockingRules) {
-        if (!executeQuery(query)) {
-            qWarning() << "Failed to insert interlocking rule:" << query.left(100) + "...";
+        QVariantList params = {
+            rule["rule_name"].toString(),
+            rule["source_entity_type"].toString(),
+            rule["source_entity_id"].toString(),
+            rule["target_entity_type"].toString(),
+            rule["target_entity_id"].toString(),
+            rule["target_constraint"].toString(),
+            rule["rule_type"].toString(),
+            rule["priority"].toInt()
+        };
+
+        if (!executeQuery(insertQuery, params)) {
+            return false;
         }
     }
 
+    qDebug() << "✅ Populated" << rulesData.size() << "interlocking rules from structured data";
     return true;
 }
 
@@ -1707,9 +1746,7 @@ bool DatabaseInitializer::createGinIndexes() {
         "CREATE INDEX idx_track_circuits_protecting_signals ON railway_control.track_circuits USING gin(protecting_signals)",
         "CREATE INDEX idx_interlocking_rules_source ON railway_control.interlocking_rules(source_entity_type, source_entity_id)",
         "CREATE INDEX idx_interlocking_rules_target ON railway_control.interlocking_rules(target_entity_type, target_entity_id)",
-        "CREATE INDEX idx_signal_track_segment_protection_signal ON railway_control.signal_track_segment_protection(signal_id)",
-        "CREATE INDEX idx_signal_track_segment_protection_track_segment ON railway_control.signal_track_segment_protection(protected_track_segment_id)",
-        "CREATE INDEX idx_signals_protected_track_segments ON railway_control.signals USING gin(protected_track_segments)",
+        "CREATE INDEX idx_signals_protected_track_circuits ON railway_control.signals USING gin(protected_track_circuits)",
         "CREATE INDEX idx_track_segments_protecting_signals ON railway_control.track_segments USING gin(protecting_signals)",
         "CREATE INDEX idx_point_machines_protected_signals ON railway_control.point_machines USING gin(protected_signals)"
     };
@@ -1792,7 +1829,7 @@ bool DatabaseInitializer::createViews() {
 
             -- ✅ INTERLOCKING FIELDS (unchanged)
             s.interlocked_with,
-            s.protected_track_segments,
+            s.protected_track_circuits,
             s.manual_control_active,
 
             -- ✅ TIMESTAMP FIELDS (unchanged)
@@ -2035,45 +2072,81 @@ void DatabaseInitializer::updateProgress(int value, const QString& operation) {
     qDebug() << QString("Progress [%1%]: %2").arg(value).arg(operation);
 }
 
+QJsonArray DatabaseInitializer::getInterlockingRulesData() {
+    return QJsonArray {
+        // ✅ PROTECTION RULES
+        QJsonObject{{"rule_name", "Signal AS002 protects Circuit A42T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "AS002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "A42T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal OT001 protects Circuit 6T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "OT001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "6T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal AS002 protects Circuit 6T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "AS002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "6T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal OT001 protects Circuit 5T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "OT001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "5T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal ST003 protects Circuit 5T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "ST003"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "5T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal HM001 protects Circuit W22T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "HM001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "W22T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal ST003 protects Circuit W22T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "ST003"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "W22T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal ST004 protects Circuit W22T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "ST004"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "W22T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal HM001 protects Circuit 3T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "HM001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "3T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal HM002 protects Circuit 3T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "HM002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "3T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal HM002 protects Circuit W21T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "HM002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "W21T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal ST001 protects Circuit W21T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "ST001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "W21T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal ST002 protects Circuit W21T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "ST002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "W21T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal OT002 protects Circuit 2T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "OT002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "2T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal ST001 protects Circuit 2T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "ST001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "2T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal OT002 protects Circuit 1T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "OT002"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "1T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+        QJsonObject{{"rule_name", "Signal AS001 protects Circuit 1T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "AS001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "1T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        QJsonObject{{"rule_name", "Signal AS001 protects Circuit A1T"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "AS001"}, {"target_entity_type", "TRACK_CIRCUIT"}, {"target_entity_id", "A1T"}, {"target_constraint", "MUST_BE_CLEAR"}, {"rule_type", "PROTECTING"}, {"priority", 900}},
+
+        // ✅ OPPOSING RULES
+        QJsonObject{{"rule_name", "Opposing Signals HM001-HM002"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "HM001"}, {"target_entity_type", "SIGNAL"}, {"target_entity_id", "HM002"}, {"target_constraint", "MUST_BE_RED"}, {"rule_type", "OPPOSING"}, {"priority", 1000}},
+        QJsonObject{{"rule_name", "Opposing Signals HM002-HM001"}, {"source_entity_type", "SIGNAL"}, {"source_entity_id", "HM002"}, {"target_entity_type", "SIGNAL"}, {"target_entity_id", "HM001"}, {"target_constraint", "MUST_BE_RED"}, {"rule_type", "OPPOSING"}, {"priority", 1000}}
+    };
+}
+
 // ✅ UPDATED: Data methods with circuit_id
 QJsonArray DatabaseInitializer::getTrackSegmentsData() {
     return QJsonArray {
-        QJsonObject{{"id", "T1S1"}, {"startRow", 110}, {"startCol", 0}, {"endRow", 110}, {"endCol", 12}, {"circuit_id", "INVALID"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S2"}, {"startRow", 110}, {"startCol", 13}, {"endRow", 110}, {"endCol", 34}, {"circuit_id", "A42T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S3"}, {"startRow", 110}, {"startCol", 35}, {"endRow", 110}, {"endCol", 67}, {"circuit_id", "6T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S6"}, {"startRow", 110}, {"startCol", 128}, {"endRow", 110}, {"endCol", 158}, {"circuit_id", "W22T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S8"}, {"startRow", 110}, {"startCol", 222}, {"endRow", 110}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S9"}, {"startRow", 110}, {"startCol", 264}, {"endRow", 110}, {"endCol", 286}, {"circuit_id", "W21T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S10"}, {"startRow", 110}, {"startCol", 287}, {"endRow", 110}, {"endCol", 305}, {"circuit_id", "2T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S11"}, {"startRow", 110}, {"startCol", 306}, {"endRow", 110}, {"endCol", 338}, {"circuit_id", "1T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S12"}, {"startRow", 110}, {"startCol", 339}, {"endRow", 110}, {"endCol", 358}, {"circuit_id", "A1T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S13"}, {"startRow", 110}, {"startCol", 359}, {"endRow", 110}, {"endCol", 369}, {"circuit_id", "INVALID"}, {"assigned", false}},
-        QJsonObject{{"id", "T4S1"}, {"startRow", 88}, {"startCol", 125}, {"endRow", 88}, {"endCol", 137}, {"circuit_id", "W22T"}, {"assigned", false}},
-        QJsonObject{{"id", "T4S2"}, {"startRow", 88}, {"startCol", 147}, {"endRow", 88}, {"endCol", 153}, {"circuit_id", "W22T"}, {"assigned", false}},
-        QJsonObject{{"id", "T4S3"}, {"startRow", 88}, {"startCol", 154}, {"endRow", 88}, {"endCol", 226}, {"circuit_id", "4T"}, {"assigned", false}},
-        QJsonObject{{"id", "T4S4"}, {"startRow", 88}, {"startCol", 227}, {"endRow", 88}, {"endCol", 232}, {"circuit_id", "W21T"}, {"assigned", false}},
-        QJsonObject{{"id", "T4S5"}, {"startRow", 88}, {"startCol", 242}, {"endRow", 88}, {"endCol", 258}, {"circuit_id", "W21T"}, {"assigned", false}},
-        QJsonObject{{"id", "T5S1"}, {"startRow", 106}, {"startCol", 125}, {"endRow", 92}, {"endCol", 139}, {"circuit_id", "W22T"}, {"assigned", false}},
-        QJsonObject{{"id", "T6S1"}, {"startRow", 92}, {"startCol", 240}, {"endRow", 105}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}}
+        QJsonObject{{"id", "T1S1"}, {"startRow", 110}, {"startCol", 0}, {"endRow", 110}, {"endCol", 12}, {"circuit_id", "INVALID"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T1S2"}, {"startRow", 110}, {"startCol", 13}, {"endRow", 110}, {"endCol", 34}, {"circuit_id", "A42T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"AS002"}}},
+        QJsonObject{{"id", "T1S3"}, {"startRow", 110}, {"startCol", 35}, {"endRow", 110}, {"endCol", 67}, {"circuit_id", "6T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
+        QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
+        QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T1S6"}, {"startRow", 110}, {"startCol", 128}, {"endRow", 110}, {"endCol", 158}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "HM002"}}},
+        QJsonObject{{"id", "T1S8"}, {"startRow", 110}, {"startCol", 222}, {"endRow", 110}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T1S9"}, {"startRow", 110}, {"startCol", 264}, {"endRow", 110}, {"endCol", 286}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T1S10"}, {"startRow", 110}, {"startCol", 287}, {"endRow", 110}, {"endCol", 305}, {"circuit_id", "2T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
+        QJsonObject{{"id", "T1S11"}, {"startRow", 110}, {"startCol", 306}, {"endRow", 110}, {"endCol", 338}, {"circuit_id", "1T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
+        QJsonObject{{"id", "T1S12"}, {"startRow", 110}, {"startCol", 339}, {"endRow", 110}, {"endCol", 358}, {"circuit_id", "A1T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"AS001"}}},
+        QJsonObject{{"id", "T1S13"}, {"startRow", 110}, {"startCol", 359}, {"endRow", 110}, {"endCol", 369}, {"circuit_id", "INVALID"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T4S1"}, {"startRow", 88}, {"startCol", 125}, {"endRow", 88}, {"endCol", 137}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T4S2"}, {"startRow", 88}, {"startCol", 147}, {"endRow", 88}, {"endCol", 153}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T4S3"}, {"startRow", 88}, {"startCol", 154}, {"endRow", 88}, {"endCol", 226}, {"circuit_id", "4T"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T4S4"}, {"startRow", 88}, {"startCol", 227}, {"endRow", 88}, {"endCol", 232}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T4S5"}, {"startRow", 88}, {"startCol", 242}, {"endRow", 88}, {"endCol", 258}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T5S1"}, {"startRow", 106}, {"startCol", 125}, {"endRow", 92}, {"endCol", 139}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T6S1"}, {"startRow", 92}, {"startCol", 240}, {"endRow", 105}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}}
     };
 }
 
 // ✅ NEW: Circuit mapping data
 QJsonArray DatabaseInitializer::getTrackCircuitMappings() {
     return QJsonArray {
-        QJsonObject{{"circuit_id", "A42T"}, {"circuit_name", "Approach Block A42T"}},
-        QJsonObject{{"circuit_id", "6T"}, {"circuit_name", "Main Line Section 6T"}},
-        QJsonObject{{"circuit_id", "5T"}, {"circuit_name", "Main Line Section 5T"}},
-        QJsonObject{{"circuit_id", "W22T"}, {"circuit_name", "Junction W22T Circuit"}},
-        QJsonObject{{"circuit_id", "3T"}, {"circuit_name", "Platform Section 3T"}},
-        QJsonObject{{"circuit_id", "W21T"}, {"circuit_name", "Junction W21T Circuit"}},
-        QJsonObject{{"circuit_id", "2T"}, {"circuit_name", "Main Line Section 2T"}},
-        QJsonObject{{"circuit_id", "1T"}, {"circuit_name", "Main Line Section 1T"}},
-        QJsonObject{{"circuit_id", "A1T"}, {"circuit_name", "Exit Block A1T"}},
-        QJsonObject{{"circuit_id", "4T"}, {"circuit_name", "Loop Section 4T"}}
+        QJsonObject{{"circuit_id", "A42T"}, {"circuit_name", "Approach Block A42T"}, {"protecting_signals", QJsonArray{"AS002"}}},
+        QJsonObject{{"circuit_id", "6T"}, {"circuit_name", "Main Line Section 6T"}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
+        QJsonObject{{"circuit_id", "5T"}, {"circuit_name", "Main Line Section 5T"}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
+        QJsonObject{{"circuit_id", "W22T"}, {"circuit_name", "Junction W22T Circuit"}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"circuit_id", "3T"}, {"circuit_name", "Platform Section 3T"}, {"protecting_signals", QJsonArray{"HM001", "HM002"}}},
+        QJsonObject{{"circuit_id", "W21T"}, {"circuit_name", "Junction W21T Circuit"}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"circuit_id", "2T"}, {"circuit_name", "Main Line Section 2T"}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
+        QJsonObject{{"circuit_id", "1T"}, {"circuit_name", "Main Line Section 1T"}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
+        QJsonObject{{"circuit_id", "A1T"}, {"circuit_name", "Exit Block A1T"}, {"protecting_signals", QJsonArray{"AS001"}}},
+        QJsonObject{{"circuit_id", "4T"}, {"circuit_name", "Loop Section 4T"}, {"protecting_signals", QJsonArray{}}}
     };
 }
 
@@ -2085,6 +2158,7 @@ QJsonArray DatabaseInitializer::getOuterSignalsData() {
             {"row", 102}, {"col", 30}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 4},
             {"possibleAspects", QJsonArray{"RED", "SINGLE_YELLOW", "DOUBLE_YELLOW", "GREEN"}},
+            {"protectedTrackCircuits", QJsonArray{"6T", "5T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Approach_Block_1"}
         },
         QJsonObject{
@@ -2092,6 +2166,7 @@ QJsonArray DatabaseInitializer::getOuterSignalsData() {
             {"row", 113}, {"col", 330}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 4},
             {"possibleAspects", QJsonArray{"RED", "SINGLE_YELLOW", "DOUBLE_YELLOW", "GREEN"}},
+            {"protectedTrackCircuits", QJsonArray{"2T", "1T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Approach_Block_2"}
         }
     };
@@ -2105,6 +2180,7 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"callingOnAspect", "WHITE"}, {"loopAspect", "YELLOW"}, {"loopSignalConfiguration", "UR"},
+            {"protectedTrackCircuits", QJsonArray{"W22T", "3T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Entry"}
         },
         QJsonObject{
@@ -2113,6 +2189,7 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"callingOnAspect", "OFF"}, {"loopAspect", "OFF"}, {"loopSignalConfiguration", "UR"},
+            {"protectedTrackCircuits", QJsonArray{"3T", "W21T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Exit"}
         }
     };
@@ -2125,6 +2202,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"row", 103}, {"col", 217}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
+            {"protectedTrackCircuits", QJsonArray{"W21T", "2T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         },
         QJsonObject{
@@ -2132,6 +2210,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"row", 83}, {"col", 220}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "YELLOW"}},
+            {"protectedTrackCircuits", QJsonArray{"W21T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Departure"}
         },
         QJsonObject{
@@ -2139,6 +2218,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"row", 115}, {"col", 152}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
+            {"protectedTrackCircuits", QJsonArray{"5T", "W22T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         },
         QJsonObject{
@@ -2146,6 +2226,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"row", 91}, {"col", 150}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "YELLOW"}},
+            {"protectedTrackCircuits", QJsonArray{"W22T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Junction_Loop_Entry"}
         }
     };
@@ -2158,6 +2239,7 @@ QJsonArray DatabaseInitializer::getAdvancedStarterSignalsData() {
             {"row", 102}, {"col", 302}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "GREEN"}},
+            {"protectedTrackCircuits", QJsonArray{"1T", "A1T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Advanced_Departure_A"}
         },
         QJsonObject{
@@ -2165,6 +2247,7 @@ QJsonArray DatabaseInitializer::getAdvancedStarterSignalsData() {
             {"row", 113}, {"col", 56}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "GREEN"}},
+            {"protectedTrackCircuits", QJsonArray{"A42T", "6T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Advanced_Departure_B"}
         }
     };

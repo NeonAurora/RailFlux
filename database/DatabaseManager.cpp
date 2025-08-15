@@ -1253,21 +1253,6 @@ QString DatabaseManager::getCurrentPointPosition(const QString& machineId) {
     return QString();
 }
 
-QStringList DatabaseManager::getProtectedTrackSegments(const QString& signalId) {
-    QSqlQuery query(db);
-    query.prepare("SELECT protected_track_segment_id FROM railway_control.signal_track_segment_protection WHERE signal_id = ? AND is_active = TRUE");
-    query.addBindValue(signalId);
-
-    QStringList trackSegments;
-    if (query.exec()) {
-        while (query.next()) {
-            trackSegments.append(query.value(0).toString());
-        }
-    }
-
-    return trackSegments;
-}
-
 QStringList DatabaseManager::getInterlockedSignals(const QString& signalId) {
     auto signalData = getSignalById(signalId);
     if (!signalData.isEmpty()) {
@@ -1431,6 +1416,147 @@ QVariantList DatabaseManager::getTrackCircuitsList() {
     return circuits;
 }
 
+// === NEW: TRIPLE-SOURCE PROTECTION SIGNAL IMPLEMENTATIONS ===
+
+QStringList DatabaseManager::getProtectingSignalsFromInterlockingRules(const QString& circuitId) {
+    if (!connected) return QStringList();
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT source_entity_id
+        FROM railway_control.interlocking_rules
+        WHERE target_entity_type = 'TRACK_CIRCUIT'
+          AND target_entity_id = ?
+          AND source_entity_type = 'SIGNAL'
+          AND target_constraint = 'MUST_BE_CLEAR'
+          AND rule_type = 'PROTECTING'
+          AND is_active = TRUE
+        ORDER BY source_entity_id
+    )");
+    query.addBindValue(circuitId);
+
+    QStringList signalList;
+    if (query.exec()) {
+        while (query.next()) {
+            signalList.append(query.value(0).toString());
+        }
+    } else {
+        qWarning() << "❌ DatabaseManager: Failed to query interlocking rules for track circuit" << circuitId << ":" << query.lastError().text();
+    }
+
+    return signalList;
+}
+
+QStringList DatabaseManager::getProtectingSignalsFromTrackCircuits(const QString& circuitId) {
+    if (!connected) return QStringList();
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT protecting_signals
+        FROM railway_control.track_circuits
+        WHERE circuit_id = ?
+          AND is_active = TRUE
+    )");
+    query.addBindValue(circuitId);
+
+    QStringList signalList;
+    if (query.exec() && query.next()) {
+        // Parse PostgreSQL TEXT[] array format: {signal1,signal2,signal3}
+        QString protectingSignalsStr = query.value(0).toString();
+        if (!protectingSignalsStr.isEmpty() && protectingSignalsStr != "{}") {
+            protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
+            signalList = protectingSignalsStr.split(",", Qt::SkipEmptyParts);
+            for (QString& signal : signalList) {
+                signal = signal.trimmed();
+            }
+        }
+    } else if (!query.exec()) {
+        qWarning() << "❌ DatabaseManager: Failed to query track circuits for circuit" << circuitId << ":" << query.lastError().text();
+    }
+
+    return signalList;
+}
+
+QStringList DatabaseManager::getProtectingSignalsFromTrackSegments(const QString& trackSegmentId) {
+    if (!connected) return QStringList();
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT protecting_signals
+        FROM railway_control.track_segments
+        WHERE segment_id = ?
+          AND is_active = TRUE
+    )");
+    query.addBindValue(trackSegmentId);
+
+    QStringList signalList;
+    if (query.exec() && query.next()) {
+        // Parse PostgreSQL TEXT[] array format: {signal1,signal2,signal3}
+        QString protectingSignalsStr = query.value(0).toString();
+        if (!protectingSignalsStr.isEmpty() && protectingSignalsStr != "{}") {
+            protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
+            signalList = protectingSignalsStr.split(",", Qt::SkipEmptyParts);
+            for (QString& signal : signalList) {
+                signal = signal.trimmed();
+            }
+        }
+    } else if (!query.exec()) {
+        qWarning() << "❌ DatabaseManager: Failed to query track segments for segment" << trackSegmentId << ":" << query.lastError().text();
+    }
+
+    return signalList;
+}
+
+QStringList DatabaseManager::getProtectedTrackCircuitsFromInterlockingRules(const QString& signalId) {
+    if (!connected) return QStringList();
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT target_entity_id
+        FROM railway_control.interlocking_rules
+        WHERE source_entity_type = 'SIGNAL'
+          AND source_entity_id = ?
+          AND target_entity_type = 'TRACK_CIRCUIT'
+          AND target_constraint = 'MUST_BE_CLEAR'
+          AND rule_type = 'PROTECTING'
+          AND is_active = TRUE
+        ORDER BY target_entity_id
+    )");
+    query.addBindValue(signalId);
+
+    QStringList trackCircuits;
+    if (!query.exec()) {
+        qCritical() << "🚨 DatabaseManager: Failed to query interlocking rules for signal" << signalId << ":" << query.lastError().text();
+        return trackCircuits;
+    }
+
+    while (query.next()) {
+        trackCircuits.append(query.value(0).toString());
+    }
+
+    return trackCircuits;
+}
+
+QVariantMap DatabaseManager::getTrackCircuitById(const QString& circuitId) {
+    if (!connected) return QVariantMap();
+
+    QSqlQuery query(db);
+    query.prepare("SELECT * FROM railway_control.track_circuits WHERE circuit_id = ?");
+    query.addBindValue(circuitId);
+
+    if (query.exec() && query.next()) {
+        QVariantMap circuit;
+        circuit["circuitId"] = query.value("circuit_id").toString();
+        circuit["circuitName"] = query.value("circuit_name").toString();
+        circuit["occupied"] = query.value("is_occupied").toBool();
+        circuit["occupiedBy"] = query.value("occupied_by").toString();
+        circuit["isActive"] = query.value("is_active").toBool();
+        return circuit;
+    }
+
+    return QVariantMap();
+}
+
 
 // bool DatabaseManager::updateTrackSegmentAssignment(const QString& segmentId, bool isAssigned) {
 //     if (!connected) return false;
@@ -1587,6 +1713,28 @@ QVariantMap DatabaseManager::getAllTrackCircuitStates() {
     return states;
 }
 
+// === CIRCUIT LOOKUP IMPLEMENTATION ===
+QString DatabaseManager::getCircuitIdByTrackSegmentId(const QString& trackSegmentId) {
+    if (!connected) return QString();
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT circuit_id
+        FROM railway_control.track_segments
+        WHERE segment_id = ?
+          AND is_active = TRUE
+    )");
+    query.addBindValue(trackSegmentId);
+
+    if (query.exec() && query.next()) {
+        return query.value(0).toString();
+    } else if (!query.exec()) {
+        qWarning() << "❌ DatabaseManager: Failed to get circuit ID for track segment" << trackSegmentId << ":" << query.lastError().text();
+    }
+
+    return QString(); // Return empty if not found
+}
+
 QVariantMap DatabaseManager::getAllPointMachineStates() {
     QVariantMap states;
     QSqlQuery query("SELECT machine_id, current_position_id FROM railway_control.point_machines", db);
@@ -1604,93 +1752,6 @@ QString DatabaseManager::getPointPosition(int machineId) {
         return query.value(0).toString();
     }
     return "NORMAL"; // Safe default
-}
-
-bool DatabaseManager::setupDatabase() {
-    if (!connected) return false;
-
-    qDebug() << "🔧 Setting up railway control schema...";
-
-    QSqlQuery query(db);
-
-    // Create railway_control schema if it doesn't exist
-    if (!query.exec("CREATE SCHEMA IF NOT EXISTS railway_control")) {
-        qDebug() << "Failed to create railway_control schema:" << query.lastError().text();
-        return false;
-    }
-
-    // Create track_segments table
-    QString createTrackSegments = R"(
-        CREATE TABLE IF NOT EXISTS railway_control.track_segments (
-            segment_id SERIAL PRIMARY KEY,
-            segment_name VARCHAR(100) NOT NULL,
-            start_row INTEGER,
-            start_col INTEGER,
-            end_row INTEGER,
-            end_col INTEGER,
-            track_segment_type VARCHAR(50),
-            is_occupied BOOLEAN DEFAULT FALSE,
-            is_assigned BOOLEAN DEFAULT FALSE,
-            occupied_by VARCHAR(100),
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    )";
-
-    if (!query.exec(createTrackSegments)) {
-        qDebug() << "Failed to create track_segments table:" << query.lastError().text();
-        return false;
-    }
-
-    // Create signals table
-    QString createSignals = R"(
-        CREATE TABLE IF NOT EXISTS railway_control.signals (
-            signal_id SERIAL PRIMARY KEY,
-            signal_name VARCHAR(100) NOT NULL,
-            current_aspect_id INTEGER DEFAULT 1,
-            position_row INTEGER,
-            position_col INTEGER,
-            signal_type VARCHAR(50),
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    )";
-
-    if (!query.exec(createSignals)) {
-        qDebug() << "Failed to create signals table:" << query.lastError().text();
-        return false;
-    }
-
-    // Create point_machines table
-    QString createPointMachines = R"(
-        CREATE TABLE IF NOT EXISTS railway_control.point_machines (
-            machine_id SERIAL PRIMARY KEY,
-            machine_name VARCHAR(100) NOT NULL,
-            current_position VARCHAR(20) DEFAULT 'NORMAL',
-            position_row INTEGER,
-            position_col INTEGER,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    )";
-
-    if (!query.exec(createPointMachines)) {
-        qDebug() << "Failed to create point_machines table:" << query.lastError().text();
-        return false;
-    }
-
-    // Insert some test data
-    query.exec("INSERT INTO railway_control.track_segments (segment_name, start_row, start_col, end_row, end_col, track_segment_type) "
-               "VALUES ('Track Segment 1', 0, 0, 0, 10, 'MAIN') ON CONFLICT DO NOTHING");
-
-    query.exec("INSERT INTO railway_control.signals (signal_name, current_aspect_id, position_row, position_col, signal_type) "
-               "VALUES ('Signal A1', 1, 0, 5, 'HOME') ON CONFLICT DO NOTHING");
-
-    qDebug() << "Railway control schema and tables created successfully";
-    return true;
 }
 
 void DatabaseManager::logError(const QString& operation, const QSqlError& error) {

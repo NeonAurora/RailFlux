@@ -91,10 +91,16 @@ public:
 
     // Text Labels
     Q_INVOKABLE QVariantList getTextLabelsList();
-
-    // Interlocking support
-    Q_INVOKABLE QStringList getProtectedTrackSegments(const QString& signalId);
     Q_INVOKABLE QStringList getInterlockedSignals(const QString& signalId);
+
+    // === NEW: TRIPLE-SOURCE PROTECTION SIGNAL QUERIES ===
+    QStringList getProtectingSignalsFromInterlockingRules(const QString& circuitId);
+    QStringList getProtectingSignalsFromTrackCircuits(const QString& circuitId);
+    QStringList getProtectingSignalsFromTrackSegments(const QString& trackSegmentId);
+    QString getCircuitIdByTrackSegmentId(const QString& trackSegmentId);
+    QStringList getProtectedTrackCircuitsFromInterlockingRules(const QString& signalId);
+
+    QVariantMap getTrackCircuitById(const QString& circuitId);
 
 public slots:
     // Enhanced update method

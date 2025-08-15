@@ -18,8 +18,8 @@
           "when_aspect": "GREEN",
           "conditions": [{"point_machine": "PM004", "position": "REVERSE"}],
           "allows": {
-            "ST002": ["YELLOW", "RED"],
-            "ST001": ["RED"]
+            "ST001": ["RED"],
+            "ST002": ["YELLOW", "RED"]
           }
         },
         {
@@ -34,8 +34,8 @@
           "when_aspect": "RED", 
           "conditions": [{"point_machine": "PM004", "position": "REVERSE"}],
           "allows": {
-            "ST002": ["YELLOW", "RED"],
-            "ST001": ["RED"]
+            "ST001": ["RED"],
+            "ST002": ["YELLOW", "RED"]
           }
         }
       ]

@@ -44,9 +44,10 @@ private:
 
     // ✅ CORE METHODS: Track Segment section state and protection
     TrackSegmentState getTrackSegmentState(const QString& trackSegmentId);
-    QStringList getProtectingSignalsFromBothSources(const QString& trackSegmentId);
-    QStringList getProtectingSignalsFromDatabase(const QString& trackSegmentId);
-    QStringList getProtectingSignalsFromTrackSegmentData(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromThreeSources(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromInterlockingRules(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromTrackCircuits(const QString& trackSegmentId);
+    QStringList getProtectingSignalsFromTrackSegments(const QString& trackSegmentId);
 
     // ✅ ENFORCEMENT METHODS: Automatic signal control
     bool enforceSignalToRed(const QString& signalId, const QString& reason);
@@ -57,6 +58,11 @@ private:
     void handleInterlockingFailure(const QString& trackSegmentId, const QString& failedSignals, const QString& error);
     void logCriticalFailure(const QString& trackSegmentId, const QString& details);
     void emitSystemFreeze(const QString& trackSegmentId, const QString& reason, const QString& details);
+    void checkProtectingSignalsConsistency(
+        const QString& trackSegmentId,
+        const QStringList& fromInterlockingRules,
+        const QStringList& fromTrackCircuits,
+        const QStringList& fromTrackSegments);
 
     // ✅ UTILITY METHODS: Safety checks
     bool areAllSignalsAtRed(const QStringList& signalIds);

@@ -7,15 +7,15 @@ SignalBranch::SignalBranch(DatabaseManager* dbManager, QObject* parent)
     : QObject(parent), m_dbManager(dbManager) {
 
     if (!dbManager) {
-        qCritical() << "🚨 SAFETY: SignalBranch initialized with null DatabaseManager!";
+        qCritical() << "?? SAFETY: SignalBranch initialized with null DatabaseManager!";
         // Consider throwing or handling this critical error
     }
 
-    // ✅ INITIALIZE RULE ENGINE
+    // ? INITIALIZE RULE ENGINE
     m_ruleEngine = std::make_unique<InterlockingRuleEngine>(dbManager, this);
 
     if (!m_ruleEngine->loadRulesFromResource()) {
-        qCritical() << "🚨 SAFETY: Failed to load interlocking rules - system may not be safe!";
+        qCritical() << "?? SAFETY: Failed to load interlocking rules - system may not be safe!";
         // Consider setting a safety flag or refusing to operate
     }
 }
@@ -32,83 +32,81 @@ ValidationResult SignalBranch::validateMainAspectChange(
     auto basicResult = validateBasicTransition(signalId, currentAspect, requestedAspect);
     if (!basicResult.isAllowed()) return basicResult;
 
-    // 3. Track Segment protection validation
-    auto trackSegmentResult = checkTrackSegmentProtection(signalId, requestedAspect);
-    if (!trackSegmentResult.isAllowed()) return trackSegmentResult;
+    // 3. ? UPDATED: Track Circuit protection validation
+    auto trackCircuitResult = checkTrackCircuitProtection(signalId, requestedAspect);
+    if (!trackCircuitResult.isAllowed()) return trackCircuitResult;
 
-    // ✅ FIXED: Pass currentAspect instead of re-fetching
+    // 4. Interlocked signals validation
     auto interlockResult = checkInterlockedSignals(signalId, currentAspect, requestedAspect);
     if (!interlockResult.isAllowed()) return interlockResult;
 
     return ValidationResult::allowed("All signal validations passed");
 }
 
-// ✅ NEW: Add this method to SignalBranch.cpp
 ValidationResult SignalBranch::validateSubsidiaryAspectChange(
     const QString& signalId, const QString& aspectType,
     const QString& currentAspect, const QString& requestedAspect,
     const QString& operatorId) {
 
-    qDebug() << "🚦🔧 SIGNAL BRANCH: Subsidiary signal validation:" << signalId
+    qDebug() << "???? SIGNAL BRANCH: Subsidiary signal validation:" << signalId
              << "Type:" << aspectType
-             << "Transition:" << currentAspect << "→" << requestedAspect;
+             << "Transition:" << currentAspect << "?" << requestedAspect;
 
-    // ✅ 1. Check if signal exists and is active
+    // ? 1. Check if signal exists and is active
     auto activeResult = checkSignalActive(signalId);
     if (!activeResult.isAllowed()) return activeResult;
 
-    // ✅ 2. Validate aspect type and transition rules
+    // ? 2. Validate aspect type and transition rules
     auto transitionResult = validateSubsidiaryTransition(signalId, aspectType, currentAspect, requestedAspect);
     if (!transitionResult.isAllowed()) return transitionResult;
 
-    // ✅ 3. Check calling-on specific safety rules
+    // ? 3. Check calling-on specific safety rules
     if (aspectType == "CALLING_ON") {
         auto callingOnResult = validateCallingOnSafetyRules(signalId, currentAspect, requestedAspect);
         if (!callingOnResult.isAllowed()) return callingOnResult;
     }
 
-    // ✅ 4. Check loop signal specific rules
+    // ? 4. Check loop signal specific rules
     if (aspectType == "LOOP") {
         auto loopResult = validateLoopSignalRules(signalId, currentAspect, requestedAspect);
         if (!loopResult.isAllowed()) return loopResult;
     }
 
-    // ✅ 5. Check interlocking rules (if any apply to subsidiary signals)
+    // ? 5. Check interlocking rules (if any apply to subsidiary signals)
     auto interlockResult = checkSubsidiaryInterlocking(signalId, aspectType, currentAspect, requestedAspect);
     if (!interlockResult.isAllowed()) return interlockResult;
 
-    qDebug() << "✅ SIGNAL BRANCH: All subsidiary signal validations passed for" << signalId << aspectType;
+    qDebug() << "? SIGNAL BRANCH: All subsidiary signal validations passed for" << signalId << aspectType;
     return ValidationResult::allowed("All subsidiary signal validations passed");
 }
 
-// ✅ PRIVATE HELPERS: Add these to SignalBranch.cpp
 ValidationResult SignalBranch::validateSubsidiaryTransition(
     const QString& signalId, const QString& aspectType,
     const QString& currentAspect, const QString& requestedAspect) {
 
-    qDebug() << "🔧 Validating subsidiary transition:" << aspectType << currentAspect << "→" << requestedAspect;
+    qDebug() << "?? Validating subsidiary transition:" << aspectType << currentAspect << "?" << requestedAspect;
 
-    // ✅ CALLING-ON: Only OFF ↔ WHITE allowed
+    // ? CALLING-ON: Only OFF ? WHITE allowed
     if (aspectType == "CALLING_ON") {
         if (!((currentAspect == "OFF" && requestedAspect == "WHITE") ||
               (currentAspect == "WHITE" && requestedAspect == "OFF"))) {
             return ValidationResult::blocked(
-                QString("Invalid calling-on transition: %1 → %2. Only OFF ↔ WHITE allowed.")
+                QString("Invalid calling-on transition: %1 ? %2. Only OFF ? WHITE allowed.")
                     .arg(currentAspect, requestedAspect),
                 "CALLING_ON_INVALID_TRANSITION");
         }
     }
-    // ✅ LOOP: Only OFF ↔ YELLOW allowed
+    // ? LOOP: Only OFF ? YELLOW allowed
     else if (aspectType == "LOOP") {
         if (!((currentAspect == "OFF" && requestedAspect == "YELLOW") ||
               (currentAspect == "YELLOW" && requestedAspect == "OFF"))) {
             return ValidationResult::blocked(
-                QString("Invalid loop signal transition: %1 → %2. Only OFF ↔ YELLOW allowed.")
+                QString("Invalid loop signal transition: %1 ? %2. Only OFF ? YELLOW allowed.")
                     .arg(currentAspect, requestedAspect),
                 "LOOP_INVALID_TRANSITION");
         }
     }
-    // ✅ UNKNOWN TYPE
+    // ? UNKNOWN TYPE
     else {
         return ValidationResult::blocked(
             QString("Unknown subsidiary aspect type: %1").arg(aspectType),
@@ -121,10 +119,10 @@ ValidationResult SignalBranch::validateSubsidiaryTransition(
 ValidationResult SignalBranch::validateCallingOnSafetyRules(
     const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
 
-    qDebug() << "🚦⚪ CALLING-ON VALIDATION:" << signalId
-             << "Current:" << currentAspect << "→ Requested:" << requestedAspect;
+    qDebug() << "??? CALLING-ON VALIDATION:" << signalId
+             << "Current:" << currentAspect << "? Requested:" << requestedAspect;
 
-    // ✅ RULE 1: Calling-on can only be cleared when main signal is at danger
+    // ? RULE 1: Calling-on can only be cleared when main signal is at danger
     if (requestedAspect == "WHITE") {
         QString mainAspect = getCurrentMainSignalAspect(signalId);
         if (mainAspect.isEmpty()) {
@@ -140,16 +138,16 @@ ValidationResult SignalBranch::validateCallingOnSafetyRules(
                 "CALLING_ON_MAIN_NOT_DANGER");
         }
 
-        qDebug() << "✅ Basic calling-on safety check passed: Main signal at danger (" << mainAspect << ")";
+        qDebug() << "? Basic calling-on safety check passed: Main signal at danger (" << mainAspect << ")";
 
-        // ✅ RULE 2: Check interlocking for the resulting composite aspect
+        // ? RULE 2: Check interlocking for the resulting composite aspect
         QString predictedCompositeAspect = predictCompositeAspectAfterSubsidiaryChange(
             signalId, "CALLING_ON", requestedAspect);
 
-        qDebug() << "🎯 Predicted composite aspect after calling-on change:" << predictedCompositeAspect;
+        qDebug() << "?? Predicted composite aspect after calling-on change:" << predictedCompositeAspect;
 
         if (!m_ruleEngine) {
-            qWarning() << "❌ Rule engine not available for calling-on validation";
+            qWarning() << "? Rule engine not available for calling-on validation";
             return ValidationResult::blocked("Interlocking rule engine not available", "RULE_ENGINE_MISSING");
         }
 
@@ -157,19 +155,19 @@ ValidationResult SignalBranch::validateCallingOnSafetyRules(
             signalId, mainAspect, predictedCompositeAspect);
 
         if (!interlockingResult.isAllowed()) {
-            qDebug() << "❌ Calling-on activation blocked by interlocking:" << interlockingResult.getReason();
+            qDebug() << "? Calling-on activation blocked by interlocking:" << interlockingResult.getReason();
             return ValidationResult::blocked(
                 QString("Calling-on signal cannot be activated: %1").arg(interlockingResult.getReason()),
                 "CALLING_ON_INTERLOCKING_VIOLATION"
                 );
         }
 
-        qDebug() << "✅ Calling-on activation allowed by interlocking";
+        qDebug() << "? Calling-on activation allowed by interlocking";
     }
 
-    // ✅ RULE 3: Turning OFF is always allowed
+    // ? RULE 3: Turning OFF is always allowed
     if (requestedAspect == "OFF") {
-        qDebug() << "✅ Calling-on signal turning OFF - allowed";
+        qDebug() << "? Calling-on signal turning OFF - allowed";
     }
 
     return ValidationResult::allowed("Calling-on safety rules passed");
@@ -178,50 +176,50 @@ ValidationResult SignalBranch::validateCallingOnSafetyRules(
 ValidationResult SignalBranch::validateLoopSignalRules(
     const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
 
-    qDebug() << "🔄 LOOP SIGNAL VALIDATION:" << signalId
-             << "Current loop:" << currentAspect << "→ Requested:" << requestedAspect;
+    qDebug() << "?? LOOP SIGNAL VALIDATION:" << signalId
+             << "Current loop:" << currentAspect << "? Requested:" << requestedAspect;
 
-    // ✅ RULE 1: Basic transition validation (already done in validateSubsidiaryTransition)
+    // ? RULE 1: Basic transition validation (already done in validateSubsidiaryTransition)
 
-    // ✅ RULE 2: If turning OFF the loop signal, allow it (no interlocking needed)
+    // ? RULE 2: If turning OFF the loop signal, allow it (no interlocking needed)
     if (requestedAspect == "OFF") {
-        qDebug() << "✅ Loop signal turning OFF - allowed without interlocking check";
+        qDebug() << "? Loop signal turning OFF - allowed without interlocking check";
         return ValidationResult::allowed("Loop signal turning OFF");
     }
 
-    // ✅ RULE 3: If turning ON the loop signal (YELLOW), check interlocking
+    // ? RULE 3: If turning ON the loop signal (YELLOW), check interlocking
     if (requestedAspect == "YELLOW") {
-        qDebug() << "🔄 Loop signal turning ON - checking interlocking for resulting composite aspect";
+        qDebug() << "?? Loop signal turning ON - checking interlocking for resulting composite aspect";
 
-        // ✅ PREDICT: What will the composite aspect be after this change?
+        // ? PREDICT: What will the composite aspect be after this change?
         QString predictedCompositeAspect = predictCompositeAspectAfterSubsidiaryChange(
             signalId, "LOOP", requestedAspect);
 
-        qDebug() << "🎯 Predicted composite aspect after loop change:" << predictedCompositeAspect;
+        qDebug() << "?? Predicted composite aspect after loop change:" << predictedCompositeAspect;
 
-        // ✅ VALIDATE: Use interlocking rule engine to check if this composite aspect is allowed
+        // ? VALIDATE: Use interlocking rule engine to check if this composite aspect is allowed
         if (!m_ruleEngine) {
-            qWarning() << "❌ Rule engine not available for loop signal validation";
+            qWarning() << "? Rule engine not available for loop signal validation";
             return ValidationResult::blocked("Interlocking rule engine not available", "RULE_ENGINE_MISSING");
         }
 
-        // ✅ INTERLOCKING: Check if the predicted composite aspect is allowed
+        // ? INTERLOCKING: Check if the predicted composite aspect is allowed
         auto interlockingResult = m_ruleEngine->validateInterlockedSignalAspectChange(
             signalId, getCurrentMainSignalAspect(signalId), predictedCompositeAspect);
 
         if (!interlockingResult.isAllowed()) {
-            qDebug() << "❌ Loop signal activation blocked by interlocking:" << interlockingResult.getReason();
+            qDebug() << "? Loop signal activation blocked by interlocking:" << interlockingResult.getReason();
             return ValidationResult::blocked(
                 QString("Loop signal cannot be activated: %1").arg(interlockingResult.getReason()),
                 "LOOP_INTERLOCKING_VIOLATION"
                 );
         }
 
-        qDebug() << "✅ Loop signal activation allowed by interlocking";
+        qDebug() << "? Loop signal activation allowed by interlocking";
         return ValidationResult::allowed("Loop signal activation permitted by interlocking rules");
     }
 
-    // ✅ FALLBACK: Unknown requested aspect
+    // ? FALLBACK: Unknown requested aspect
     return ValidationResult::blocked(
         QString("Unknown loop aspect requested: %1").arg(requestedAspect),
         "UNKNOWN_LOOP_ASPECT"
@@ -231,10 +229,10 @@ ValidationResult SignalBranch::validateLoopSignalRules(
 QString SignalBranch::predictCompositeAspectAfterSubsidiaryChange(
     const QString& signalId, const QString& aspectType, const QString& newSubsidiaryAspect) {
 
-    qDebug() << "🔮 PREDICTING composite aspect for" << signalId
+    qDebug() << "?? PREDICTING composite aspect for" << signalId
              << "after changing" << aspectType << "to" << newSubsidiaryAspect;
 
-    // ✅ GET: Current signal state
+    // ? GET: Current signal state
     auto signalData = m_dbManager->getSignalById(signalId);
     QString currentMainAspect = signalData.value("currentAspect", "RED").toString();
     QString currentCallingOn = signalData.value("callingOnAspect", "OFF").toString();
@@ -244,7 +242,7 @@ QString SignalBranch::predictCompositeAspectAfterSubsidiaryChange(
              << "Calling-On:" << currentCallingOn
              << "Loop:" << currentLoop;
 
-    // ✅ SIMULATE: Apply the requested change
+    // ? SIMULATE: Apply the requested change
     QString newCallingOn = currentCallingOn;
     QString newLoop = currentLoop;
 
@@ -258,7 +256,7 @@ QString SignalBranch::predictCompositeAspectAfterSubsidiaryChange(
              << "Calling-On:" << newCallingOn
              << "Loop:" << newLoop;
 
-    // ✅ BUILD: Predicted composite aspect
+    // ? BUILD: Predicted composite aspect
     QString predictedComposite = currentMainAspect;
 
     if (newCallingOn == "WHITE") {
@@ -271,7 +269,7 @@ QString SignalBranch::predictCompositeAspectAfterSubsidiaryChange(
         qDebug() << "  + Added LOOP component";
     }
 
-    qDebug() << "🎯 Predicted composite aspect:" << predictedComposite;
+    qDebug() << "?? Predicted composite aspect:" << predictedComposite;
     return predictedComposite;
 }
 
@@ -279,10 +277,10 @@ ValidationResult SignalBranch::checkSubsidiaryInterlocking(
     const QString& signalId, const QString& aspectType,
     const QString& currentAspect, const QString& requestedAspect) {
 
-    // ✅ FUTURE: Check if there are any interlocking rules for subsidiary signals
+    // ? FUTURE: Check if there are any interlocking rules for subsidiary signals
     // For now, most interlocking rules apply to main signals only
 
-    qDebug() << "🔧 Checking subsidiary interlocking for" << signalId << aspectType;
+    qDebug() << "?? Checking subsidiary interlocking for" << signalId << aspectType;
 
     // Future enhancements:
     // - Check if clearing calling-on affects other signals
@@ -294,7 +292,7 @@ ValidationResult SignalBranch::checkSubsidiaryInterlocking(
 
 QString SignalBranch::getCurrentMainSignalAspect(const QString& signalId) {
     if (!m_dbManager || !m_dbManager->isConnected()) {
-        qWarning() << "❌ Cannot get main signal aspect: Database not connected";
+        qWarning() << "? Cannot get main signal aspect: Database not connected";
         return QString();
     }
 
@@ -304,10 +302,10 @@ QString SignalBranch::getCurrentMainSignalAspect(const QString& signalId) {
 ValidationResult SignalBranch::validateBasicTransition(
     const QString& signalId, const QString& currentAspect, const QString& requestedAspect) {
 
-    // ? Store signal ID for transition validation
+    // Store signal ID for transition validation
     m_currentSignalId = signalId;
 
-    // ? Check if transition is valid
+    // Check if transition is valid
     if (!isValidAspectTransition(currentAspect, requestedAspect)) {
         return ValidationResult::blocked(
             QString("Invalid aspect transition from %1 to %2 for signal %3")
@@ -316,13 +314,13 @@ ValidationResult SignalBranch::validateBasicTransition(
         );
     }
 
-    // ? Get signal data to check capabilities
+    // Get signal data to check capabilities
     auto signalData = m_dbManager->getSignalById(signalId);
     if (signalData.isEmpty()) {
         return ValidationResult::blocked("Signal not found: " + signalId, "SIGNAL_NOT_FOUND");
     }
 
-    // ? SAFETY: Validate aspect is supported by this signal type
+    // SAFETY: Validate aspect is supported by this signal type
     QStringList possibleAspects = signalData["possibleAspects"].toStringList();
     if (!possibleAspects.contains(requestedAspect)) {
         return ValidationResult::blocked(
@@ -335,25 +333,26 @@ ValidationResult SignalBranch::validateBasicTransition(
     return ValidationResult::allowed();
 }
 
-ValidationResult SignalBranch::checkTrackSegmentProtection(const QString& signalId, const QString& requestedAspect) {
-    // ✅ SAFETY: Only check trackSegment protection for proceed aspects
+// ? UPDATED: Track Circuit Protection Method
+ValidationResult SignalBranch::checkTrackCircuitProtection(const QString& signalId, const QString& requestedAspect) {
+    // ? SAFETY: Only check track circuit protection for proceed aspects
     if (requestedAspect == "RED") {
-        return ValidationResult::allowed("RED aspect - no trackSegment protection required");
+        return ValidationResult::allowed("RED aspect - no track circuit protection required");
     }
 
-    // ✅ SAFETY: Comprehensive protected trackSegments validation
-    auto validation = validateProtectedTrackSegments(signalId);
+    // ? SAFETY: Comprehensive protected track circuits validation
+    auto validation = validateProtectedTrackCircuits(signalId);
 
     if (!validation.isValid) {
         return ValidationResult::blocked(
             QString("Cannot clear signal %1: %2").arg(signalId, validation.errorReason),
-            validation.occupiedTrackSegments.isEmpty() ? "TRACK_SEGMENT_PROTECTION_VALIDATION_FAILED" : "TRACK_SEGMENT_OCCUPIED"
+            validation.occupiedTrackSegments.isEmpty() ? "TRACK_CIRCUIT_PROTECTION_VALIDATION_FAILED" : "TRACK_CIRCUIT_OCCUPIED"
             );
     }
 
-    // ✅ SUCCESS: All protected trackSegments are clear
+    // ? SUCCESS: All protected track circuits are clear
     return ValidationResult::allowed(
-        QString("All %1 protected trackSegments are clear").arg(validation.protectedTrackSegments.size())
+        QString("All %1 protected track circuits are clear").arg(validation.protectedTrackSegments.size())
         );
 }
 
@@ -363,11 +362,10 @@ ValidationResult SignalBranch::checkInterlockedSignals(
     const QString& requestedAspect) {
 
     if (!m_ruleEngine) {
-        qCritical() << "🚨 SAFETY: Rule engine not initialized!";
+        qCritical() << "?? SAFETY: Rule engine not initialized!";
         return ValidationResult::blocked("Interlocking system not available", "RULE_ENGINE_MISSING");
     }
 
-    // ✅ FIXED: Use renamed function
     return m_ruleEngine->validateInterlockedSignalAspectChange(signalId, currentAspect, requestedAspect);
 }
 
@@ -384,23 +382,23 @@ ValidationResult SignalBranch::checkSignalActive(const QString& signalId) {
     return ValidationResult::allowed();
 }
 
-// SignalBranch.cpp - Replace the getProtectedTrackSegments function
-QStringList SignalBranch::getProtectedTrackSegments(const QString& signalId) {
-    // ✅ SAFETY: Use comprehensive validation for safety-critical trackSegment protection
-    auto validation = validateProtectedTrackSegments(signalId);
+// ? UPDATED: Public API method for track circuits
+QStringList SignalBranch::getProtectedTrackCircuits(const QString& signalId) {
+    // ? SAFETY: Use comprehensive validation for safety-critical track circuit protection
+    auto validation = validateProtectedTrackCircuits(signalId);
 
     if (!validation.isValid) {
-        qCritical() << "🚨 SAFETY CRITICAL: Protected trackSegments validation failed for signal"
+        qCritical() << "?? SAFETY CRITICAL: Protected track circuits validation failed for signal"
                     << signalId << ":" << validation.errorReason;
 
-        // ✅ SAFETY: Log to audit system for compliance
+        // ? SAFETY: Log to audit system for compliance
         // TODO: Add to audit log with safety_critical = true
 
-        // ✅ SAFETY: Return empty list to force restrictive behavior
+        // ? SAFETY: Return empty list to force restrictive behavior
         return QStringList();
     }
 
-    return validation.protectedTrackSegments;
+    return validation.protectedTrackSegments; // Keep field name for compatibility
 }
 
 QStringList SignalBranch::getInterlockedSignals(const QString& signalId) {
@@ -413,43 +411,43 @@ QStringList SignalBranch::getInterlockedSignals(const QString& signalId) {
 }
 
 bool SignalBranch::isValidAspectTransition(const QString& from, const QString& to) {
-    // ✅ SAFETY: No change needed if same aspect
+    // ? SAFETY: No change needed if same aspect
     if (from == to) return false;
 
-    // ✅ SAFETY: RED is always accessible for emergency stops
+    // ? SAFETY: RED is always accessible for emergency stops
     if (to == "RED") return true;
 
-    // ✅ Get signal capabilities from database to validate transition
+    // ? Get signal capabilities from database to validate transition
     // This prevents invalid capability transitions
     auto signalData = m_dbManager->getSignalById(m_currentSignalId);
     if (signalData.isEmpty()) return false;
 
     QStringList supportedAspects = signalData["possibleAspects"].toStringList();
 
-    // ✅ SAFETY: Cannot transition to unsupported aspect
+    // ? SAFETY: Cannot transition to unsupported aspect
     if (!supportedAspects.contains(to)) {
-        qDebug() << "🚫 BLOCKED: Signal doesn't support aspect" << to;
+        qDebug() << "?? BLOCKED: Signal doesn't support aspect" << to;
         return false;
     }
 
-    // ✅ Check for inter-group transitions (your main concern)
+    // ? Check for inter-group transitions (your main concern)
     SignalGroup fromGroup = determineSignalGroup(from);
     SignalGroup toGroup = determineSignalGroup(to);
 
     if (fromGroup != toGroup) {
-        // ✅ SAFETY: Block dangerous inter-group transitions
+        // ? SAFETY: Block dangerous inter-group transitions
         if (isDangerousInterGroupTransition(fromGroup, toGroup, from, to)) {
-            qDebug() << "🚫 BLOCKED: Dangerous inter-group transition" << from << "→" << to;
+            qDebug() << "?? BLOCKED: Dangerous inter-group transition" << from << "?" << to;
             return false;
         }
     }
 
-    // ✅ Allow all other transitions within same group or safe inter-group
+    // ? Allow all other transitions within same group or safe inter-group
     return true;
 }
 
 SignalBranch::SignalGroup SignalBranch::determineSignalGroup(const QString& aspect) {
-    // ✅ SAFETY: Categorize aspects by their functional groups
+    // ? SAFETY: Categorize aspects by their functional groups
     if (aspect == "WHITE") return SignalGroup::CALLING_ON;
     if (aspect == "BLUE") return SignalGroup::SHUNT_SIGNALS;  // Future
     if (aspect == "PURPLE") return SignalGroup::BLOCK_SIGNALS; // Future
@@ -465,14 +463,14 @@ bool SignalBranch::isDangerousInterGroupTransition(
     SignalGroup fromGroup, SignalGroup toGroup,
     const QString& from, const QString& to) {
 
-    // ✅ SAFETY: Define dangerous transitions
+    // ? SAFETY: Define dangerous transitions
 
     // WHITE (calling-on) should only transition to/from RED for safety
     if (fromGroup == SignalGroup::CALLING_ON && toGroup == SignalGroup::MAIN_SIGNALS) {
-        return to != "RED"; // Only allow WHITE → RED
+        return to != "RED"; // Only allow WHITE ? RED
     }
     if (fromGroup == SignalGroup::MAIN_SIGNALS && toGroup == SignalGroup::CALLING_ON) {
-        return from != "RED"; // Only allow RED → WHITE
+        return from != "RED"; // Only allow RED ? WHITE
     }
 
     // Future: BLUE (shunt) transitions
@@ -490,218 +488,155 @@ bool SignalBranch::isDangerousInterGroupTransition(
     return false; // Allow other inter-group transitions
 }
 
-SignalBranch::ProtectedTrackSegmentsValidation SignalBranch::validateProtectedTrackSegments(const QString& signalId) {
+// ? UPDATED: Main validation method for track circuits
+SignalBranch::ProtectedTrackSegmentsValidation SignalBranch::validateProtectedTrackCircuits(const QString& signalId) {
     ProtectedTrackSegmentsValidation result;
     result.isValid = false;
 
-    // ✅ SAFETY: Fetch protected trackSegments from all 3 sources
-    QStringList trackSegmentsFromSignalData = getProtectedTrackSegmentsFromSignalData(signalId);
-    QStringList trackSegmentsFromInterlockingRules = getProtectedTrackSegmentsFromInterlockingRules(signalId);
-    QStringList trackSegmentsFromProtectionTable = getProtectedTrackSegmentsFromProtectionTable(signalId);
+    // ? UPDATED: Get protected track circuits from two sources
+    QStringList trackCircuitsFromSignalData = getProtectedTrackCircuitsFromSignalData(signalId);
+    QStringList trackCircuitsFromInterlockingRules = getProtectedTrackCircuitsFromInterlockingRules(signalId);
 
-    qDebug() << "🔍 SAFETY AUDIT: Protected trackSegments for signal" << signalId;
-    qDebug() << "   From signal data:" << trackSegmentsFromSignalData;
-    qDebug() << "   From interlocking rules:" << trackSegmentsFromInterlockingRules;
-    qDebug() << "   From protection table:" << trackSegmentsFromProtectionTable;
+    qDebug() << "?? SAFETY AUDIT: Protected track circuits for signal" << signalId;
+    qDebug() << "   From signal data:" << trackCircuitsFromSignalData;
+    qDebug() << "   From interlocking rules:" << trackCircuitsFromInterlockingRules;
 
-    // ✅ SAFETY: Check consistency between all sources
-    if (!validateTrackSegmentConsistency(trackSegmentsFromSignalData, trackSegmentsFromInterlockingRules,
-                                  trackSegmentsFromProtectionTable, result)) {
-        return result; // Error details already set in validateTrackSegmentConsistency
-    }
-
-    // ✅ SAFETY: Use protection table as authoritative source (most explicit)
-    QStringList authoritative = trackSegmentsFromProtectionTable.isEmpty() ?
-                                    trackSegmentsFromSignalData : trackSegmentsFromProtectionTable;
-
-    if (authoritative.isEmpty()) {
-        result.errorReason = "No protected trackSegments found in any source";
+    // ? Check consistency between 2 sources
+    if (!validateTrackCircuitConsistency(trackCircuitsFromSignalData, trackCircuitsFromInterlockingRules, result)) {
         return result;
     }
 
-    // ✅ SAFETY: Check trackSegment occupancy status
-    if (!validateTrackSegmentOccupancy(authoritative, result)) {
-        return result; // Error details already set in validateTrackSegmentOccupancy
+    // ? Use signal data as primary, fall back to interlocking rules
+    QStringList authoritative = trackCircuitsFromSignalData.isEmpty() ?
+                                    trackCircuitsFromInterlockingRules : trackCircuitsFromSignalData;
+
+    if (authoritative.isEmpty()) {
+        result.errorReason = "No protected track circuits found in any source";
+        return result;
     }
 
-    // ✅ SUCCESS: All validations passed
-    result.isValid = true;
-    result.protectedTrackSegments = authoritative;
+    // ? UPDATED: Check track circuit occupancy status
+    if (!validateTrackCircuitOccupancy(authoritative, result)) {
+        return result;
+    }
 
-    qDebug() << "✅ SAFETY: Protected trackSegments validation passed for signal" << signalId
-             << "- Track Segments:" << result.protectedTrackSegments;
+    // ? SUCCESS: All validations passed
+    result.isValid = true;
+    result.protectedTrackSegments = authoritative;  // Keep field name for compatibility
+
+    qDebug() << "? SAFETY: Protected track circuits validation passed for signal" << signalId
+             << "- Track Circuits:" << result.protectedTrackSegments;
 
     return result;
 }
 
-QStringList SignalBranch::getProtectedTrackSegmentsFromSignalData(const QString& signalId) {
+// ? UPDATED: Get protected track circuits from signal data
+QStringList SignalBranch::getProtectedTrackCircuitsFromSignalData(const QString& signalId) {
     auto signalData = m_dbManager->getSignalById(signalId);
     if (signalData.isEmpty()) {
-        qWarning() << "⚠️ Signal data not found for:" << signalId;
+        qWarning() << "?? Signal data not found for:" << signalId;
         return QStringList();
     }
 
-    // ✅ Parse PostgreSQL TEXT[] array from protected_trackSegments field
-    QVariant protectedTrackSegmentsVar = signalData["protectedTrackSegments"];
-    if (!protectedTrackSegmentsVar.isValid()) {
+    // ? UPDATED: Parse PostgreSQL TEXT[] array from protected_track_circuits field
+    QVariant protectedTrackCircuitsVar = signalData["protectedTrackCircuits"];
+    if (!protectedTrackCircuitsVar.isValid()) {
         return QStringList();
     }
 
-    QString protectedTrackSegmentsStr = protectedTrackSegmentsVar.toString();
-    if (protectedTrackSegmentsStr.isEmpty() || protectedTrackSegmentsStr == "{}") {
+    QString protectedTrackCircuitsStr = protectedTrackCircuitsVar.toString();
+    if (protectedTrackCircuitsStr.isEmpty() || protectedTrackCircuitsStr == "{}") {
         return QStringList();
     }
 
-    // ✅ Parse PostgreSQL array format: {trackSegment1,trackSegment2,trackSegment3}
-    protectedTrackSegmentsStr = protectedTrackSegmentsStr.mid(1, protectedTrackSegmentsStr.length() - 2); // Remove { }
-    return protectedTrackSegmentsStr.split(",", Qt::SkipEmptyParts);
+    // ? Parse PostgreSQL array format: {circuit1,circuit2,circuit3}
+    protectedTrackCircuitsStr = protectedTrackCircuitsStr.mid(1, protectedTrackCircuitsStr.length() - 2); // Remove { }
+    return protectedTrackCircuitsStr.split(",", Qt::SkipEmptyParts);
 }
 
-QStringList SignalBranch::getProtectedTrackSegmentsFromInterlockingRules(const QString& signalId) {
-    QSqlQuery query(m_dbManager->getDatabase());
-    query.prepare(R"(
-        SELECT target_entity_id
-        FROM railway_control.interlocking_rules
-        WHERE source_entity_type = 'SIGNAL'
-          AND source_entity_id = ?
-          AND target_entity_type = 'TRACK_SEGMENT'
-          AND target_constraint IN ('MUST_BE_CLEAR', 'PROTECTING')
-          AND is_active = TRUE
-        ORDER BY target_entity_id
-    )");
-    query.addBindValue(signalId);
-
-    QStringList trackSegments;
-    if (!query.exec()) {
-        qCritical() << "🚨 SAFETY CRITICAL: Failed to query interlocking rules for signal"
-                    << signalId << ":" << query.lastError().text();
-        return trackSegments;
+// ? UPDATED: Use DatabaseManager API instead of direct SQL
+QStringList SignalBranch::getProtectedTrackCircuitsFromInterlockingRules(const QString& signalId) {
+    if (!m_dbManager) {
+        qCritical() << "?? SAFETY CRITICAL: DatabaseManager not available for interlocking rules query";
+        return QStringList();
     }
 
-    while (query.next()) {
-        trackSegments.append(query.value(0).toString());
-    }
-
-    return trackSegments;
+    // ? CRITICAL: Use DatabaseManager API instead of direct database access
+    return m_dbManager->getProtectedTrackCircuitsFromInterlockingRules(signalId);
 }
 
-QStringList SignalBranch::getProtectedTrackSegmentsFromProtectionTable(const QString& signalId) {
-    QSqlQuery query(m_dbManager->getDatabase());
-    query.prepare(R"(
-        SELECT protected_track_segment_id
-        FROM railway_control.signal_track_segment_protection
-        WHERE signal_id = ?
-          AND is_active = TRUE
-        ORDER BY protected_track_segment_id
-    )");
-    query.addBindValue(signalId);
-
-    QStringList trackSegments;
-    if (!query.exec()) {
-        qCritical() << "🚨 SAFETY CRITICAL: Failed to query signal_track_segment_protection for signal"
-                    << signalId << ":" << query.lastError().text();
-        return trackSegments;
-    }
-
-    while (query.next()) {
-        trackSegments.append(query.value(0).toString());
-    }
-
-    return trackSegments;
-}
-
-bool SignalBranch::validateTrackSegmentConsistency(
+// ? UPDATED: Track circuit consistency validation
+bool SignalBranch::validateTrackCircuitConsistency(
     const QStringList& fromSignalData,
     const QStringList& fromInterlockingRules,
-    const QStringList& fromProtectionTable,
     ProtectedTrackSegmentsValidation& result) {
 
-    // ✅ SAFETY: Compare all non-empty sources for consistency
-    QList<QStringList> nonEmptySources;
-    QStringList sourceNames;
+    bool hasSignalData = !fromSignalData.isEmpty();
+    bool hasRulesData = !fromInterlockingRules.isEmpty();
 
-    if (!fromSignalData.isEmpty()) {
-        nonEmptySources.append(fromSignalData);
-        sourceNames.append("signal_data");
-    }
-    if (!fromInterlockingRules.isEmpty()) {
-        nonEmptySources.append(fromInterlockingRules);
-        sourceNames.append("interlocking_rules");
-    }
-    if (!fromProtectionTable.isEmpty()) {
-        nonEmptySources.append(fromProtectionTable);
-        sourceNames.append("protection_table");
-    }
-
-    if (nonEmptySources.isEmpty()) {
-        result.errorReason = "No protected trackSegments found in any source";
+    if (!hasSignalData && !hasRulesData) {
+        result.errorReason = "No protected track circuits found in any source";
         return false;
     }
 
-    // ✅ SAFETY: If only one source has data, that's acceptable
-    if (nonEmptySources.size() == 1) {
-        qDebug() << "ℹ️ Only one source has protected trackSegments data:" << sourceNames.first();
-        return true;
-    }
+    // ? CONSISTENCY: If both sources have data, they should match
+    if (hasSignalData && hasRulesData) {
+        QStringList signalData = fromSignalData;
+        QStringList rulesData = fromInterlockingRules;
+        signalData.sort();
+        rulesData.sort();
 
-    // ✅ SAFETY: Compare multiple sources for consistency
-    QStringList baseline = nonEmptySources.first();
-    baseline.sort();
+        if (signalData != rulesData) {
+            result.errorReason = QString("Protected track circuits mismatch between signal_data and interlocking_rules");
+            result.inconsistentSources = QStringList{"signal_data", "interlocking_rules"};
 
-    for (int i = 1; i < nonEmptySources.size(); i++) {
-        QStringList comparison = nonEmptySources[i];
-        comparison.sort();
-
-        if (baseline != comparison) {
-            result.errorReason = QString("Protected trackSegments mismatch between %1 and %2")
-            .arg(sourceNames.first(), sourceNames[i]);
-            result.inconsistentSources = sourceNames;
-
-            qCritical() << "🚨 SAFETY CRITICAL: Protected trackSegments inconsistency detected!";
-            qCritical() << "   " << sourceNames.first() << ":" << baseline;
-            qCritical() << "   " << sourceNames[i] << ":" << comparison;
+            qCritical() << "?? SAFETY CRITICAL: Protected track circuits inconsistency detected!";
+            qCritical() << "   Signal data:" << signalData;
+            qCritical() << "   Interlocking rules:" << rulesData;
 
             return false;
         }
     }
 
-    qDebug() << "✅ SAFETY: All sources consistent for protected trackSegments";
+    qDebug() << "? SAFETY: All sources consistent for protected track circuits";
     return true;
 }
 
-bool SignalBranch::validateTrackSegmentOccupancy(
-    const QStringList& protectedTrackSegments,
+// ? UPDATED: Track circuit occupancy validation
+bool SignalBranch::validateTrackCircuitOccupancy(
+    const QStringList& protectedTrackCircuits,
     ProtectedTrackSegmentsValidation& result) {
 
-    QStringList occupiedTrackSegments;
+    QStringList occupiedCircuits;
 
-    for (const QString& trackSegmentId : protectedTrackSegments) {
-        auto trackSegmentData = m_dbManager->getTrackSegmentById(trackSegmentId);
-        if (trackSegmentData.isEmpty()) {
-            result.errorReason = QString("Protected track segment %1 not found in database").arg(trackSegmentId);
-            qCritical() << "🚨 SAFETY CRITICAL: Protected track segment not found:" << trackSegmentId;
+    for (const QString& circuitId : protectedTrackCircuits) {
+        // ? CRITICAL: Use DatabaseManager API instead of direct database access
+        auto circuitData = m_dbManager->getTrackCircuitById(circuitId);
+        if (circuitData.isEmpty()) {
+            result.errorReason = QString("Protected track circuit %1 not found in database").arg(circuitId);
+            qCritical() << "?? SAFETY CRITICAL: Protected track circuit not found:" << circuitId;
             return false;
         }
 
-        if (trackSegmentData["occupied"].toBool()) {
-            occupiedTrackSegments.append(trackSegmentId);
-            QString occupiedBy = trackSegmentData["occupiedBy"].toString();
+        if (circuitData["occupied"].toBool()) {
+            occupiedCircuits.append(circuitId);
+            QString occupiedBy = circuitData["occupiedBy"].toString();
 
-            qWarning() << "⚠️ SAFETY: Protected track segment" << trackSegmentId
+            qWarning() << "?? SAFETY: Protected track circuit" << circuitId
                        << "is occupied by" << occupiedBy;
         }
     }
 
-    if (!occupiedTrackSegments.isEmpty()) {
-        result.errorReason = QString("Protected trackSegments are occupied: %1")
-        .arg(occupiedTrackSegments.join(", "));
-        result.occupiedTrackSegments = occupiedTrackSegments;
+    if (!occupiedCircuits.isEmpty()) {
+        result.errorReason = QString("Protected track circuits are occupied: %1")
+        .arg(occupiedCircuits.join(", "));
+        result.occupiedTrackSegments = occupiedCircuits;
 
-        qCritical() << "🚨 SAFETY CRITICAL: Cannot clear signal - protected trackSegments occupied:"
-                    << occupiedTrackSegments;
+        qCritical() << "?? SAFETY CRITICAL: Cannot clear signal - protected track circuits occupied:"
+                    << occupiedCircuits;
         return false;
     }
 
-    qDebug() << "✅ SAFETY: All protected trackSegments are clear";
+    qDebug() << "? SAFETY: All protected track circuits are clear";
     return true;
 }

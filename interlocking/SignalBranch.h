@@ -14,9 +14,9 @@ public:
 
     // ✅ Main validation interface
     ValidationResult validateMainAspectChange(const QString& signalId,
-                                          const QString& currentAspect,
-                                          const QString& requestedAspect,
-                                          const QString& operatorId);
+                                              const QString& currentAspect,
+                                              const QString& requestedAspect,
+                                              const QString& operatorId);
 
     ValidationResult validateSubsidiaryAspectChange(const QString& signalId,
                                                     const QString& aspectType,
@@ -51,12 +51,13 @@ private:
         bool supportsLoop;
     };
 
+    // ✅ UPDATED: Now handles track circuits (keeping struct name for compatibility)
     struct ProtectedTrackSegmentsValidation {
         bool isValid;
-        QStringList protectedTrackSegments;
+        QStringList protectedTrackSegments;  // ✅ NOTE: Field name kept for compatibility - contains track circuits
         QString errorReason;
         QStringList inconsistentSources;
-        QStringList occupiedTrackSegments;
+        QStringList occupiedTrackSegments;   // ✅ NOTE: Field name kept for compatibility - contains occupied circuits
     };
 
     // ============================================================================
@@ -67,10 +68,12 @@ private:
                                              const QString& currentAspect,
                                              const QString& requestedAspect);
 
-    ValidationResult checkTrackSegmentProtection(const QString& signalId,
-                                          const QString& requestedAspect);
+    // ✅ UPDATED: Now validates track circuit protection
+    ValidationResult checkTrackCircuitProtection(const QString& signalId,
+                                                 const QString& requestedAspect);
 
     ValidationResult checkInterlockedSignals(const QString& signalId,
+                                             const QString& currentAspect,
                                              const QString& requestedAspect);
 
     ValidationResult checkSignalActive(const QString& signalId);
@@ -99,31 +102,36 @@ private:
                                                         const QString& newSubsidiaryAspect);
 
     // ============================================================================
-    // PROTECTED TRACK SEGMENTS DATA SOURCES (Triple Redundancy)
+    // PROTECTED TRACK CIRCUITS DATA SOURCES (Dual Source Validation)
     // ============================================================================
 
-    ProtectedTrackSegmentsValidation validateProtectedTrackSegments(const QString& signalId);
+    // ✅ UPDATED: Now validates track circuits instead of track segments
+    ProtectedTrackSegmentsValidation validateProtectedTrackCircuits(const QString& signalId);
 
-    QStringList getProtectedTrackSegmentsFromSignalData(const QString& signalId);
-    QStringList getProtectedTrackSegmentsFromInterlockingRules(const QString& signalId);
-    QStringList getProtectedTrackSegmentsFromProtectionTable(const QString& signalId);
+    // ✅ UPDATED: Gets protected track circuits from signal data
+    QStringList getProtectedTrackCircuitsFromSignalData(const QString& signalId);
 
-    bool validateTrackSegmentConsistency(const QStringList& fromSignalData,
-                                  const QStringList& fromInterlockingRules,
-                                  const QStringList& fromProtectionTable,
-                                  ProtectedTrackSegmentsValidation& result);
+    // ✅ UPDATED: Gets protected track circuits from interlocking rules via DatabaseManager
+    QStringList getProtectedTrackCircuitsFromInterlockingRules(const QString& signalId);
 
-    bool validateTrackSegmentOccupancy(const QStringList& protectedTrackSegments,
-                                ProtectedTrackSegmentsValidation& result);
+    // ✅ UPDATED: Validates track circuit consistency between sources
+    bool validateTrackCircuitConsistency(const QStringList& fromSignalData,
+                                         const QStringList& fromInterlockingRules,
+                                         ProtectedTrackSegmentsValidation& result);
+
+    // ✅ UPDATED: Validates track circuit occupancy status
+    bool validateTrackCircuitOccupancy(const QStringList& protectedTrackCircuits,
+                                       ProtectedTrackSegmentsValidation& result);
 
     // ============================================================================
-    // SIMPLIFIED ACCESS METHODS (for external use)
+    // PUBLIC ACCESS METHODS (for external use)
     // ============================================================================
-
-    QStringList getProtectedTrackSegments(const QString& signalId);        // ✅ Still needed
+public:
+    // ✅ UPDATED: Public API now returns protected track circuits
+    QStringList getProtectedTrackCircuits(const QString& signalId);
     QStringList getInterlockedSignals(const QString& signalId);
-    QStringList getSignalCapabilities(const QString& signalId);
 
+private:
     // ============================================================================
     // ASPECT TRANSITION VALIDATION
     // ============================================================================
@@ -148,7 +156,4 @@ private:
     DatabaseManager* m_dbManager;
     QString m_currentSignalId;  // Context for validation
     std::unique_ptr<InterlockingRuleEngine> m_ruleEngine;
-    ValidationResult checkInterlockedSignals(const QString& signalId,
-                                             const QString& currentAspect,
-                                             const QString& requestedAspect);
 };

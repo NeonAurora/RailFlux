@@ -115,4 +115,5 @@ private:
 
     // ✅ NEW: Track Segment circuits data method
     QJsonArray getTrackCircuitMappings();
+    QJsonArray getInterlockingRulesData();
 };

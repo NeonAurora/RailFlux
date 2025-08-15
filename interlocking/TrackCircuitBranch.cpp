@@ -46,7 +46,7 @@ void TrackCircuitBranch::enforceTrackSegmentOccupancyInterlocking(
     }
 
     // ✅ SAFETY: Get protecting signals from multiple sources for redundancy
-    QStringList protectingSignals = getProtectingSignalsFromBothSources(trackSegmentId);
+    QStringList protectingSignals = getProtectingSignalsFromThreeSources(trackSegmentId);
 
     if (protectingSignals.isEmpty()) {
         qWarning() << "⚠️ SAFETY WARNING: No protecting signals found for occupied track segment" << trackSegmentId;
@@ -120,53 +120,182 @@ TrackCircuitBranch::TrackSegmentState TrackCircuitBranch::getTrackSegmentState(c
     return state;
 }
 
-QStringList TrackCircuitBranch::getProtectingSignalsFromBothSources(const QString& trackSegmentId) {
-    QStringList combinedSignals;
+QStringList TrackCircuitBranch::getProtectingSignalsFromThreeSources(const QString& trackSegmentId) {
+    // ✅ SOURCE 1: Interlocking Rules table
+    QStringList fromInterlockingRules = getProtectingSignalsFromInterlockingRules(trackSegmentId);
 
-    // ✅ SOURCE 1: signal_track_segment_protection table (explicit protection relationships)
-    QStringList fromProtectionTable = getProtectingSignalsFromDatabase(trackSegmentId);
+    // ✅ SOURCE 2: Track Circuits table
+    QStringList fromTrackCircuits = getProtectingSignalsFromTrackCircuits(trackSegmentId);
 
-    // ✅ SOURCE 2: track_segments.protecting_signals array (configuration data)
-    QStringList fromTrackSegmentData = getProtectingSignalsFromTrackSegmentData(trackSegmentId);
-
-    // ✅ SAFETY: Combine both sources and remove duplicates for redundancy
-    combinedSignals = fromProtectionTable;
-    for (const QString& signal : fromTrackSegmentData) {
-        if (!combinedSignals.contains(signal.trimmed())) {
-            combinedSignals.append(signal.trimmed());
-        }
-    }
+    // ✅ SOURCE 3: Track Segments table
+    QStringList fromTrackSegments = getProtectingSignalsFromTrackSegments(trackSegmentId);
 
     qDebug() << "🔍 PROTECTING SIGNALS for track segment" << trackSegmentId << ":";
-    qDebug() << "   From protection table:" << fromProtectionTable;
-    qDebug() << "   From trackSegment data:" << fromTrackSegmentData;
-    qDebug() << "   Combined list:" << combinedSignals;
+    qDebug() << "   From interlocking rules:" << fromInterlockingRules;
+    qDebug() << "   From track circuits:" << fromTrackCircuits;
+    qDebug() << "   From track segments:" << fromTrackSegments;
 
-    return combinedSignals;
-}
+    // ✅ CONSISTENCY CHECK: Verify all sources match (triggers system freeze if not)
+    checkProtectingSignalsConsistency(trackSegmentId, fromInterlockingRules, fromTrackCircuits, fromTrackSegments);
 
-QStringList TrackCircuitBranch::getProtectingSignalsFromDatabase(const QString& trackSegmentId) {
-    if (!m_dbManager) return QStringList();
+    // ✅ UPDATED: AND Logic - Use authoritative source (prefer explicit config)
+    QStringList authoritativeSignals;
 
-    QSqlQuery query(m_dbManager->getDatabase());
-    query.prepare("SELECT signal_id FROM railway_control.signal_track_segment_protection WHERE protected_track_segment_id = ? AND is_active = TRUE");
-    query.addBindValue(trackSegmentId);
-
-    QStringList signalList;
-    if (query.exec()) {
-        while (query.next()) {
-            signalList.append(query.value(0).toString());
-        }
-    } else {
-        qWarning() << "❌ Failed to query protecting signals from database:" << query.lastError().text();
+    // Priority order: Interlocking Rules > Track Circuits > Track Segments
+    if (!fromInterlockingRules.isEmpty()) {
+        authoritativeSignals = fromInterlockingRules;
+        qDebug() << "   Using interlocking rules as authoritative source";
+    } else if (!fromTrackCircuits.isEmpty()) {
+        authoritativeSignals = fromTrackCircuits;
+        qDebug() << "   Using track circuits as authoritative source";
+    } else if (!fromTrackSegments.isEmpty()) {
+        authoritativeSignals = fromTrackSegments;
+        qDebug() << "   Using track segments as authoritative source";
     }
 
-    return signalList;
+    qDebug() << "   Authoritative signals (AND logic):" << authoritativeSignals;
+
+    return authoritativeSignals;
 }
 
-QStringList TrackCircuitBranch::getProtectingSignalsFromTrackSegmentData(const QString& trackSegmentId) {
-    auto trackSegmentState = getTrackSegmentState(trackSegmentId);
-    return trackSegmentState.protectingSignals;
+// ✅ NEW: Consistency validation method
+void TrackCircuitBranch::checkProtectingSignalsConsistency(
+    const QString& trackSegmentId,
+    const QStringList& fromInterlockingRules,
+    const QStringList& fromTrackCircuits,
+    const QStringList& fromTrackSegments) {
+
+    // Normalize lists for comparison (sort and trim)
+    auto normalizeList = [](QStringList list) {
+        for (QString& signal : list) {
+            signal = signal.trimmed();
+        }
+        list.sort();
+        return list;
+    };
+
+    QStringList rules = normalizeList(fromInterlockingRules);
+    QStringList circuits = normalizeList(fromTrackCircuits);
+    QStringList segments = normalizeList(fromTrackSegments);
+
+    // Check if any sources have data
+    bool hasRulesData = !rules.isEmpty();
+    bool hasCircuitsData = !circuits.isEmpty();
+    bool hasSegmentsData = !segments.isEmpty();
+
+    if (!hasRulesData && !hasCircuitsData && !hasSegmentsData) {
+        qWarning() << "⚠️ CONSISTENCY WARNING: No protecting signals found in ANY source for track segment" << trackSegmentId;
+        return;
+    }
+
+    // ✅ UPDATED: AND Logic - All sources must match exactly
+    bool isConsistent = true;
+    QStringList inconsistencies;
+    QStringList activeSources;
+    QStringList activeData;
+
+    // Build active sources list for reporting
+    if (hasRulesData) {
+        activeSources.append("InterlockingRules");
+        activeData.append(QString("Rules: %1").arg(rules.join(",")));
+    }
+    if (hasCircuitsData) {
+        activeSources.append("TrackCircuits");
+        activeData.append(QString("Circuits: %1").arg(circuits.join(",")));
+    }
+    if (hasSegmentsData) {
+        activeSources.append("TrackSegments");
+        activeData.append(QString("Segments: %1").arg(segments.join(",")));
+    }
+
+    // ✅ CRITICAL: AND logic - ALL active sources must match exactly
+    QStringList referenceData;
+    QString referenceSource;
+
+    // Use first available source as reference
+    if (hasRulesData) {
+        referenceData = rules;
+        referenceSource = "InterlockingRules";
+    } else if (hasCircuitsData) {
+        referenceData = circuits;
+        referenceSource = "TrackCircuits";
+    } else if (hasSegmentsData) {
+        referenceData = segments;
+        referenceSource = "TrackSegments";
+    }
+
+    // ✅ CRITICAL: Check all other sources against reference
+    if (hasRulesData && hasCircuitsData && rules != circuits) {
+        isConsistent = false;
+        inconsistencies.append("InterlockingRules≠TrackCircuits");
+    }
+    if (hasRulesData && hasSegmentsData && rules != segments) {
+        isConsistent = false;
+        inconsistencies.append("InterlockingRules≠TrackSegments");
+    }
+    if (hasCircuitsData && hasSegmentsData && circuits != segments) {
+        isConsistent = false;
+        inconsistencies.append("TrackCircuits≠TrackSegments");
+    }
+
+    // ✅ CRITICAL: System fault detected - emit system freeze
+    if (!isConsistent) {
+        QString reason = QString("CRITICAL DATA INCONSISTENCY: Protecting signals mismatch for track segment %1").arg(trackSegmentId);
+        QString details = QString("Inconsistencies: %1 | Data: %2 | Sources: %3")
+                              .arg(inconsistencies.join(", "))
+                              .arg(activeData.join(" | "))
+                              .arg(activeSources.join(", "));
+
+        qCritical() << "🚨 CRITICAL SYSTEM FAULT: Data inconsistency detected for track segment" << trackSegmentId;
+        qCritical() << "   Active sources:" << activeSources;
+        qCritical() << "   Inconsistencies:" << inconsistencies;
+        qCritical() << "   Data:" << activeData.join(" | ");
+        qCritical() << "🚨 EMITTING SYSTEM FREEZE - MANUAL INTERVENTION REQUIRED";
+
+        // ✅ EMIT SYSTEM FREEZE: Critical safety fault detected
+        logCriticalFailure(trackSegmentId, details);
+        emitSystemFreeze(trackSegmentId, reason, details);
+
+    } else {
+        qDebug() << "✅ CONSISTENCY OK: All active sources agree on protecting signals for track segment" << trackSegmentId;
+        qDebug() << "   Reference data:" << referenceData.join(",") << "from" << referenceSource;
+    }
+}
+
+QStringList TrackCircuitBranch::getProtectingSignalsFromInterlockingRules(const QString& trackSegmentId) {
+    if (!m_dbManager) return QStringList();
+
+    // ✅ UPDATED: Get circuit ID first, then query interlocking rules by circuit ID
+    QString circuitId = m_dbManager->getCircuitIdByTrackSegmentId(trackSegmentId);
+    if (circuitId.isEmpty()) {
+        qWarning() << "⚠️ No circuit ID found for track segment" << trackSegmentId;
+        return QStringList();
+    }
+
+    qDebug() << "🔍 Track segment" << trackSegmentId << "belongs to circuit" << circuitId;
+    return m_dbManager->getProtectingSignalsFromInterlockingRules(circuitId);
+}
+
+QStringList TrackCircuitBranch::getProtectingSignalsFromTrackCircuits(const QString& trackSegmentId) {
+    if (!m_dbManager) return QStringList();
+
+    // ✅ UPDATED: Get circuit ID first, then query track circuits by circuit ID
+    QString circuitId = m_dbManager->getCircuitIdByTrackSegmentId(trackSegmentId);
+    if (circuitId.isEmpty()) {
+        qWarning() << "⚠️ No circuit ID found for track segment" << trackSegmentId;
+        return QStringList();
+    }
+
+    qDebug() << "🔍 Track segment" << trackSegmentId << "belongs to circuit" << circuitId;
+    return m_dbManager->getProtectingSignalsFromTrackCircuits(circuitId);
+}
+
+// ✅ UNCHANGED: This method stays the same since it queries track_segments directly
+QStringList TrackCircuitBranch::getProtectingSignalsFromTrackSegments(const QString& trackSegmentId) {
+    if (!m_dbManager) return QStringList();
+
+    // ✅ UNCHANGED: Use DatabaseManager API for track segments lookup
+    return m_dbManager->getProtectingSignalsFromTrackSegments(trackSegmentId);
 }
 
 // ============================================================================
