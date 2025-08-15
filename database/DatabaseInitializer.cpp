@@ -1031,7 +1031,8 @@ bool DatabaseInitializer::populateInterlockingRules() {
         ('Opposing Signals HM001-HM002', 'SIGNAL', 'HM001', 'SIGNAL', 'HM002', 'MUST_BE_RED', 'OPPOSING', 1000),
         ('Opposing Signals HM002-HM001', 'SIGNAL', 'HM002', 'SIGNAL', 'HM001', 'MUST_BE_RED', 'OPPOSING', 1000),
         ('Signal OT001 protects Circuit 6T', 'SIGNAL', 'OT001', 'TRACK_CIRCUIT', '6T', 'MUST_BE_CLEAR', 'PROTECTING', 900),
-        ('Signal HM001 protects Circuit W22T', 'SIGNAL', 'HM001', 'TRACK_CIRCUIT', 'W22T', 'MUST_BE_CLEAR', 'PROTECTING', 900)
+        ('Signal HM001 protects Circuit W22T', 'SIGNAL', 'HM001', 'TRACK_CIRCUIT', 'W22T', 'MUST_BE_CLEAR', 'PROTECTING', 900),
+        ('Signal ST001 protects Circuit W21T', 'SIGNAL', 'ST001', 'TRACK_CIRCUIT', 'W21T', 'MUST_BE_CLEAR', 'PROTECTING', 900)
         ON CONFLICT DO NOTHING)",
 
         R"(INSERT INTO railway_control.signal_track_segment_protection (signal_id, protected_track_segment_id, protection_type) VALUES
@@ -2043,7 +2044,7 @@ QJsonArray DatabaseInitializer::getTrackSegmentsData() {
         QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S6"}, {"startRow", 110}, {"startCol", 128}, {"endRow", 110}, {"endCol", 158}, {"circuit_id", "W22T"}, {"assigned", false}},
-        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", true}},
+        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S8"}, {"startRow", 110}, {"startCol", 222}, {"endRow", 110}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S9"}, {"startRow", 110}, {"startCol", 264}, {"endRow", 110}, {"endCol", 286}, {"circuit_id", "W21T"}, {"assigned", false}},
         QJsonObject{{"id", "T1S10"}, {"startRow", 110}, {"startCol", 287}, {"endRow", 110}, {"endCol", 305}, {"circuit_id", "2T"}, {"assigned", false}},

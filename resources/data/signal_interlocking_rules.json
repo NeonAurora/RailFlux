@@ -8,18 +8,34 @@
       "rules": [
         {
           "when_aspect": "GREEN",
-          "conditions": [],
+          "conditions": [{"point_machine": "PM004", "position": "NORMAL"}],
           "allows": {
             "ST001": ["GREEN", "YELLOW", "RED"],
-            "ST002": ["YELLOW", "RED"]
+            "ST002": ["RED"]
+          }
+        },
+        {
+          "when_aspect": "GREEN",
+          "conditions": [{"point_machine": "PM004", "position": "REVERSE"}],
+          "allows": {
+            "ST002": ["YELLOW", "RED"],
+            "ST001": ["RED"]
           }
         },
         {
           "when_aspect": "RED",
-          "conditions": [],
+          "conditions": [{"point_machine": "PM004", "position": "NORMAL"}],
           "allows": {
             "ST001": ["YELLOW", "RED"],
-            "ST002": ["YELLOW", "RED"]
+            "ST002": ["RED"]
+          }
+        },
+        {
+          "when_aspect": "RED", 
+          "conditions": [{"point_machine": "PM004", "position": "REVERSE"}],
+          "allows": {
+            "ST002": ["YELLOW", "RED"],
+            "ST001": ["RED"]
           }
         }
       ]

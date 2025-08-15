@@ -24,7 +24,6 @@ qt_add_qml_module(appRailFlux
         components/LevelCrossingGate.qml
         components/GridCanvas.qml
         layouts/StationLayout.qml
-        data/StationData.js
         components/OuterSignal.qml
         components/HomeSignal.qml
         components/StarterSignal.qml
