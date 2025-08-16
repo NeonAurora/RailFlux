@@ -1,7 +1,9 @@
 import QtQuick
 import QtQuick.Controls
 import RailFlux.Database
+import RailFlux.Route
 import "layouts" as Layouts
+import "components" as Components
 
 ApplicationWindow {
     id: mainWindow
@@ -612,6 +614,92 @@ ApplicationWindow {
                 contentItem: Text {
                     text: parent.text
                     color: theme.textPrimary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            // === ROUTE VISUALIZATION CONTROLS ===
+            Button {
+                width: 60
+                height: 32
+                text: stationLayout.isRouteVisualizationEnabled ? "Routes ON" : "Routes OFF"
+                ToolTip.text: "Toggle route visualization overlay"
+                ToolTip.visible: hovered
+                
+                onClicked: {
+                    stationLayout.isRouteVisualizationEnabled = !stationLayout.isRouteVisualizationEnabled
+                    console.log("🗺️ Route visualization:", stationLayout.isRouteVisualizationEnabled ? "enabled" : "disabled")
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? theme.accentBlue : (stationLayout.isRouteVisualizationEnabled ? "#2d4a22" : "transparent")
+                    border.color: stationLayout.isRouteVisualizationEnabled ? "#38a169" : theme.borderColor
+                    border.width: 1
+                    radius: 4
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: stationLayout.isRouteVisualizationEnabled ? "#38a169" : theme.textPrimary
+                    font.pixelSize: 9
+                    font.weight: Font.Bold
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            Button {
+                width: 60
+                height: 32
+                text: "Routes"
+                ToolTip.text: "Show route management panel"
+                ToolTip.visible: hovered
+                
+                onClicked: {
+                    stationLayout.isRouteManagementVisible = !stationLayout.isRouteManagementVisible
+                    console.log("📋 Route management panel:", stationLayout.isRouteManagementVisible ? "shown" : "hidden")
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? theme.accentBlue : (stationLayout.isRouteManagementVisible ? "#2d3a22" : "transparent")
+                    border.color: stationLayout.isRouteManagementVisible ? "#32cd32" : theme.borderColor
+                    border.width: 1
+                    radius: 4
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: stationLayout.isRouteManagementVisible ? "#32cd32" : theme.textPrimary
+                    font.pixelSize: 9
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            Button {
+                width: 60
+                height: 32
+                text: "Metrics"
+                ToolTip.text: "Show performance dashboard"
+                ToolTip.visible: hovered
+                
+                onClicked: {
+                    stationLayout.isPerformanceDashboardVisible = !stationLayout.isPerformanceDashboardVisible
+                    console.log("📊 Performance dashboard:", stationLayout.isPerformanceDashboardVisible ? "shown" : "hidden")
+                }
+
+                background: Rectangle {
+                    color: parent.hovered ? theme.accentBlue : (stationLayout.isPerformanceDashboardVisible ? "#2d2a3a" : "transparent")
+                    border.color: stationLayout.isPerformanceDashboardVisible ? "#3182ce" : theme.borderColor
+                    border.width: 1
+                    radius: 4
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    color: stationLayout.isPerformanceDashboardVisible ? "#3182ce" : theme.textPrimary
+                    font.pixelSize: 9
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }

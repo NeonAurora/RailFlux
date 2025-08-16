@@ -87,6 +87,13 @@ private:
     bool createGinIndexes();
     bool createViews();
     bool setupRolePermissions();
+    
+    // Route assignment schema extensions
+    bool executeRouteAssignmentSchema();
+    bool populateRouteAssignmentData();
+    bool populateSignalAdjacencyAnchors();
+    bool populateTrackCircuitEdges();
+    bool populateSignalOverlapDefinitions();
 
     // Helper methods
     bool executeQuery(const QString& query, const QVariantList& params = QVariantList());

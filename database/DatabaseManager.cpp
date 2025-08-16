@@ -1757,3 +1757,698 @@ QString DatabaseManager::getPointPosition(int machineId) {
 void DatabaseManager::logError(const QString& operation, const QSqlError& error) {
     qWarning() << "Database error in" << operation << ":" << error.text();
 }
+
+// ============================================================================
+// ROUTE ASSIGNMENT METHODS IMPLEMENTATION
+// ============================================================================
+
+bool DatabaseManager::insertRouteAssignment(
+    const QString& routeId,
+    const QString& sourceSignalId,
+    const QString& destSignalId,
+    const QString& direction,
+    const QStringList& assignedCircuits,
+    const QStringList& overlapCircuits,
+    const QString& state,
+    const QStringList& lockedPointMachines,
+    int priority,
+    const QString& operatorId
+) {
+    if (!connected) {
+        logError("insertRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        INSERT INTO railway_control.route_assignments (
+            id, source_signal_id, dest_signal_id, direction,
+            assigned_circuits, overlap_circuits, state,
+            locked_point_machines, priority, operator_id,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    )");
+
+    query.addBindValue(routeId);
+    query.addBindValue(sourceSignalId);
+    query.addBindValue(destSignalId);
+    query.addBindValue(direction);
+    
+    // Convert QStringList to PostgreSQL array format
+    QString assignedCircuitsArray = "{" + assignedCircuits.join(",") + "}";
+    QString overlapCircuitsArray = "{" + overlapCircuits.join(",") + "}";
+    QString lockedPointMachinesArray = "{" + lockedPointMachines.join(",") + "}";
+    
+    query.addBindValue(assignedCircuitsArray);
+    query.addBindValue(overlapCircuitsArray);
+    query.addBindValue(state);
+    query.addBindValue(lockedPointMachinesArray);
+    query.addBindValue(priority);
+    query.addBindValue(operatorId);
+
+    if (query.exec()) {
+        emit routeAssignmentInserted(routeId);
+        emit routeAssignmentsChanged();
+        return true;
+    } else {
+        logError("insertRouteAssignment", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::updateRouteState(const QString& routeId, const QString& newState) {
+    if (!connected) {
+        logError("updateRouteState", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        UPDATE railway_control.route_assignments 
+        SET state = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    )");
+    query.addBindValue(newState);
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        emit routeStateChanged(routeId, newState);
+        emit routeAssignmentsChanged();
+        return true;
+    } else {
+        logError("updateRouteState", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::updateRouteActivation(const QString& routeId) {
+    if (!connected) {
+        logError("updateRouteActivation", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        UPDATE railway_control.route_assignments 
+        SET state = 'ACTIVE', activated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    )");
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        emit routeActivated(routeId);
+        emit routeStateChanged(routeId, "ACTIVE");
+        emit routeAssignmentsChanged();
+        return true;
+    } else {
+        logError("updateRouteActivation", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::updateRouteRelease(const QString& routeId) {
+    if (!connected) {
+        logError("updateRouteRelease", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        UPDATE railway_control.route_assignments 
+        SET state = 'RELEASED', released_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    )");
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        emit routeReleased(routeId);
+        emit routeStateChanged(routeId, "RELEASED");
+        emit routeAssignmentsChanged();
+        return true;
+    } else {
+        logError("updateRouteRelease", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::updateRouteFailure(const QString& routeId, const QString& failureReason) {
+    if (!connected) {
+        logError("updateRouteFailure", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        UPDATE railway_control.route_assignments 
+        SET state = 'FAILED', failure_reason = ?
+        WHERE id = ?
+    )");
+    query.addBindValue(failureReason);
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        emit routeFailed(routeId, failureReason);
+        emit routeStateChanged(routeId, "FAILED");
+        emit routeAssignmentsChanged();
+        return true;
+    } else {
+        logError("updateRouteFailure", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::updateRoutePerformanceMetrics(const QString& routeId, const QVariantMap& metrics) {
+    if (!connected) {
+        logError("updateRoutePerformanceMetrics", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QJsonDocument jsonDoc = QJsonDocument::fromVariant(metrics);
+    QString jsonString = jsonDoc.toJson(QJsonDocument::Compact);
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        UPDATE railway_control.route_assignments 
+        SET performance_metrics = ?::jsonb
+        WHERE id = ?
+    )");
+    query.addBindValue(jsonString);
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        return true;
+    } else {
+        logError("updateRoutePerformanceMetrics", query.lastError());
+        return false;
+    }
+}
+
+QVariantMap DatabaseManager::getRouteAssignment(const QString& routeId) {
+    QVariantMap route;
+    if (!connected) return route;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, source_signal_id, dest_signal_id, direction,
+               assigned_circuits, overlap_circuits, state,
+               created_at, activated_at, released_at,
+               locked_point_machines, priority, operator_id,
+               failure_reason, performance_metrics
+        FROM railway_control.route_assignments
+        WHERE id = ?
+    )");
+    query.addBindValue(routeId);
+
+    if (query.exec() && query.next()) {
+        route["id"] = query.value("id").toString();
+        route["sourceSignalId"] = query.value("source_signal_id").toString();
+        route["destSignalId"] = query.value("dest_signal_id").toString();
+        route["direction"] = query.value("direction").toString();
+        route["assignedCircuits"] = query.value("assigned_circuits").toString();
+        route["overlapCircuits"] = query.value("overlap_circuits").toString();
+        route["state"] = query.value("state").toString();
+        route["createdAt"] = query.value("created_at").toDateTime();
+        route["activatedAt"] = query.value("activated_at").toDateTime();
+        route["releasedAt"] = query.value("released_at").toDateTime();
+        route["lockedPointMachines"] = query.value("locked_point_machines").toString();
+        route["priority"] = query.value("priority").toInt();
+        route["operatorId"] = query.value("operator_id").toString();
+        route["failureReason"] = query.value("failure_reason").toString();
+        route["performanceMetrics"] = query.value("performance_metrics").toString();
+    } else if (!query.exec()) {
+        logError("getRouteAssignment", query.lastError());
+    }
+
+    return route;
+}
+
+QVariantList DatabaseManager::getActiveRoutes() {
+    return getRoutesByState("ACTIVE");
+}
+
+QVariantList DatabaseManager::getRoutesByState(const QString& state) {
+    QVariantList routes;
+    if (!connected) return routes;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, source_signal_id, dest_signal_id, direction,
+               assigned_circuits, overlap_circuits, state,
+               created_at, activated_at, released_at,
+               locked_point_machines, priority, operator_id
+        FROM railway_control.route_assignments
+        WHERE state = ?
+        ORDER BY created_at DESC
+    )");
+    query.addBindValue(state);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap route;
+            route["id"] = query.value("id").toString();
+            route["sourceSignalId"] = query.value("source_signal_id").toString();
+            route["destSignalId"] = query.value("dest_signal_id").toString();
+            route["direction"] = query.value("direction").toString();
+            route["assignedCircuits"] = query.value("assigned_circuits").toString();
+            route["overlapCircuits"] = query.value("overlap_circuits").toString();
+            route["state"] = query.value("state").toString();
+            route["createdAt"] = query.value("created_at").toDateTime();
+            route["activatedAt"] = query.value("activated_at").toDateTime();
+            route["releasedAt"] = query.value("released_at").toDateTime();
+            route["lockedPointMachines"] = query.value("locked_point_machines").toString();
+            route["priority"] = query.value("priority").toInt();
+            route["operatorId"] = query.value("operator_id").toString();
+            routes.append(route);
+        }
+    } else {
+        logError("getRoutesByState", query.lastError());
+    }
+
+    return routes;
+}
+
+QVariantList DatabaseManager::getRoutesBySignal(const QString& signalId) {
+    QVariantList routes;
+    if (!connected) return routes;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, source_signal_id, dest_signal_id, direction,
+               assigned_circuits, overlap_circuits, state,
+               created_at, activated_at, released_at,
+               locked_point_machines, priority, operator_id
+        FROM railway_control.route_assignments
+        WHERE source_signal_id = ? OR dest_signal_id = ?
+        ORDER BY created_at DESC
+    )");
+    query.addBindValue(signalId);
+    query.addBindValue(signalId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap route;
+            route["id"] = query.value("id").toString();
+            route["sourceSignalId"] = query.value("source_signal_id").toString();
+            route["destSignalId"] = query.value("dest_signal_id").toString();
+            route["direction"] = query.value("direction").toString();
+            route["assignedCircuits"] = query.value("assigned_circuits").toString();
+            route["overlapCircuits"] = query.value("overlap_circuits").toString();
+            route["state"] = query.value("state").toString();
+            route["createdAt"] = query.value("created_at").toDateTime();
+            route["activatedAt"] = query.value("activated_at").toDateTime();
+            route["releasedAt"] = query.value("released_at").toDateTime();
+            route["lockedPointMachines"] = query.value("locked_point_machines").toString();
+            route["priority"] = query.value("priority").toInt();
+            route["operatorId"] = query.value("operator_id").toString();
+            routes.append(route);
+        }
+    } else {
+        logError("getRoutesBySignal", query.lastError());
+    }
+
+    return routes;
+}
+
+bool DatabaseManager::deleteRouteAssignment(const QString& routeId) {
+    if (!connected) {
+        logError("deleteRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare("DELETE FROM railway_control.route_assignments WHERE id = ?");
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        emit routeAssignmentsChanged();
+        return true;
+    } else {
+        logError("deleteRouteAssignment", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::insertRouteEvent(
+    const QString& routeId,
+    const QString& eventType,
+    const QVariantMap& eventData,
+    const QString& operatorId,
+    const QString& sourceComponent,
+    const QString& correlationId,
+    double responseTimeMs,
+    bool safetyCritical
+) {
+    if (!connected) {
+        logError("insertRouteEvent", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QJsonDocument jsonDoc = QJsonDocument::fromVariant(eventData);
+    QString jsonString = jsonDoc.toJson(QJsonDocument::Compact);
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        INSERT INTO railway_control.route_events (
+            route_id, event_type, event_data, operator_id,
+            source_component, correlation_id, response_time_ms,
+            safety_critical, event_timestamp
+        ) VALUES (?, ?, ?::jsonb, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    )");
+
+    query.addBindValue(routeId);
+    query.addBindValue(eventType);
+    query.addBindValue(jsonString);
+    query.addBindValue(operatorId.isEmpty() ? QVariant() : operatorId);
+    query.addBindValue(sourceComponent.isEmpty() ? QVariant() : sourceComponent);
+    query.addBindValue(correlationId.isEmpty() ? QVariant() : correlationId);
+    query.addBindValue(responseTimeMs > 0.0 ? responseTimeMs : QVariant());
+    query.addBindValue(safetyCritical);
+
+    if (query.exec()) {
+        emit routeEventLogged(routeId, eventType);
+        return true;
+    } else {
+        logError("insertRouteEvent", query.lastError());
+        return false;
+    }
+}
+
+QVariantList DatabaseManager::getRouteEvents(const QString& routeId, int limitHours) {
+    QVariantList events;
+    if (!connected) return events;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, route_id, event_type, event_timestamp, event_data,
+               operator_id, source_component, correlation_id,
+               response_time_ms, safety_critical
+        FROM railway_control.route_events
+        WHERE route_id = ? 
+          AND event_timestamp >= CURRENT_TIMESTAMP - INTERVAL '%1 hours'
+        ORDER BY event_timestamp DESC
+    )");
+    query.addBindValue(routeId);
+
+    // Replace %1 with limitHours in the query string
+    QString queryString = query.lastQuery();
+    queryString = queryString.arg(limitHours);
+    query.prepare(queryString);
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap event;
+            event["id"] = query.value("id").toLongLong();
+            event["routeId"] = query.value("route_id").toString();
+            event["eventType"] = query.value("event_type").toString();
+            event["eventTimestamp"] = query.value("event_timestamp").toDateTime();
+            event["eventData"] = query.value("event_data").toString();
+            event["operatorId"] = query.value("operator_id").toString();
+            event["sourceComponent"] = query.value("source_component").toString();
+            event["correlationId"] = query.value("correlation_id").toString();
+            event["responseTimeMs"] = query.value("response_time_ms").toDouble();
+            event["safetyCritical"] = query.value("safety_critical").toBool();
+            events.append(event);
+        }
+    } else {
+        logError("getRouteEvents", query.lastError());
+    }
+
+    return events;
+}
+
+bool DatabaseManager::insertResourceLock(
+    const QString& resourceType,
+    const QString& resourceId,
+    const QString& routeId,
+    const QString& lockType
+) {
+    if (!connected) {
+        logError("insertResourceLock", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        INSERT INTO railway_control.resource_locks (
+            resource_type, resource_id, route_id, lock_type, acquired_at
+        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    )");
+
+    query.addBindValue(resourceType);
+    query.addBindValue(resourceId);
+    query.addBindValue(routeId);
+    query.addBindValue(lockType);
+
+    if (query.exec()) {
+        emit resourceLockAcquired(routeId, resourceType, resourceId);
+        return true;
+    } else {
+        logError("insertResourceLock", query.lastError());
+        return false;
+    }
+}
+
+bool DatabaseManager::releaseResourceLocks(const QString& routeId) {
+    if (!connected) {
+        logError("releaseResourceLocks", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        DELETE FROM railway_control.resource_locks 
+        WHERE route_id = ?
+    )");
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        emit resourceLockReleased(routeId);
+        return true;
+    } else {
+        logError("releaseResourceLocks", query.lastError());
+        return false;
+    }
+}
+
+QVariantList DatabaseManager::getResourceLocks(const QString& routeId) {
+    QVariantList locks;
+    if (!connected) return locks;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, resource_type, resource_id, route_id, lock_type, acquired_at
+        FROM railway_control.resource_locks
+        WHERE route_id = ?
+        ORDER BY acquired_at DESC
+    )");
+    query.addBindValue(routeId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap lock;
+            lock["id"] = query.value("id").toInt();
+            lock["resourceType"] = query.value("resource_type").toString();
+            lock["resourceId"] = query.value("resource_id").toString();
+            lock["routeId"] = query.value("route_id").toString();
+            lock["lockType"] = query.value("lock_type").toString();
+            lock["acquiredAt"] = query.value("acquired_at").toDateTime();
+            locks.append(lock);
+        }
+    } else {
+        logError("getResourceLocks", query.lastError());
+    }
+
+    return locks;
+}
+
+QVariantList DatabaseManager::getConflictingLocks(const QString& resourceId, const QString& resourceType) {
+    QVariantList locks;
+    if (!connected) return locks;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, resource_type, resource_id, route_id, lock_type, acquired_at
+        FROM railway_control.resource_locks
+        WHERE resource_id = ? AND resource_type = ?
+        ORDER BY acquired_at DESC
+    )");
+    query.addBindValue(resourceId);
+    query.addBindValue(resourceType);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap lock;
+            lock["id"] = query.value("id").toInt();
+            lock["resourceType"] = query.value("resource_type").toString();
+            lock["resourceId"] = query.value("resource_id").toString();
+            lock["routeId"] = query.value("route_id").toString();
+            lock["lockType"] = query.value("lock_type").toString();
+            lock["acquiredAt"] = query.value("acquired_at").toDateTime();
+            locks.append(lock);
+        }
+    } else {
+        logError("getConflictingLocks", query.lastError());
+    }
+
+    return locks;
+}
+
+QVariantList DatabaseManager::getTrackCircuitEdges() {
+    QVariantList edges;
+    if (!connected) return edges;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, from_circuit_id, to_circuit_id, side,
+               condition_point_machine_id, condition_position,
+               weight, is_active
+        FROM railway_control.track_circuit_edges
+        WHERE is_active = TRUE
+        ORDER BY from_circuit_id, to_circuit_id
+    )");
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap edge;
+            edge["id"] = query.value("id").toInt();
+            edge["fromCircuitId"] = query.value("from_circuit_id").toString();
+            edge["toCircuitId"] = query.value("to_circuit_id").toString();
+            edge["side"] = query.value("side").toString();
+            edge["conditionPointMachineId"] = query.value("condition_point_machine_id").toString();
+            edge["conditionPosition"] = query.value("condition_position").toString();
+            edge["weight"] = query.value("weight").toDouble();
+            edge["isActive"] = query.value("is_active").toBool();
+            edges.append(edge);
+        }
+    } else {
+        logError("getTrackCircuitEdges", query.lastError());
+    }
+
+    return edges;
+}
+
+QVariantList DatabaseManager::getOutgoingEdges(const QString& circuitId) {
+    QVariantList edges;
+    if (!connected) return edges;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, from_circuit_id, to_circuit_id, side,
+               condition_point_machine_id, condition_position,
+               weight, is_active
+        FROM railway_control.track_circuit_edges
+        WHERE from_circuit_id = ? AND is_active = TRUE
+        ORDER BY weight, to_circuit_id
+    )");
+    query.addBindValue(circuitId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap edge;
+            edge["id"] = query.value("id").toInt();
+            edge["fromCircuitId"] = query.value("from_circuit_id").toString();
+            edge["toCircuitId"] = query.value("to_circuit_id").toString();
+            edge["side"] = query.value("side").toString();
+            edge["conditionPointMachineId"] = query.value("condition_point_machine_id").toString();
+            edge["conditionPosition"] = query.value("condition_position").toString();
+            edge["weight"] = query.value("weight").toDouble();
+            edge["isActive"] = query.value("is_active").toBool();
+            edges.append(edge);
+        }
+    } else {
+        logError("getOutgoingEdges", query.lastError());
+    }
+
+    return edges;
+}
+
+QVariantList DatabaseManager::getIncomingEdges(const QString& circuitId) {
+    QVariantList edges;
+    if (!connected) return edges;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT id, from_circuit_id, to_circuit_id, side,
+               condition_point_machine_id, condition_position,
+               weight, is_active
+        FROM railway_control.track_circuit_edges
+        WHERE to_circuit_id = ? AND is_active = TRUE
+        ORDER BY weight, from_circuit_id
+    )");
+    query.addBindValue(circuitId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap edge;
+            edge["id"] = query.value("id").toInt();
+            edge["fromCircuitId"] = query.value("from_circuit_id").toString();
+            edge["toCircuitId"] = query.value("to_circuit_id").toString();
+            edge["side"] = query.value("side").toString();
+            edge["conditionPointMachineId"] = query.value("condition_point_machine_id").toString();
+            edge["conditionPosition"] = query.value("condition_position").toString();
+            edge["weight"] = query.value("weight").toDouble();
+            edge["isActive"] = query.value("is_active").toBool();
+            edges.append(edge);
+        }
+    } else {
+        logError("getIncomingEdges", query.lastError());
+    }
+
+    return edges;
+}
+
+QVariantMap DatabaseManager::getSignalOverlapDefinition(const QString& signalId) {
+    QVariantMap overlap;
+    if (!connected) return overlap;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT signal_id, overlap_circuit_ids, release_trigger_circuit_ids,
+               overlap_distance_meters, timed_release_seconds
+        FROM railway_control.signal_overlap_definitions
+        WHERE signal_id = ?
+    )");
+    query.addBindValue(signalId);
+
+    if (query.exec() && query.next()) {
+        overlap["signalId"] = query.value("signal_id").toString();
+        overlap["overlapCircuitIds"] = query.value("overlap_circuit_ids").toString();
+        overlap["releaseTriggerCircuitIds"] = query.value("release_trigger_circuit_ids").toString();
+        overlap["overlapDistanceMeters"] = query.value("overlap_distance_meters").toDouble();
+        overlap["timedReleaseSeconds"] = query.value("timed_release_seconds").toInt();
+    } else if (!query.exec()) {
+        logError("getSignalOverlapDefinition", query.lastError());
+    }
+
+    return overlap;
+}
+
+QVariantList DatabaseManager::getAllSignalOverlapDefinitions() {
+    QVariantList overlaps;
+    if (!connected) return overlaps;
+
+    QSqlQuery query(db);
+    query.prepare(R"(
+        SELECT signal_id, overlap_circuit_ids, release_trigger_circuit_ids,
+               overlap_distance_meters, timed_release_seconds
+        FROM railway_control.signal_overlap_definitions
+        ORDER BY signal_id
+    )");
+
+    if (query.exec()) {
+        while (query.next()) {
+            QVariantMap overlap;
+            overlap["signalId"] = query.value("signal_id").toString();
+            overlap["overlapCircuitIds"] = query.value("overlap_circuit_ids").toString();
+            overlap["releaseTriggerCircuitIds"] = query.value("release_trigger_circuit_ids").toString();
+            overlap["overlapDistanceMeters"] = query.value("overlap_distance_meters").toDouble();
+            overlap["timedReleaseSeconds"] = query.value("timed_release_seconds").toInt();
+            overlaps.append(overlap);
+        }
+    } else {
+        logError("getAllSignalOverlapDefinitions", query.lastError());
+    }
+
+    return overlaps;
+}

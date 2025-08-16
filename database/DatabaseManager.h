@@ -102,6 +102,67 @@ public:
 
     QVariantMap getTrackCircuitById(const QString& circuitId);
 
+    // === ROUTE ASSIGNMENT METHODS ===
+    Q_INVOKABLE bool insertRouteAssignment(
+        const QString& routeId,
+        const QString& sourceSignalId,
+        const QString& destSignalId,
+        const QString& direction,
+        const QStringList& assignedCircuits,
+        const QStringList& overlapCircuits,
+        const QString& state,
+        const QStringList& lockedPointMachines,
+        int priority,
+        const QString& operatorId
+    );
+    
+    Q_INVOKABLE bool updateRouteState(const QString& routeId, const QString& newState);
+    Q_INVOKABLE bool updateRouteActivation(const QString& routeId);
+    Q_INVOKABLE bool updateRouteRelease(const QString& routeId);
+    Q_INVOKABLE bool updateRouteFailure(const QString& routeId, const QString& failureReason);
+    Q_INVOKABLE bool updateRoutePerformanceMetrics(const QString& routeId, const QVariantMap& metrics);
+    
+    Q_INVOKABLE QVariantMap getRouteAssignment(const QString& routeId);
+    Q_INVOKABLE QVariantList getActiveRoutes();
+    Q_INVOKABLE QVariantList getRoutesByState(const QString& state);
+    Q_INVOKABLE QVariantList getRoutesBySignal(const QString& signalId);
+    Q_INVOKABLE bool deleteRouteAssignment(const QString& routeId);
+    
+    // Route event logging
+    Q_INVOKABLE bool insertRouteEvent(
+        const QString& routeId,
+        const QString& eventType,
+        const QVariantMap& eventData,
+        const QString& operatorId = QString(),
+        const QString& sourceComponent = QString(),
+        const QString& correlationId = QString(),
+        double responseTimeMs = 0.0,
+        bool safetyCritical = false
+    );
+    
+    Q_INVOKABLE QVariantList getRouteEvents(const QString& routeId, int limitHours = 24);
+    
+    // Resource lock management
+    Q_INVOKABLE bool insertResourceLock(
+        const QString& resourceType,
+        const QString& resourceId,
+        const QString& routeId,
+        const QString& lockType
+    );
+    
+    Q_INVOKABLE bool releaseResourceLocks(const QString& routeId);
+    Q_INVOKABLE QVariantList getResourceLocks(const QString& routeId);
+    Q_INVOKABLE QVariantList getConflictingLocks(const QString& resourceId, const QString& resourceType);
+    
+    // Track circuit edges for pathfinding
+    Q_INVOKABLE QVariantList getTrackCircuitEdges();
+    Q_INVOKABLE QVariantList getOutgoingEdges(const QString& circuitId);
+    Q_INVOKABLE QVariantList getIncomingEdges(const QString& circuitId);
+    
+    // Signal overlap definitions
+    Q_INVOKABLE QVariantMap getSignalOverlapDefinition(const QString& signalId);
+    Q_INVOKABLE QVariantList getAllSignalOverlapDefinitions();
+
 public slots:
     // Enhanced update method
     bool updatePointMachinePosition(const QString& machineId, const QString& newPosition);
@@ -141,6 +202,17 @@ signals:
 
     void pairedMachinesUpdated(const QStringList& machineIds);
     void positionMismatchCorrected(const QString& machineId, const QString& pairedMachineId);
+
+    // === ROUTE ASSIGNMENT SIGNALS ===
+    void routeAssignmentInserted(const QString& routeId);
+    void routeStateChanged(const QString& routeId, const QString& newState);
+    void routeActivated(const QString& routeId);
+    void routeReleased(const QString& routeId);
+    void routeFailed(const QString& routeId, const QString& reason);
+    void routeEventLogged(const QString& routeId, const QString& eventType);
+    void resourceLockAcquired(const QString& routeId, const QString& resourceType, const QString& resourceId);
+    void resourceLockReleased(const QString& routeId);
+    void routeAssignmentsChanged();
 
 private slots:
     void pollDatabase();

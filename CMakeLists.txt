@@ -40,12 +40,20 @@ qt_add_qml_module(appRailFlux
 
     RESOURCES
         sql/sql_coomands_railflux.sql
+        sql/route_assignment_schema_extensions.sql
         SOURCES interlocking/InterlockingService.h interlocking/InterlockingService.cpp
         SOURCES interlocking/SignalBranch.h interlocking/SignalBranch.cpp
         SOURCES interlocking/TrackCircuitBranch.h interlocking/TrackCircuitBranch.cpp
         SOURCES interlocking/PointMachineBranch.h interlocking/PointMachineBranch.cpp
         SOURCES interlocking/SignalRule.h interlocking/SignalRule.cpp
         SOURCES interlocking/InterlockingRuleEngine.h interlocking/InterlockingRuleEngine.cpp
+        SOURCES route/GraphService.h route/GraphService.cpp
+        SOURCES route/ResourceLockService.h route/ResourceLockService.cpp
+        SOURCES route/OverlapService.h route/OverlapService.cpp
+        SOURCES route/TelemetryService.h route/TelemetryService.cpp
+        SOURCES route/VitalRouteController.h route/VitalRouteController.cpp
+        SOURCES route/RouteAssignmentService.h route/RouteAssignmentService.cpp
+        SOURCES route/SafetyMonitorService.h route/SafetyMonitorService.cpp
 )
 
 qt_add_resources(appRailFlux "app_resources"

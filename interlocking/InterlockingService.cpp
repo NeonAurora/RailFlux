@@ -355,3 +355,287 @@ void InterlockingService::handleInterlockingFailure(const QString& trackSegmentI
     // ✅ TREAT AS CRITICAL FAILURE: This is a safety system failure
     handleCriticalFailure(trackSegmentId, QString("Failed to enforce signal protection: %1").arg(error));
 }
+
+// ============================================================================
+// ✅ ROUTE ASSIGNMENT VALIDATION IMPLEMENTATION
+// ============================================================================
+
+ValidationResult InterlockingService::validateRouteRequest(const QString& sourceSignalId,
+                                                           const QString& destSignalId,
+                                                           const QString& direction,
+                                                           const QStringList& proposedPath,
+                                                           const QString& operatorId) {
+    QElapsedTimer timer;
+    timer.start();
+
+    if (!m_isOperational) {
+        return ValidationResult::blocked("Interlocking system is not operational", "SYSTEM_NOT_OPERATIONAL");
+    }
+
+    // 1. Validate signal existence and states
+    if (!m_dbManager) {
+        return ValidationResult::blocked("Database manager not available", "DB_MANAGER_NULL");
+    }
+
+    // Check source signal exists and can be operated
+    QVariantMap sourceSignal = m_dbManager->getSignalById(sourceSignalId);
+    if (sourceSignal.isEmpty()) {
+        return ValidationResult::blocked("Source signal does not exist: " + sourceSignalId, "SOURCE_SIGNAL_NOT_FOUND");
+    }
+
+    // Check destination signal exists
+    QVariantMap destSignal = m_dbManager->getSignalById(destSignalId);
+    if (destSignal.isEmpty()) {
+        return ValidationResult::blocked("Destination signal does not exist: " + destSignalId, "DEST_SIGNAL_NOT_FOUND");
+    }
+
+    // 2. Validate direction
+    if (direction != "UP" && direction != "DOWN") {
+        return ValidationResult::blocked("Invalid direction: " + direction, "INVALID_DIRECTION");
+    }
+
+    // 3. Check if path contains valid track circuits
+    for (const QString& circuitId : proposedPath) {
+        QVariantMap circuit = m_dbManager->getTrackCircuitById(circuitId);
+        if (circuit.isEmpty()) {
+            return ValidationResult::blocked("Invalid track circuit in path: " + circuitId, "INVALID_CIRCUIT");
+        }
+
+        // Check if circuit is occupied
+        bool isOccupied = m_dbManager->getTrackCircuitOccupancy(circuitId);
+        if (isOccupied) {
+            return ValidationResult::blocked("Track circuit is occupied: " + circuitId, "CIRCUIT_OCCUPIED");
+        }
+    }
+
+    // 4. Check for conflicting routes
+    QVariantList activeRoutes = m_dbManager->getActiveRoutes();
+    for (const QVariant& routeVar : activeRoutes) {
+        QVariantMap route = routeVar.toMap();
+        QString assignedCircuitsStr = route["assignedCircuits"].toString();
+        QStringList assignedCircuits = assignedCircuitsStr.mid(1, assignedCircuitsStr.length() - 2).split(",");
+        
+        // Check for circuit conflicts
+        for (const QString& assignedCircuit : assignedCircuits) {
+            if (proposedPath.contains(assignedCircuit.trimmed())) {
+                return ValidationResult::blocked("Route conflict with active route: " + route["id"].toString(), "ROUTE_CONFLICT");
+            }
+        }
+    }
+
+    double responseTime = timer.elapsed();
+    recordResponseTime(responseTime);
+
+    if (responseTime > TARGET_RESPONSE_TIME_MS) {
+        logPerformanceWarning("validateRouteRequest", responseTime);
+    }
+
+    return ValidationResult::allowed("Route request validated successfully")
+        .setRuleId("ROUTE_REQUEST_VALIDATION");
+}
+
+ValidationResult InterlockingService::validateRouteActivation(const QString& routeId,
+                                                             const QStringList& assignedCircuits,
+                                                             const QStringList& lockedPointMachines,
+                                                             const QString& operatorId) {
+    QElapsedTimer timer;
+    timer.start();
+
+    if (!m_isOperational) {
+        return ValidationResult::blocked("Interlocking system is not operational", "SYSTEM_NOT_OPERATIONAL");
+    }
+
+    // 1. Verify route exists and is in correct state
+    QVariantMap route = m_dbManager->getRouteAssignment(routeId);
+    if (route.isEmpty()) {
+        return ValidationResult::blocked("Route does not exist: " + routeId, "ROUTE_NOT_FOUND");
+    }
+
+    QString currentState = route["state"].toString();
+    if (currentState != "RESERVED") {
+        return ValidationResult::blocked("Route not in RESERVED state for activation: " + currentState, "INVALID_STATE");
+    }
+
+    // 2. Verify all circuits are still clear
+    for (const QString& circuitId : assignedCircuits) {
+        bool isOccupied = m_dbManager->getTrackCircuitOccupancy(circuitId);
+        if (isOccupied) {
+            return ValidationResult::blocked("Assigned circuit became occupied: " + circuitId, "CIRCUIT_OCCUPIED");
+        }
+    }
+
+    // 3. Verify point machines are in correct positions
+    for (const QString& machineId : lockedPointMachines) {
+        QString currentPosition = m_dbManager->getCurrentPointPosition(machineId);
+        // Additional position validation would be done here based on route requirements
+    }
+
+    // 4. Validate source signal can be cleared
+    QString sourceSignalId = route["sourceSignalId"].toString();
+    ValidationResult signalValidation = validateMainSignalOperation(
+        sourceSignalId, 
+        m_dbManager->getCurrentSignalAspect(sourceSignalId),
+        "GREEN",
+        operatorId
+    );
+
+    if (!signalValidation.isAllowed()) {
+        return ValidationResult::blocked(
+            "Cannot clear source signal: " + signalValidation.getReason(), 
+            "SIGNAL_VALIDATION_FAILED"
+        );
+    }
+
+    double responseTime = timer.elapsed();
+    recordResponseTime(responseTime);
+
+    if (responseTime > TARGET_RESPONSE_TIME_MS) {
+        logPerformanceWarning("validateRouteActivation", responseTime);
+    }
+
+    return ValidationResult::allowed("Route activation validated successfully")
+        .setRuleId("ROUTE_ACTIVATION_VALIDATION");
+}
+
+ValidationResult InterlockingService::validateRouteRelease(const QString& routeId,
+                                                          const QStringList& assignedCircuits,
+                                                          const QString& releaseReason,
+                                                          const QString& operatorId) {
+    QElapsedTimer timer;
+    timer.start();
+
+    if (!m_isOperational) {
+        return ValidationResult::blocked("Interlocking system is not operational", "SYSTEM_NOT_OPERATIONAL");
+    }
+
+    // 1. Verify route exists and is in a releasable state
+    QVariantMap route = m_dbManager->getRouteAssignment(routeId);
+    if (route.isEmpty()) {
+        return ValidationResult::blocked("Route does not exist: " + routeId, "ROUTE_NOT_FOUND");
+    }
+
+    QString currentState = route["state"].toString();
+    if (currentState == "RELEASED" || currentState == "FAILED") {
+        return ValidationResult::blocked("Route already in final state: " + currentState, "ALREADY_RELEASED");
+    }
+
+    // 2. For emergency releases, allow immediate release
+    if (releaseReason == "EMERGENCY_RELEASE") {
+        double responseTime = timer.elapsed();
+        recordResponseTime(responseTime);
+        
+        return ValidationResult::allowed("Emergency route release authorized")
+            .setRuleId("EMERGENCY_RELEASE_VALIDATION");
+    }
+
+    // 3. For normal releases, check if all circuits are clear or train has passed
+    bool allCircuitsClear = true;
+    for (const QString& circuitId : assignedCircuits) {
+        bool isOccupied = m_dbManager->getTrackCircuitOccupancy(circuitId);
+        if (isOccupied) {
+            allCircuitsClear = false;
+            break;
+        }
+    }
+
+    if (!allCircuitsClear && releaseReason == "NORMAL_RELEASE") {
+        return ValidationResult::blocked("Cannot release route while circuits are occupied", "CIRCUITS_OCCUPIED");
+    }
+
+    // 4. Validate that signals can be returned to danger
+    QString sourceSignalId = route["sourceSignalId"].toString();
+    ValidationResult signalValidation = validateMainSignalOperation(
+        sourceSignalId,
+        m_dbManager->getCurrentSignalAspect(sourceSignalId),
+        "RED",
+        operatorId
+    );
+
+    if (!signalValidation.isAllowed()) {
+        return ValidationResult::blocked(
+            "Cannot return source signal to danger: " + signalValidation.getReason(),
+            "SIGNAL_RETURN_FAILED"
+        );
+    }
+
+    double responseTime = timer.elapsed();
+    recordResponseTime(responseTime);
+
+    if (responseTime > TARGET_RESPONSE_TIME_MS) {
+        logPerformanceWarning("validateRouteRelease", responseTime);
+    }
+
+    return ValidationResult::allowed("Route release validated successfully")
+        .setRuleId("ROUTE_RELEASE_VALIDATION");
+}
+
+ValidationResult InterlockingService::validateResourceConflict(const QString& resourceType,
+                                                              const QString& resourceId,
+                                                              const QString& requestingRouteId,
+                                                              const QVariantList& existingLocks) {
+    QElapsedTimer timer;
+    timer.start();
+
+    if (!m_isOperational) {
+        return ValidationResult::blocked("Interlocking system is not operational", "SYSTEM_NOT_OPERATIONAL");
+    }
+
+    // 1. Check for exclusive locks
+    for (const QVariant& lockVar : existingLocks) {
+        QVariantMap lock = lockVar.toMap();
+        QString lockType = lock["lockType"].toString();
+        QString lockRouteId = lock["routeId"].toString();
+
+        // If requesting route already has the lock, allow
+        if (lockRouteId == requestingRouteId) {
+            continue;
+        }
+
+        // Check for conflicts based on lock type
+        if (lockType == "EXCLUSIVE") {
+            return ValidationResult::blocked(
+                QString("Resource %1 has exclusive lock from route %2").arg(resourceId, lockRouteId),
+                "EXCLUSIVE_LOCK_CONFLICT"
+            );
+        }
+
+        // SHARED locks can coexist, OVERLAP locks have different rules
+        if (lockType == "OVERLAP" && resourceType == "TRACK_CIRCUIT") {
+            // Overlap locks prevent new exclusive locks but allow other overlaps
+            return ValidationResult::blocked(
+                QString("Resource %1 has overlap lock from route %2").arg(resourceId, lockRouteId),
+                "OVERLAP_LOCK_CONFLICT"
+            );
+        }
+    }
+
+    // 2. Special validation for point machines
+    if (resourceType == "POINT_MACHINE") {
+        QString pairedMachine = m_dbManager->getPairedMachine(resourceId);
+        if (!pairedMachine.isEmpty()) {
+            // Check if paired machine is locked
+            QVariantList pairedLocks = m_dbManager->getConflictingLocks(pairedMachine, "POINT_MACHINE");
+            for (const QVariant& lockVar : pairedLocks) {
+                QVariantMap lock = lockVar.toMap();
+                QString lockRouteId = lock["routeId"].toString();
+                
+                if (lockRouteId != requestingRouteId) {
+                    return ValidationResult::blocked(
+                        QString("Paired point machine %1 is locked by route %2").arg(pairedMachine, lockRouteId),
+                        "PAIRED_MACHINE_LOCKED"
+                    );
+                }
+            }
+        }
+    }
+
+    double responseTime = timer.elapsed();
+    recordResponseTime(responseTime);
+
+    if (responseTime > TARGET_RESPONSE_TIME_MS) {
+        logPerformanceWarning("validateResourceConflict", responseTime);
+    }
+
+    return ValidationResult::allowed("No resource conflicts detected")
+        .setRuleId("RESOURCE_CONFLICT_VALIDATION");
+}

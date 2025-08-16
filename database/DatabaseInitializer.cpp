@@ -160,9 +160,19 @@ void DatabaseInitializer::performReset() {
             throw std::runtime_error("Failed to populate text labels");
         }
 
-        updateProgress(92, "Populating interlocking rules...");
+        updateProgress(88, "Populating interlocking rules...");
         if (!populateInterlockingRules()) {
             throw std::runtime_error("Failed to populate interlocking rules");
+        }
+
+        updateProgress(90, "Installing route assignment schema extensions...");
+        if (!executeRouteAssignmentSchema()) {
+            throw std::runtime_error("Failed to install route assignment schema");
+        }
+
+        updateProgress(93, "Populating route assignment data...");
+        if (!populateRouteAssignmentData()) {
+            throw std::runtime_error("Failed to populate route assignment data");
         }
 
         updateProgress(95, "Validating database...");
@@ -2315,4 +2325,304 @@ QJsonArray DatabaseInitializer::getTextLabelsData() {
         QJsonObject{{"text", "T4S3"}, {"row", 85}, {"col", 188}, {"fontSize", 12}},
         QJsonObject{{"text", "T4S5"}, {"row", 85}, {"col", 246}, {"fontSize", 12}}
     };
+}
+
+// ============================================================================
+// ROUTE ASSIGNMENT SCHEMA EXTENSION METHODS
+// ============================================================================
+
+bool DatabaseInitializer::executeRouteAssignmentSchema() {
+    qDebug() << "🔄 DatabaseInitializer: Installing route assignment schema extensions...";
+    
+    // Read the route assignment schema file
+    QFile schemaFile(":/sql/route_assignment_schema_extensions.sql");
+    if (!schemaFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // Try alternative path
+        schemaFile.setFileName("sql/route_assignment_schema_extensions.sql");
+        if (!schemaFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            setError("Could not open route assignment schema file");
+            return false;
+        }
+    }
+    
+    QTextStream in(&schemaFile);
+    QString schemaContent = in.readAll();
+    schemaFile.close();
+    
+    if (schemaContent.isEmpty()) {
+        setError("Route assignment schema file is empty");
+        return false;
+    }
+    
+    // Split the schema into individual statements
+    QStringList statements = schemaContent.split(";", Qt::SkipEmptyParts);
+    
+    qDebug() << "📋 DatabaseInitializer: Executing" << statements.size() << "route assignment schema statements...";
+    
+    // Execute each statement
+    for (const QString& statement : statements) {
+        QString cleanStatement = statement.trimmed();
+        if (cleanStatement.isEmpty() || 
+            cleanStatement.startsWith("--") || 
+            cleanStatement.startsWith("/*") ||
+            cleanStatement.toUpper().startsWith("BEGIN") ||
+            cleanStatement.toUpper().startsWith("COMMIT")) {
+            continue; // Skip comments and transaction control
+        }
+        
+        if (!executeQuery(cleanStatement)) {
+            qWarning() << "⚠️ DatabaseInitializer: Failed to execute route assignment statement:" << cleanStatement.left(100) + "...";
+            qWarning() << "Last error:" << m_lastError;
+            // Continue with other statements rather than failing completely
+        }
+    }
+    
+    qDebug() << "✅ DatabaseInitializer: Route assignment schema extensions installed";
+    return true;
+}
+
+bool DatabaseInitializer::populateRouteAssignmentData() {
+    qDebug() << "🔄 DatabaseInitializer: Populating route assignment initial data...";
+    
+    try {
+        // Populate signal adjacency anchors for pathfinding
+        if (!populateSignalAdjacencyAnchors()) {
+            qWarning() << "⚠️ Failed to populate signal adjacency anchors";
+            return false;
+        }
+        
+        // Populate track circuit edges for pathfinding
+        if (!populateTrackCircuitEdges()) {
+            qWarning() << "⚠️ Failed to populate track circuit edges";
+            return false;
+        }
+        
+        // Populate signal overlap definitions
+        if (!populateSignalOverlapDefinitions()) {
+            qWarning() << "⚠️ Failed to populate signal overlap definitions";
+            return false;
+        }
+        
+        qDebug() << "✅ DatabaseInitializer: Route assignment data population completed";
+        return true;
+        
+    } catch (const std::exception& e) {
+        setError(QString("Failed to populate route assignment data: %1").arg(e.what()));
+        return false;
+    }
+}
+
+bool DatabaseInitializer::populateSignalAdjacencyAnchors() {
+    qDebug() << "🔄 Populating signal adjacency anchors for pathfinding...";
+    
+    // Signal pathfinding anchors mapping - manually defined based on station layout
+    QJsonArray anchorMappings = QJsonArray {
+        // HOME signals
+        QJsonObject{{"signal_id", "HM001"}, {"preceded_by", "W22T"}, {"succeeded_by", "W22T"}},
+        QJsonObject{{"signal_id", "HM002"}, {"preceded_by", "W21T"}, {"succeeded_by", "W21T"}},
+        
+        // STARTER signals  
+        QJsonObject{{"signal_id", "ST001"}, {"preceded_by", "3T"}, {"succeeded_by", "3T"}},
+        QJsonObject{{"signal_id", "ST002"}, {"preceded_by", "4T"}, {"succeeded_by", "4T"}},
+        QJsonObject{{"signal_id", "ST003"}, {"preceded_by", "3T"}, {"succeeded_by", "3T"}},
+        QJsonObject{{"signal_id", "ST004"}, {"preceded_by", "4T"}, {"succeeded_by", "4T"}},
+        
+        // ADVANCED_STARTER signals
+        QJsonObject{{"signal_id", "AS001"}, {"preceded_by", "2T"}, {"succeeded_by", "1T"}},
+        QJsonObject{{"signal_id", "AS002"}, {"preceded_by", "1T"}, {"succeeded_by", "2T"}},
+        QJsonObject{{"signal_id", "AS003"}, {"preceded_by", "1T"}, {"succeeded_by", "A1T"}},
+        QJsonObject{{"signal_id", "AS004"}, {"preceded_by", "A1T"}, {"succeeded_by", "1T"}},
+        
+        // OUTER signals
+        QJsonObject{{"signal_id", "OS001"}, {"preceded_by", "W22T"}, {"succeeded_by", "W22T"}},
+        QJsonObject{{"signal_id", "OS002"}, {"preceded_by", "W21T"}, {"succeeded_by", "W21T"}}
+    };
+    
+    for (const QJsonValue& value : anchorMappings) {
+        QJsonObject anchor = value.toObject();
+        QString signalId = anchor["signal_id"].toString();
+        QString precededBy = anchor["preceded_by"].toString();
+        QString succeededBy = anchor["succeeded_by"].toString();
+        
+        if (!executeQuery(
+            "UPDATE railway_control.signals SET "
+            "preceded_by_circuit_id = ?, "
+            "succeeded_by_circuit_id = ? "
+            "WHERE signal_id = ?",
+            QVariantList{precededBy, succeededBy, signalId}
+        )) {
+            qWarning() << "Failed to update signal anchors for" << signalId;
+            return false;
+        }
+    }
+    
+    qDebug() << "✅ Populated" << anchorMappings.size() << "signal adjacency anchors";
+    return true;
+}
+
+bool DatabaseInitializer::populateTrackCircuitEdges() {
+    qDebug() << "🔄 Populating track circuit edges for pathfinding...";
+    
+    // Track circuit connectivity edges - defines the pathfinding graph
+    QJsonArray edgeDefinitions = QJsonArray {
+        // Main line connections (unconditional)
+        QJsonObject{{"from", "W22T"}, {"to", "23T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "23T"}, {"to", "3T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "3T"}, {"to", "2T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "2T"}, {"to", "1T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "1T"}, {"to", "A1T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        
+        // Reverse direction
+        QJsonObject{{"from", "A1T"}, {"to", "1T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "1T"}, {"to", "2T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "2T"}, {"to", "3T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "3T"}, {"to", "23T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "23T"}, {"to", "W22T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        
+        // Platform connections via PM001 (conditional)
+        QJsonObject{{"from", "W22T"}, {"to", "4T"}, {"side", "RIGHT"}, {"pm", "PM001"}, {"position", "REVERSE"}, {"weight", 1.2}},
+        QJsonObject{{"from", "4T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "W21T"}, {"to", "2T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        
+        // Reverse platform connections
+        QJsonObject{{"from", "2T"}, {"to", "W21T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "W21T"}, {"to", "4T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "4T"}, {"to", "W22T"}, {"side", "LEFT"}, {"pm", "PM001"}, {"position", "REVERSE"}, {"weight", 1.2}},
+        
+        // Direct connections when PM001 is NORMAL
+        QJsonObject{{"from", "W22T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"pm", "PM001"}, {"position", "NORMAL"}, {"weight", 2.0}},
+        QJsonObject{{"from", "W21T"}, {"to", "W22T"}, {"side", "LEFT"}, {"pm", "PM001"}, {"position", "NORMAL"}, {"weight", 2.0}}
+    };
+    
+    for (const QJsonValue& value : edgeDefinitions) {
+        QJsonObject edge = value.toObject();
+        QString fromCircuit = edge["from"].toString();
+        QString toCircuit = edge["to"].toString();
+        QString side = edge["side"].toString();
+        double weight = edge["weight"].toDouble(1.0);
+        
+        QString pmId;
+        QString position;
+        if (edge.contains("pm")) {
+            pmId = edge["pm"].toString();
+            position = edge["position"].toString();
+        }
+        
+        QVariantList params{fromCircuit, toCircuit, side, weight};
+        QString query = "INSERT INTO railway_control.track_circuit_edges "
+                       "(from_circuit_id, to_circuit_id, side, weight";
+        
+        if (!pmId.isEmpty()) {
+            query += ", condition_point_machine_id, condition_position";
+            params << pmId << position;
+        }
+        
+        query += ") VALUES (?, ?, ?, ?";
+        if (!pmId.isEmpty()) {
+            query += ", ?, ?";
+        }
+        query += ")";
+        
+        if (!executeQuery(query, params)) {
+            qWarning() << "Failed to insert track circuit edge:" << fromCircuit << "->" << toCircuit;
+            return false;
+        }
+    }
+    
+    qDebug() << "✅ Populated" << edgeDefinitions.size() << "track circuit edges";
+    return true;
+}
+
+bool DatabaseInitializer::populateSignalOverlapDefinitions() {
+    qDebug() << "🔄 Populating signal overlap definitions...";
+    
+    // Signal overlap definitions - safety braking distances
+    QJsonArray overlapDefinitions = QJsonArray {
+        // HOME signals - overlap to next signal
+        QJsonObject{
+            {"signal_id", "HM001"}, 
+            {"overlap_circuits", QJsonArray{"3T"}}, 
+            {"release_triggers", QJsonArray{"W22T"}},
+            {"hold_seconds", 30}
+        },
+        QJsonObject{
+            {"signal_id", "HM002"}, 
+            {"overlap_circuits", QJsonArray{"4T"}}, 
+            {"release_triggers", QJsonArray{"W21T"}},
+            {"hold_seconds", 30}
+        },
+        
+        // STARTER signals - overlap beyond platform
+        QJsonObject{
+            {"signal_id", "ST001"}, 
+            {"overlap_circuits", QJsonArray{"2T", "1T"}}, 
+            {"release_triggers", QJsonArray{"3T"}},
+            {"hold_seconds", 25}
+        },
+        QJsonObject{
+            {"signal_id", "ST002"}, 
+            {"overlap_circuits", QJsonArray{"W21T", "2T"}}, 
+            {"release_triggers", QJsonArray{"4T"}},
+            {"hold_seconds", 25}
+        },
+        QJsonObject{
+            {"signal_id", "ST003"}, 
+            {"overlap_circuits", QJsonArray{"23T", "W22T"}}, 
+            {"release_triggers", QJsonArray{"3T"}},
+            {"hold_seconds", 25}
+        },
+        QJsonObject{
+            {"signal_id", "ST004"}, 
+            {"overlap_circuits", QJsonArray{"W22T", "23T"}}, 
+            {"release_triggers", QJsonArray{"4T"}},
+            {"hold_seconds", 25}
+        },
+        
+        // ADVANCED_STARTER signals - final overlap
+        QJsonObject{
+            {"signal_id", "AS001"}, 
+            {"overlap_circuits", QJsonArray{"A1T"}}, 
+            {"release_triggers", QJsonArray{"2T"}},
+            {"hold_seconds", 20}
+        },
+        QJsonObject{
+            {"signal_id", "AS002"}, 
+            {"overlap_circuits", QJsonArray{"2T"}}, 
+            {"release_triggers", QJsonArray{"1T"}},
+            {"hold_seconds", 20}
+        }
+    };
+    
+    for (const QJsonValue& value : overlapDefinitions) {
+        QJsonObject overlap = value.toObject();
+        QString signalId = overlap["signal_id"].toString();
+        QJsonArray overlapCircuits = overlap["overlap_circuits"].toArray();
+        QJsonArray releaseTriggers = overlap["release_triggers"].toArray();
+        int holdSeconds = overlap["hold_seconds"].toInt(30);
+        
+        // Convert JSON arrays to PostgreSQL arrays
+        QStringList overlapList, triggerList;
+        for (const QJsonValue& circuit : overlapCircuits) {
+            overlapList << circuit.toString();
+        }
+        for (const QJsonValue& trigger : releaseTriggers) {
+            triggerList << trigger.toString();
+        }
+        
+        QString overlapArray = QString("{%1}").arg(overlapList.join(","));
+        QString triggerArray = QString("{%1}").arg(triggerList.join(","));
+        
+        if (!executeQuery(
+            "INSERT INTO railway_control.signal_overlap_definitions "
+            "(signal_id, overlap_circuit_ids, release_trigger_circuit_ids, overlap_hold_seconds) "
+            "VALUES (?, ?::text[], ?::text[], ?)",
+            QVariantList{signalId, overlapArray, triggerArray, holdSeconds}
+        )) {
+            qWarning() << "Failed to insert overlap definition for" << signalId;
+            return false;
+        }
+    }
+    
+    qDebug() << "✅ Populated" << overlapDefinitions.size() << "signal overlap definitions";
+    return true;
 }

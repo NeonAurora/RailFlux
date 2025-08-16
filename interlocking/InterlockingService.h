@@ -91,6 +91,28 @@ public:
                                                                     const QString& requestedPosition,
                                                                     const QString& operatorId);
 
+    // === ROUTE ASSIGNMENT VALIDATION ===
+    Q_INVOKABLE ValidationResult validateRouteRequest(const QString& sourceSignalId,
+                                                       const QString& destSignalId,
+                                                       const QString& direction,
+                                                       const QStringList& proposedPath,
+                                                       const QString& operatorId = "ROUTE_SYSTEM");
+
+    Q_INVOKABLE ValidationResult validateRouteActivation(const QString& routeId,
+                                                         const QStringList& assignedCircuits,
+                                                         const QStringList& lockedPointMachines,
+                                                         const QString& operatorId = "ROUTE_SYSTEM");
+
+    Q_INVOKABLE ValidationResult validateRouteRelease(const QString& routeId,
+                                                      const QStringList& assignedCircuits,
+                                                      const QString& releaseReason,
+                                                      const QString& operatorId = "ROUTE_SYSTEM");
+
+    Q_INVOKABLE ValidationResult validateResourceConflict(const QString& resourceType,
+                                                          const QString& resourceId,
+                                                          const QString& requestingRouteId,
+                                                          const QVariantList& existingLocks);
+
     // ✅ REMOVED: validateTrackSegmentAssignment - trackSegment occupancy is hardware-driven, no validation needed
 
     // ✅ SYSTEM MANAGEMENT
