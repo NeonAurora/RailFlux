@@ -334,7 +334,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         protecting_signals TEXT[],
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    ))",
+        ))",
 
         // ✅ SECOND: Create track_segments table (references track_circuits)
         R"(CREATE TABLE railway_control.track_segments (
@@ -358,7 +358,7 @@ bool DatabaseInitializer::executeSchemaScript() {
             start_row >= 0 AND start_col >= 0 AND
             end_row >= 0 AND end_col >= 0
         )
-    ))",
+        ))",
 
         R"(CREATE TABLE railway_control.signals (
         id SERIAL PRIMARY KEY,
@@ -399,7 +399,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         -- ✅ CONSTRAINTS (unchanged)
         CONSTRAINT chk_location CHECK (location_row >= 0 AND location_col >= 0),
         CONSTRAINT chk_aspect_count CHECK (aspect_count >= 2 AND aspect_count <= 4)
-    ))",
+        ))",
 
         // ✅ FIXED: Added missing comma between constraints
         R"(CREATE TABLE railway_control.point_machines (
@@ -428,7 +428,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT chk_junction_location CHECK (junction_row >= 0 AND junction_col >= 0),
         CONSTRAINT chk_no_self_pairing CHECK (machine_id != paired_entity)
-    ))",
+        ))",
 
         R"(CREATE TABLE railway_control.text_labels (
         id SERIAL PRIMARY KEY,
@@ -442,7 +442,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         label_type VARCHAR(20) DEFAULT 'INFO',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    ))",
+        ))",
 
         R"(CREATE TABLE railway_control.system_state (
         id SERIAL PRIMARY KEY,
@@ -451,7 +451,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         description TEXT,
         last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_by VARCHAR(100)
-    ))",
+        ))",
 
         R"(CREATE TABLE railway_control.interlocking_rules (
         id SERIAL PRIMARY KEY,
@@ -469,7 +469,7 @@ bool DatabaseInitializer::executeSchemaScript() {
         CONSTRAINT chk_no_self_reference CHECK (
             NOT (source_entity_type = target_entity_type AND source_entity_id = target_entity_id)
         )
-    ))"
+        ))"
     };
 
     qDebug() << "Creating main tables...";
@@ -2117,7 +2117,7 @@ QJsonArray DatabaseInitializer::getTrackSegmentsData() {
         QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
         QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
         QJsonObject{{"id", "T1S6"}, {"startRow", 110}, {"startCol", 128}, {"endRow", 110}, {"endCol", 158}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "HM002"}}},
+        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
         QJsonObject{{"id", "T1S8"}, {"startRow", 110}, {"startCol", 222}, {"endRow", 110}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
         QJsonObject{{"id", "T1S9"}, {"startRow", 110}, {"startCol", 264}, {"endRow", 110}, {"endCol", 286}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
         QJsonObject{{"id", "T1S10"}, {"startRow", 110}, {"startCol", 287}, {"endRow", 110}, {"endCol", 305}, {"circuit_id", "2T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
@@ -2141,7 +2141,7 @@ QJsonArray DatabaseInitializer::getTrackCircuitMappings() {
         QJsonObject{{"circuit_id", "6T"}, {"circuit_name", "Main Line Section 6T"}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
         QJsonObject{{"circuit_id", "5T"}, {"circuit_name", "Main Line Section 5T"}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
         QJsonObject{{"circuit_id", "W22T"}, {"circuit_name", "Junction W22T Circuit"}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"circuit_id", "3T"}, {"circuit_name", "Platform Section 3T"}, {"protecting_signals", QJsonArray{"HM001", "HM002"}}},
+        QJsonObject{{"circuit_id", "3T"}, {"circuit_name", "Platform Section 3T"}, {"protecting_signals", QJsonArray{}}},
         QJsonObject{{"circuit_id", "W21T"}, {"circuit_name", "Junction W21T Circuit"}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
         QJsonObject{{"circuit_id", "2T"}, {"circuit_name", "Main Line Section 2T"}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
         QJsonObject{{"circuit_id", "1T"}, {"circuit_name", "Main Line Section 1T"}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
@@ -2180,7 +2180,7 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"callingOnAspect", "WHITE"}, {"loopAspect", "YELLOW"}, {"loopSignalConfiguration", "UR"},
-            {"protectedTrackCircuits", QJsonArray{"W22T", "3T"}},  // ✅ ADDED
+            {"protectedTrackCircuits", QJsonArray{"W22T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Entry"}
         },
         QJsonObject{
@@ -2189,7 +2189,7 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
             {"callingOnAspect", "OFF"}, {"loopAspect", "OFF"}, {"loopSignalConfiguration", "UR"},
-            {"protectedTrackCircuits", QJsonArray{"3T", "W21T"}},  // ✅ ADDED
+            {"protectedTrackCircuits", QJsonArray{"W21T"}},  // ✅ ADDED
             {"isActive", true}, {"location", "Platform_A_Exit"}
         }
     };
