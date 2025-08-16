@@ -24,7 +24,7 @@ Rectangle {
     // === INTERNAL STATE ===
     property var activeRoutes: []
     property var routeOverlays: ({})  // routeId -> overlay component
-    property int cellSize: stationLayoutRef ? stationLayoutRef.cellSize : 20
+    property int cellSize: stationLayout ? stationLayout.cellSize : 20
     
     // === ROUTE DATA MANAGEMENT ===
     function refreshRoutes() {

@@ -39,7 +39,7 @@ struct RouteRequest {
     QVariantMap trainData;
     QVariantMap metadata;
     QString reason;
-    
+
     QString key() const { return requestId.toString(); }
 };
 
@@ -154,13 +154,13 @@ signals:
     void requestQueueChanged();
     void performanceChanged();
     void emergencyModeChanged();
-    
+
     void routeRequested(const QString& requestId, const QString& sourceSignal, const QString& destSignal);
     void routeAssigned(const QString& routeId, const QString& sourceSignal, const QString& destSignal, const QStringList& path);
     void routeActivated(const QString& routeId);
     void routeReleased(const QString& routeId, const QString& reason);
     void routeFailed(const QString& requestId, const QString& reason);
-    
+
     void emergencyActivated(const QString& reason);
     void emergencyDeactivated();
     void systemOverloaded(int pendingRequests, int maxConcurrent);
@@ -169,7 +169,7 @@ signals:
 private:
     // Main route processing pipeline
     ProcessingResult processRouteRequest(const RouteRequest& request);
-    
+
     // Processing pipeline stages
     ProcessingResult validateRequest(const RouteRequest& request);
     ProcessingResult performPathfinding(const RouteRequest& request);

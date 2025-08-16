@@ -621,7 +621,7 @@ Rectangle {
     RouteVisualization {
         id: routeVisualization
         anchors.fill: parent
-        stationLayoutRef: stationLayout
+        stationLayout: stationLayout
         isEnabled: isRouteVisualizationEnabled
         visible: isRouteVisualizationEnabled
         
