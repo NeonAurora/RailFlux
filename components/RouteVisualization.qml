@@ -7,7 +7,7 @@ Rectangle {
     color: "transparent"
     
     // === PROPERTIES ===
-    property alias stationLayout: stationLayoutRef
+    property var stationLayout: null
     property var routeAssignmentService: globalRouteAssignmentService
     property bool isEnabled: true
     property bool showRouteNames: true
@@ -25,9 +25,6 @@ Rectangle {
     property var activeRoutes: []
     property var routeOverlays: ({})  // routeId -> overlay component
     property int cellSize: stationLayoutRef ? stationLayoutRef.cellSize : 20
-    
-    // === REFERENCE TO STATION LAYOUT ===
-    property var stationLayoutRef: null
     
     // === ROUTE DATA MANAGEMENT ===
     function refreshRoutes() {

@@ -21,7 +21,9 @@ int main(int argc, char *argv[])
     qmlRegisterType<DatabaseManager>("RailFlux.Database", 1, 0, "DatabaseManager");
     qmlRegisterType<DatabaseInitializer>("RailFlux.Database", 1, 0, "DatabaseInitializer");
     qmlRegisterType<InterlockingService>("RailFlux.Interlocking", 1, 0, "InterlockingService");  // NEW
-    qmlRegisterType<ValidationResult>("RailFlux.Interlocking", 1, 0, "ValidationResult");        // NEW
+    // ✅ CORRECT for Qt 6 Q_GADGET types
+    qmlRegisterUncreatableType<ValidationResult>("RailFlux.Interlocking", 1, 0, "validationResult",
+                                                 "ValidationResult is returned from C++ functions");
     
     // Register Route Assignment services with QML
     qmlRegisterType<RailFlux::Route::RouteAssignmentService>("RailFlux.Route", 1, 0, "RouteAssignmentService");
