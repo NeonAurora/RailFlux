@@ -91,7 +91,7 @@ bool GraphService::loadGraphFromDatabase() {
 }
 
 bool GraphService::loadCircuitPositionsFromDatabase() {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT 
             tc.circuit_id,
@@ -137,7 +137,7 @@ bool GraphService::loadCircuitPositionsFromDatabase() {
 }
 
 bool GraphService::loadEdgesFromDatabase() {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT 
             from_circuit_id,

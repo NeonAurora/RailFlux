@@ -25,18 +25,8 @@ class OverlapService;
 class TelemetryService;
 class VitalRouteController;
 
-// Import RouteState from VitalRouteController
-enum class RouteState {
-    REQUESTED,
-    VALIDATING,
-    RESERVED,
-    ACTIVE,
-    PARTIALLY_RELEASED,
-    RELEASED,
-    FAILED,
-    EMERGENCY_RELEASED,
-    DEGRADED
-};
+// Forward declaration - RouteState defined in VitalRouteController.h
+enum class RouteState;
 
 struct RouteRequest {
     QUuid requestId;
@@ -280,6 +270,7 @@ private:
     double m_averageProcessingTime = 0.0;
     QDateTime m_lastPerformanceUpdate;
     QHash<QString, QList<double>> m_stagePerformance; // stage -> times
+    qint64 m_serviceStartTime;
 
     // Statistics
     mutable int m_totalRequests = 0;

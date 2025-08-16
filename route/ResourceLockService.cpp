@@ -122,7 +122,7 @@ QVariantMap ResourceLockService::lockResource(
     };
 }
 
-ResourceLockService::LockResult ResourceLockService::lockResourceInternal(const LockRequest& request) {
+LockResult ResourceLockService::lockResourceInternal(const LockRequest& request) {
     LockResult result;
     QString lockKey = QString("%1:%2").arg(request.resourceType, request.resourceId);
 
@@ -330,7 +330,7 @@ QVariantMap ResourceLockService::getResourceLockStatus(
 }
 
 bool ResourceLockService::loadLocksFromDatabase() {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT 
             resource_type,
@@ -390,7 +390,7 @@ bool ResourceLockService::loadLocksFromDatabase() {
 }
 
 bool ResourceLockService::persistLockToDatabase(const ResourceLock& lock) {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         INSERT INTO railway_control.resource_locks 
         (resource_type, resource_id, route_id, lock_type, locked_at, expires_at, operator_id, lock_reason, is_active)
@@ -416,7 +416,7 @@ bool ResourceLockService::persistLockToDatabase(const ResourceLock& lock) {
 }
 
 bool ResourceLockService::removeLockFromDatabase(const ResourceLock& lock) {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         UPDATE railway_control.resource_locks 
         SET is_active = FALSE
@@ -616,6 +616,115 @@ QVariantList ResourceLockService::getAllActiveLocks() const {
 
 QVariantList ResourceLockService::getExpiredLocks() const {
     return QVariantList();
+}
+
+void ResourceLockService::refreshLocksFromDatabase() {
+    loadLocksFromDatabase();
+}
+
+void ResourceLockService::onResourceChanged(const QString& resourceType, const QString& resourceId) {
+    Q_UNUSED(resourceType)
+    Q_UNUSED(resourceId)
+}
+
+bool ResourceLockService::forceUnlockResource(const QString& resourceType, const QString& resourceId, const QString& operatorId, const QString& reason) {
+    QString lockKey = QString("%1:%2").arg(resourceType.toUpper(), resourceId);
+    
+    if (!m_activeLocks.contains(lockKey)) {
+        return false;
+    }
+
+    QList<ResourceLock>& locks = m_activeLocks[lockKey];
+    bool unlocked = false;
+    
+    for (int i = locks.size() - 1; i >= 0; --i) {
+        ResourceLock lockToRemove = locks[i];
+        locks.removeAt(i);
+        
+        // Remove from database
+        removeLockFromDatabase(lockToRemove);
+        
+        // Remove from route tracking
+        if (m_routeLocks.contains(lockToRemove.routeId)) {
+            m_routeLocks[lockToRemove.routeId].removeOne(lockKey);
+            if (m_routeLocks[lockToRemove.routeId].isEmpty()) {
+                m_routeLocks.remove(lockToRemove.routeId);
+            }
+        }
+        
+        unlocked = true;
+        m_forceUnlocks++;
+        
+        qWarning() << "🚨 ResourceLockService: Force unlocked" << resourceType << resourceId 
+                   << "by" << operatorId << "reason:" << reason;
+    }
+    
+    if (locks.isEmpty()) {
+        m_activeLocks.remove(lockKey);
+    }
+    
+    if (unlocked) {
+        emit forceUnlockPerformed(resourceType, resourceId, operatorId, reason);
+        emit lockCountChanged();
+    }
+    
+    return unlocked;
+}
+
+QVariantMap ResourceLockService::checkLockConflicts(const QString& resourceType, const QString& resourceId, const QString& requestedLockType) const {
+    QStringList conflicts = findConflictingLocks(resourceType.toUpper(), resourceId, requestedLockType.toUpper());
+    
+    return QVariantMap{
+        {"hasConflicts", !conflicts.isEmpty()},
+        {"conflictingLocks", conflicts},
+        {"isLocked", isResourceLocked(resourceType, resourceId)}
+    };
+}
+
+QVariantList ResourceLockService::checkMultipleResourceConflicts(const QVariantList& resourceRequests) const {
+    QVariantList results;
+    
+    for (const QVariant& request : resourceRequests) {
+        QVariantMap requestMap = request.toMap();
+        QString resourceType = requestMap["resourceType"].toString();
+        QString resourceId = requestMap["resourceId"].toString();
+        QString lockType = requestMap["lockType"].toString();
+        
+        QVariantMap conflictResult = checkLockConflicts(resourceType, resourceId, lockType);
+        conflictResult["resourceType"] = resourceType;
+        conflictResult["resourceId"] = resourceId;
+        conflictResult["requestedLockType"] = lockType;
+        
+        results.append(conflictResult);
+    }
+    
+    return results;
+}
+
+bool ResourceLockService::renewLock(const QString& resourceType, const QString& resourceId, const QString& routeId, int additionalMinutes) {
+    QString lockKey = QString("%1:%2").arg(resourceType.toUpper(), resourceId);
+    QUuid uuid = QUuid::fromString(routeId);
+    
+    if (!m_activeLocks.contains(lockKey)) {
+        return false;
+    }
+    
+    QList<ResourceLock>& locks = m_activeLocks[lockKey];
+    
+    for (ResourceLock& lock : locks) {
+        if (lock.routeId == uuid && lock.isActive && !lock.isExpired()) {
+            lock.expiresAt = lock.expiresAt.addSecs(additionalMinutes * 60);
+            
+            // Update in database (simplified)
+            // In full implementation, would update the database record
+            
+            qDebug() << "🔄 ResourceLockService: Renewed lock for" << resourceType << resourceId 
+                     << "by" << additionalMinutes << "minutes";
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 } // namespace RailFlux::Route

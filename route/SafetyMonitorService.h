@@ -45,6 +45,7 @@ enum class ViolationType {
 
 struct SafetyViolation {
     QString id;
+    QString routeId;
     ViolationType type;
     ComplianceLevel severity;
     QString description;
@@ -54,6 +55,7 @@ struct SafetyViolation {
     QDateTime detectedAt;
     QDateTime acknowledgedAt;
     QDateTime resolvedAt;
+    QDateTime timestamp;
     QString resolution;
     QVariantMap metadata;
     bool isActive = true;
@@ -168,6 +170,11 @@ public:
     Q_INVOKABLE QVariantMap getAlertConfiguration() const;
     Q_INVOKABLE QVariantList getPendingAlerts() const;
 
+    // === ADDITIONAL METHODS FOR MAIN.CPP COMPATIBILITY ===
+    Q_INVOKABLE void recordSafetyViolation(const QString& routeId, const QString& reason, const QString& severity);
+    Q_INVOKABLE void recordEmergencyEvent(const QString& eventType, const QString& reason);
+    Q_INVOKABLE void recordPerformanceWarning(const QString& warningType, const QVariantMap& details);
+
     // === INTEGRATION METHODS ===
     void recordRouteEvent(const QString& routeId, const QString& eventType, const QVariantMap& data);
     void recordOperatorAction(const QString& operatorId, const QString& action, const QVariantMap& data);
@@ -196,6 +203,7 @@ signals:
     void complianceThresholdBreached(const QString& metricType, double currentValue, double threshold);
     void complianceLevelDowngraded(const QString& previousLevel, const QString& newLevel);
     void safetyAuditCompleted(const QString& auditId, const QString& overallResult);
+    void emergencyShutdownRequired(const QString& routeId, const QString& reason);
 
 private:
     // Core monitoring functions

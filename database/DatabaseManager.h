@@ -102,6 +102,11 @@ public:
 
     QVariantMap getTrackCircuitById(const QString& circuitId);
 
+    // === INTERLOCKING HELPER METHODS ===
+    QString getPairedMachine(const QString& machineId);
+    QString getCurrentPointPosition(const QString& machineId);
+    QPair<QString, QString> getPairedMachinePositions(const QString& machineId);
+
     // === ROUTE ASSIGNMENT METHODS ===
     Q_INVOKABLE bool insertRouteAssignment(
         const QString& routeId,
@@ -273,10 +278,7 @@ private:
     QVariantMap convertTrackSegmentRowToVariant(const QSqlQuery& query);
     QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);
 
-    // Current state helpers (for interlocking)
-    QString getPairedMachine(const QString& machineId);
-    QString getCurrentPointPosition(const QString& machineId);
-    QPair<QString, QString> getPairedMachinePositions(const QString& machineId);
+    // Current state helpers (for interlocking) - MOVED TO PUBLIC
 
     bool updateMainSignalAspect(const QString& signalId, const QString& newAspect);
     bool updateSubsidiarySignalAspect(const QString& signalId,

@@ -47,10 +47,12 @@ struct SafetyMetric {
     QString eventType;           // "safety_violation", "emergency_release", "interlocking_failure"
     AlertLevel severity;
     QString entityId;            // Signal, route, or circuit ID
+    QString resourceId;          // Same as entityId for backward compatibility
     QString description;
     QDateTime timestamp;
     QString operatorId;
     QVariantMap eventData;
+    QVariantMap metadata;        // Additional flexible data
 };
 
 struct OperationalMetric {
@@ -142,6 +144,13 @@ public:
         const QString& resourceType,
         int totalResources,
         int usedResources
+    );
+
+    // Route event recording
+    Q_INVOKABLE void recordRouteEvent(
+        const QString& routeId,
+        const QString& eventType,
+        const QVariantMap& eventData = QVariantMap()
     );
 
     // System health monitoring
@@ -267,7 +276,7 @@ private:
     void processAlert(const Alert& alert);
 
     // Utility methods
-    AlertLevel stringToAlertLevel(const QString& levelStr) const;
+    static AlertLevel stringToAlertLevel(const QString& levelStr);
     QString alertLevelToString(AlertLevel level) const;
     MetricType stringToMetricType(const QString& typeStr) const;
     QString metricTypeToString(MetricType type) const;

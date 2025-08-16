@@ -1023,4 +1023,159 @@ void SafetyMonitorService::onSystemOverload() {
     );
 }
 
+// Additional methods for main.cpp compatibility
+void SafetyMonitorService::recordSafetyViolation(const QString& routeId, const QString& reason, const QString& severity) {
+    reportViolation(
+        "GENERAL_SAFETY_VIOLATION",
+        reason,
+        "system",
+        routeId,
+        QVariantMap{{"severity", severity}}
+    );
+}
+
+void SafetyMonitorService::recordEmergencyEvent(const QString& eventType, const QString& reason) {
+    reportViolation(
+        "EMERGENCY_EVENT",
+        QString("%1: %2").arg(eventType, reason),
+        "system",
+        "system",
+        QVariantMap{{"eventType", eventType}}
+    );
+}
+
+void SafetyMonitorService::recordPerformanceWarning(const QString& warningType, const QVariantMap& details) {
+    reportViolation(
+        "PERFORMANCE_WARNING",
+        QString("Performance warning: %1").arg(warningType),
+        "system",
+        "system",
+        details
+    );
+}
+
+QVariantMap SafetyMonitorService::getViolationDetails(const QString& violationId) const {
+    if (!m_activeViolations.contains(violationId)) {
+        return QVariantMap();
+    }
+    
+    return violationToVariantMap(m_activeViolations[violationId]);
+}
+
+QVariantList SafetyMonitorService::getActiveViolations() const {
+    QVariantList result;
+    
+    for (const SafetyViolation& violation : m_activeViolations.values()) {
+        result.append(violationToVariantMap(violation));
+    }
+    
+    return result;
+}
+
+QVariantList SafetyMonitorService::getViolationHistory(int limitHours) const {
+    Q_UNUSED(limitHours)
+    // Would query database for violation history
+    return QVariantList();
+}
+
+QVariantMap SafetyMonitorService::getComplianceReport(const QString& reportId) const {
+    if (!m_complianceReports.contains(reportId)) {
+        return QVariantMap();
+    }
+    
+    const ComplianceReport& report = m_complianceReports[reportId];
+    
+    QVariantMap reportMap;
+    reportMap["reportId"] = report.reportId;
+    reportMap["generatedAt"] = report.generatedAt;
+    reportMap["periodStart"] = report.periodStart;
+    reportMap["periodEnd"] = report.periodEnd;
+    reportMap["overallCompliance"] = complianceLevelToString(report.overallCompliance);
+    reportMap["complianceScore"] = report.complianceScore;
+    reportMap["totalViolations"] = report.totalViolations;
+    reportMap["activeViolations"] = report.activeViolations;
+    reportMap["resolvedViolations"] = report.resolvedViolations;
+    reportMap["criticalViolations"] = report.criticalViolations;
+    reportMap["recommendations"] = report.recommendations;
+    
+    return reportMap;
+}
+
+QVariantList SafetyMonitorService::getComplianceReports(int limitDays) const {
+    Q_UNUSED(limitDays)
+    
+    QVariantList result;
+    QDateTime cutoff = QDateTime::currentDateTime().addDays(-limitDays);
+    
+    for (const ComplianceReport& report : m_complianceReports.values()) {
+        if (report.generatedAt >= cutoff) {
+            result.append(getComplianceReport(report.reportId));
+        }
+    }
+    
+    return result;
+}
+
+void SafetyMonitorService::monitorRouteOperation(const QString& routeId) {
+    Q_UNUSED(routeId)
+    // Monitor specific route operation for compliance
+}
+
+void SafetyMonitorService::monitorResourceUsage(const QString& resourceType, const QString& resourceId) {
+    Q_UNUSED(resourceType)
+    Q_UNUSED(resourceId)
+    // Monitor resource usage for compliance
+}
+
+void SafetyMonitorService::monitorOperatorActions(const QString& operatorId) {
+    Q_UNUSED(operatorId)
+    // Monitor operator actions for compliance
+}
+
+bool SafetyMonitorService::setAlertThreshold(const QString& metricType, double threshold) {
+    if (threshold <= 0) {
+        return false;
+    }
+    m_alertThresholds[metricType] = threshold;
+    qDebug() << "🔧 SafetyMonitorService: Set alert threshold" << metricType << "to" << threshold;
+    return true;
+}
+
+QVariantMap SafetyMonitorService::getAlertConfiguration() const {
+    QVariantMap config;
+    
+    for (auto it = m_alertThresholds.begin(); it != m_alertThresholds.end(); ++it) {
+        config[it.key()] = it.value();
+    }
+    
+    return config;
+}
+
+QVariantList SafetyMonitorService::getPendingAlerts() const {
+    QVariantList alerts;
+    
+    // Check current metrics against thresholds
+    if (m_currentComplianceScore < m_alertThresholds.value("compliance_score", WARNING_COMPLIANCE_THRESHOLD)) {
+        QVariantMap alert;
+        alert["type"] = "compliance_score_low";
+        alert["metric"] = "compliance_score";
+        alert["currentValue"] = m_currentComplianceScore;
+        alert["threshold"] = m_alertThresholds.value("compliance_score");
+        alert["severity"] = "WARNING";
+        alerts.append(alert);
+    }
+    
+    if (m_activeViolations.size() > m_alertThresholds.value("active_violations", 5.0)) {
+        QVariantMap alert;
+        alert["type"] = "high_violation_count";
+        alert["metric"] = "active_violations";
+        alert["currentValue"] = m_activeViolations.size();
+        alert["threshold"] = m_alertThresholds.value("active_violations");
+        alert["severity"] = "WARNING";
+        alerts.append(alert);
+    }
+    
+    return alerts;
+}
+
 } // namespace RailFlux::Route

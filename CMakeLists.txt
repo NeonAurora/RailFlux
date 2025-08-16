@@ -5,6 +5,12 @@ project(RailFlux VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 20)
 
+# Compiler warnings for safety-critical code
+if(MSVC)
+    add_compile_options(/W4)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Quick Sql)
 
@@ -18,44 +24,68 @@ qt_add_qml_module(appRailFlux
     URI RailFlux
     VERSION 1.0
 
+    # All QML files consolidated in one section
     QML_FILES
         Main.qml
+        layouts/StationLayout.qml
         components/TrackSegment.qml
         components/LevelCrossingGate.qml
         components/GridCanvas.qml
-        layouts/StationLayout.qml
         components/OuterSignal.qml
         components/HomeSignal.qml
         components/StarterSignal.qml
-        components/PointMachine.qml
         components/AdvanceStarterSignal.qml
+        components/PointMachine.qml
         components/ToastNotification.qml
         components/SignalContextMenu.qml
+        components/PerformanceDashboard.qml
+        components/RouteInfoItem.qml
+        components/RouteInfoPanel.qml
+        components/RouteOverlay.qml
+        components/RouteSignalDot.qml
+        components/RouteVisualization.qml
+        components/SignalIndicator.qml
 
+    # All C++ source files properly organized
     SOURCES
         database/DatabaseManager.h
         database/DatabaseManager.cpp
         database/DatabaseInitializer.h
         database/DatabaseInitializer.cpp
+        interlocking/InterlockingService.h
+        interlocking/InterlockingService.cpp
+        interlocking/SignalBranch.h
+        interlocking/SignalBranch.cpp
+        interlocking/TrackCircuitBranch.h
+        interlocking/TrackCircuitBranch.cpp
+        interlocking/PointMachineBranch.h
+        interlocking/PointMachineBranch.cpp
+        interlocking/SignalRule.h
+        interlocking/SignalRule.cpp
+        interlocking/InterlockingRuleEngine.h
+        interlocking/InterlockingRuleEngine.cpp
+        route/GraphService.h
+        route/GraphService.cpp
+        route/ResourceLockService.h
+        route/ResourceLockService.cpp
+        route/OverlapService.h
+        route/OverlapService.cpp
+        route/TelemetryService.h
+        route/TelemetryService.cpp
+        route/VitalRouteController.h
+        route/VitalRouteController.cpp
+        route/RouteAssignmentService.h
+        route/RouteAssignmentService.cpp
+        route/SafetyMonitorService.h
+        route/SafetyMonitorService.cpp
 
+    # Only non-code resources (SQL files, data files)
     RESOURCES
         sql/sql_coomands_railflux.sql
         sql/route_assignment_schema_extensions.sql
-        SOURCES interlocking/InterlockingService.h interlocking/InterlockingService.cpp
-        SOURCES interlocking/SignalBranch.h interlocking/SignalBranch.cpp
-        SOURCES interlocking/TrackCircuitBranch.h interlocking/TrackCircuitBranch.cpp
-        SOURCES interlocking/PointMachineBranch.h interlocking/PointMachineBranch.cpp
-        SOURCES interlocking/SignalRule.h interlocking/SignalRule.cpp
-        SOURCES interlocking/InterlockingRuleEngine.h interlocking/InterlockingRuleEngine.cpp
-        SOURCES route/GraphService.h route/GraphService.cpp
-        SOURCES route/ResourceLockService.h route/ResourceLockService.cpp
-        SOURCES route/OverlapService.h route/OverlapService.cpp
-        SOURCES route/TelemetryService.h route/TelemetryService.cpp
-        SOURCES route/VitalRouteController.h route/VitalRouteController.cpp
-        SOURCES route/RouteAssignmentService.h route/RouteAssignmentService.cpp
-        SOURCES route/SafetyMonitorService.h route/SafetyMonitorService.cpp
 )
 
+# Separate resource bundle for application assets
 qt_add_resources(appRailFlux "app_resources"
     PREFIX "/"
     FILES

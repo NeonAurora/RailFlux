@@ -199,7 +199,7 @@ private:
     OverlapCalculationResult calculateSafetyMarginOverlap(const OverlapCalculationRequest& request);
 
     // Release trigger logic
-    bool checkCircuitSequenceForRelease(const QStringList& triggerCircuits, const QString& routeId);
+    bool checkCircuitSequenceForRelease(const QStringList& triggerCircuits, const QString& routeId) const;
     bool hasTrainPassedTriggerPoint(const QString& routeId, const QString& circuitId) const;
     void updateReleaseTriggerHistory(const QString& routeId, const QString& circuitId, bool isOccupied);
 

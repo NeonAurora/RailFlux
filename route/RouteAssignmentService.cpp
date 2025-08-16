@@ -20,6 +20,7 @@ RouteAssignmentService::RouteAssignmentService(QObject* parent)
     : QObject(parent)
     , m_processingTimer(new QTimer(this))
     , m_maintenanceTimer(new QTimer(this))
+    , m_serviceStartTime(QDateTime::currentDateTime().toSecsSinceEpoch())
 {
     // Setup processing timer
     m_processingTimer->setInterval(m_queueProcessingIntervalMs);
@@ -88,7 +89,15 @@ void RouteAssignmentService::initialize() {
 
             // Connect to track circuit changes
             connect(m_dbManager, &DatabaseManager::trackSegmentUpdated,
-                    this, &RouteAssignmentService::onTrackCircuitOccupancyChanged);
+                    this, [this](const QString& segmentId) {
+                // Get the circuit associated with this segment and its occupancy
+                QString circuitId = m_dbManager->getCircuitIdByTrackSegmentId(segmentId);
+                if (!circuitId.isEmpty()) {
+                    auto circuit = m_dbManager->getTrackCircuitById(circuitId);
+                    bool isOccupied = circuit.value("is_occupied", false).toBool();
+                    onTrackCircuitOccupancyChanged(circuitId, isOccupied);
+                }
+            });
 
             // Start processing
             m_isOperational = areServicesHealthy();
@@ -890,6 +899,151 @@ void RouteAssignmentService::checkSystemHealth() {
     if (wasOperational != m_isOperational) {
         emit operationalStateChanged();
     }
+}
+
+void RouteAssignmentService::onSystemOverload() {
+    qWarning() << "⚠️ RouteAssignmentService: System overload detected";
+    
+    // Enter degraded mode to reduce load
+    enterDegradedMode();
+    
+    // Clear non-essential pending requests
+    if (m_requestQueue.size() > MAX_QUEUE_SIZE / 2) {
+        int removed = 0;
+        auto it = m_requestQueue.begin();
+        while (it != m_requestQueue.end() && removed < MAX_QUEUE_SIZE / 4) {
+            if (it->priority != "EMERGENCY" && it->priority != "HIGH") {
+                it = m_requestQueue.erase(it);
+                removed++;
+            } else {
+                ++it;
+            }
+        }
+        qDebug() << "🗑️ Removed" << removed << "non-essential requests due to overload";
+    }
+    
+    emit systemOverloaded(m_requestQueue.size(), m_maxConcurrentRoutes);
+}
+
+bool RouteAssignmentService::activateRoute(const QString& routeId) {
+    if (!m_vitalController) {
+        return false;
+    }
+    
+    // Update route state to ACTIVE instead of calling non-existent method
+    bool success = m_vitalController->updateRouteState(routeId, "ACTIVE");
+    
+    if (success) {
+        qDebug() << "✅ RouteAssignmentService: Activated route" << routeId;
+        emit routeActivated(routeId);
+    } else {
+        qWarning() << "❌ RouteAssignmentService: Failed to activate route" << routeId;
+    }
+    
+    return success;
+}
+
+bool RouteAssignmentService::releaseRoute(const QString& routeId, const QString& reason) {
+    if (!m_vitalController) {
+        return false;
+    }
+    
+    QVariantMap result = m_vitalController->releaseRouteResources(routeId);
+    bool success = result["success"].toBool();
+    
+    if (success) {
+        qDebug() << "🔓 RouteAssignmentService: Released route" << routeId << "Reason:" << reason;
+        emit routeReleased(routeId, reason);
+        emit routeCountChanged();
+    } else {
+        qWarning() << "❌ RouteAssignmentService: Failed to release route" << routeId 
+                   << "Error:" << result["error"].toString();
+    }
+    
+    return success;
+}
+
+QVariantMap RouteAssignmentService::getRouteStatus(const QString& routeId) const {
+    if (!m_vitalController) {
+        return QVariantMap{{"error", "VitalRouteController not available"}};
+    }
+    
+    return m_vitalController->getRouteStatus(routeId);
+}
+
+QVariantList RouteAssignmentService::getActiveRoutes() const {
+    if (!m_vitalController) {
+        return QVariantList();
+    }
+    
+    return m_vitalController->getActiveRoutes();
+}
+
+QVariantList RouteAssignmentService::getPendingRequests() const {
+    QVariantList result;
+    
+    for (const RouteRequest& request : m_requestQueue) {
+        QVariantMap requestMap;
+        requestMap["requestId"] = request.requestId;
+        requestMap["sourceSignalId"] = request.sourceSignalId;
+        requestMap["destSignalId"] = request.destSignalId;
+        requestMap["direction"] = request.direction;
+        requestMap["priority"] = request.priority;
+        requestMap["operatorId"] = request.requestedBy;
+        requestMap["requestedAt"] = request.requestedAt;
+        result.append(requestMap);
+    }
+    
+    return result;
+}
+
+QVariantMap RouteAssignmentService::getSystemStatus() const {
+    return QVariantMap{
+        {"isOperational", m_isOperational},
+        {"emergencyMode", m_emergencyMode},
+        {"degradedMode", m_degradedMode},
+        {"pendingRequests", m_requestQueue.size()},
+        {"maxConcurrentRoutes", m_maxConcurrentRoutes},
+        {"processingTimeout", m_processingTimeoutMs},
+        {"queueProcessingInterval", m_queueProcessingIntervalMs},
+        {"maintenanceInterval", m_maintenanceIntervalMs}
+    };
+}
+
+bool RouteAssignmentService::setMaxConcurrentRoutes(int maxRoutes) {
+    if (maxRoutes < 1 || maxRoutes > 50) {
+        return false;
+    }
+    m_maxConcurrentRoutes = maxRoutes;
+    qDebug() << "🔧 RouteAssignmentService: Set max concurrent routes to" << m_maxConcurrentRoutes;
+    return true;
+}
+
+bool RouteAssignmentService::setProcessingTimeout(int timeoutMs) {
+    if (timeoutMs < 1000 || timeoutMs > 300000) { // 1s to 5min
+        return false;
+    }
+    m_processingTimeoutMs = timeoutMs;
+    qDebug() << "🔧 RouteAssignmentService: Set processing timeout to" << m_processingTimeoutMs << "ms";
+    return true;
+}
+
+QVariantMap RouteAssignmentService::getOperationalStatistics() const {
+    QVariantMap stats = getPerformanceStatistics();
+    
+    // Add operational metrics
+    stats["isOperational"] = m_isOperational;
+    stats["emergencyMode"] = m_emergencyMode;
+    stats["degradedMode"] = m_degradedMode;
+    stats["uptime"] = QDateTime::currentDateTime().toSecsSinceEpoch() - m_serviceStartTime;
+    
+    return stats;
+}
+
+QVariantList RouteAssignmentService::getRouteHistory(int limitHours) const {
+    Q_UNUSED(limitHours)
+    // Would query database for route history
+    return QVariantList();
 }
 
 } // namespace RailFlux::Route

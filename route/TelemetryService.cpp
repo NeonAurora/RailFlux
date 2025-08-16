@@ -515,8 +515,8 @@ QVariantList TelemetryService::getActiveAlerts() const {
         QVariantMap mapB = b.toMap();
         
         // Critical alerts first
-        AlertLevel levelA = TelemetryService().stringToAlertLevel(mapA["level"].toString());
-        AlertLevel levelB = TelemetryService().stringToAlertLevel(mapB["level"].toString());
+        AlertLevel levelA = TelemetryService::stringToAlertLevel(mapA["level"].toString());
+        AlertLevel levelB = TelemetryService::stringToAlertLevel(mapB["level"].toString());
         
         if (levelA != levelB) {
             return levelA > levelB; // Higher severity first
@@ -756,8 +756,19 @@ void TelemetryService::cleanupOldAlerts() {
     }
 }
 
+void TelemetryService::recordRouteEvent(const QString& routeId, const QString& eventType, const QVariantMap& eventData) {
+    recordSafetyEvent(
+        eventType,
+        "INFO",
+        routeId,
+        QString("Route event: %1").arg(eventType),
+        "system",
+        eventData
+    );
+}
+
 // Utility method implementations
-AlertLevel TelemetryService::stringToAlertLevel(const QString& levelStr) const {
+AlertLevel TelemetryService::stringToAlertLevel(const QString& levelStr) {
     if (levelStr.toUpper() == "CRITICAL") return AlertLevel::CRITICAL;
     if (levelStr.toUpper() == "WARNING") return AlertLevel::WARNING;
     if (levelStr.toUpper() == "EMERGENCY") return AlertLevel::EMERGENCY;
@@ -808,6 +819,240 @@ void TelemetryService::setPerformanceThreshold(const QString& operation, double 
 void TelemetryService::setSafetyViolationThreshold(const QString& violationType, int maxViolationsPerHour) {
     m_safetyViolationThresholds[violationType] = maxViolationsPerHour;
     emit configurationChanged();
+}
+
+void TelemetryService::recordBatchPerformanceMetrics(const QVariantList& metrics) {
+    for (const QVariant& metricVar : metrics) {
+        QVariantMap metricMap = metricVar.toMap();
+        QString operation = metricMap["operation"].toString();
+        double responseTime = metricMap["responseTime"].toDouble();
+        bool success = metricMap["success"].toBool();
+        QString operatorId = metricMap.value("operatorId", "system").toString();
+        
+        recordPerformanceMetric(operation, responseTime, success, operatorId);
+    }
+}
+
+QVariantList TelemetryService::getSafetyEvents(int limitHours, const QString& severity) const {
+    QVariantList result;
+    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-limitHours * 3600);
+    
+    for (const SafetyMetric& metric : m_safetyMetrics) {
+        if (metric.timestamp >= cutoff) {
+            if (severity.isEmpty() || alertLevelToString(metric.severity) == severity) {
+                QVariantMap eventMap;
+                eventMap["timestamp"] = metric.timestamp;
+                eventMap["eventType"] = metric.eventType;
+                eventMap["severity"] = alertLevelToString(metric.severity);
+                eventMap["resourceId"] = metric.resourceId;
+                eventMap["description"] = metric.description;
+                eventMap["operatorId"] = metric.operatorId;
+                eventMap["metadata"] = metric.metadata;
+                result.append(eventMap);
+            }
+        }
+    }
+    
+    return result;
+}
+
+QVariantMap TelemetryService::getOperationalMetrics(int limitHours) const {
+    QVariantMap result;
+    QVariantList metrics;
+    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-limitHours * 3600);
+    
+    for (const OperationalMetric& metric : m_operationalMetrics) {
+        if (metric.timestamp >= cutoff) {
+            QVariantMap metricMap;
+            metricMap["timestamp"] = metric.timestamp;
+            metricMap["metricName"] = metric.metricName;
+            metricMap["value"] = metric.value;
+            metricMap["unit"] = metric.unit;
+            metricMap["dimensions"] = metric.dimensions;
+            metrics.append(metricMap);
+        }
+    }
+    
+    result["metrics"] = metrics;
+    result["timeWindow"] = limitHours;
+    result["totalCount"] = metrics.size();
+    
+    return result;
+}
+
+QVariantMap TelemetryService::getSystemHealthStatus() const {
+    QVariantMap result;
+    result["systemHealthScore"] = m_systemHealthScore;
+    result["isOperational"] = m_isOperational;
+    result["activeAlerts"] = activeAlerts();
+    result["averageResponseTime"] = m_averageResponseTime;
+    result["totalMetricsRecorded"] = m_totalMetricsRecorded;
+    result["lastUpdate"] = QDateTime::currentDateTime();
+    
+    // Convert system health metrics to QVariantMap
+    QVariantMap componentStatuses;
+    for (auto it = m_systemHealthMetrics.constBegin(); it != m_systemHealthMetrics.constEnd(); ++it) {
+        QVariantMap componentStatus;
+        componentStatus["component"] = it.value().component;
+        componentStatus["healthStatus"] = it.value().healthStatus;
+        componentStatus["uptime"] = it.value().uptime;
+        componentStatus["lastCheck"] = it.value().lastCheck;
+        componentStatus["diagnostics"] = it.value().diagnostics;
+        componentStatuses[it.key()] = componentStatus;
+    }
+    result["componentStatuses"] = componentStatuses;
+    
+    return result;
+}
+
+QVariantList TelemetryService::getAlertHistory(int limitHours) const {
+    QVariantList result;
+    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-limitHours * 3600);
+    
+    for (const Alert& alert : m_activeAlerts) {
+        if (alert.createdAt >= cutoff) {
+            QVariantMap alertMap;
+            alertMap["alertId"] = alert.alertId;
+            alertMap["level"] = alertLevelToString(alert.level);
+            alertMap["title"] = alert.title;
+            alertMap["message"] = alert.message;
+            alertMap["source"] = alert.source;
+            alertMap["createdAt"] = alert.createdAt;
+            alertMap["acknowledgedAt"] = alert.acknowledgedAt;
+            alertMap["acknowledgedBy"] = alert.acknowledgedBy;
+            alertMap["isActive"] = alert.isActive;
+            alertMap["metadata"] = alert.metadata;
+            result.append(alertMap);
+        }
+    }
+    
+    return result;
+}
+
+QVariantList TelemetryService::getPerformanceTrends(const QString& operation, int intervalMinutes, int periodHours) const {
+    QVariantList result;
+    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-periodHours * 3600);
+    QDateTime intervalStart = cutoff;
+    
+    while (intervalStart < QDateTime::currentDateTime()) {
+        QDateTime intervalEnd = intervalStart.addSecs(intervalMinutes * 60);
+        
+        QList<double> responseTimes;
+        int successCount = 0;
+        int totalCount = 0;
+        
+        for (const PerformanceMetric& metric : m_performanceMetrics) {
+            if (metric.timestamp >= intervalStart && metric.timestamp < intervalEnd) {
+                if (operation.isEmpty() || metric.operation == operation) {
+                    responseTimes.append(metric.responseTimeMs);
+                    totalCount++;
+                    if (metric.success) {
+                        successCount++;
+                    }
+                }
+            }
+        }
+        
+        if (totalCount > 0) {
+            double average = std::accumulate(responseTimes.begin(), responseTimes.end(), 0.0) / responseTimes.size();
+            double successRate = (double)successCount / totalCount * 100.0;
+            
+            QVariantMap intervalData;
+            intervalData["intervalStart"] = intervalStart;
+            intervalData["intervalEnd"] = intervalEnd;
+            intervalData["operation"] = operation;
+            intervalData["count"] = totalCount;
+            intervalData["averageResponseTime"] = average;
+            intervalData["successRate"] = successRate;
+            result.append(intervalData);
+        }
+        
+        intervalStart = intervalEnd;
+    }
+    
+    return result;
+}
+
+QVariantMap TelemetryService::generatePerformanceReport(const QDateTime& startTime, const QDateTime& endTime) const {
+    QVariantMap report;
+    
+    // Calculate metrics for the specified period
+    QList<double> responseTimes;
+    int totalOperations = 0;
+    int successfulOperations = 0;
+    QHash<QString, int> operationCounts;
+    
+    for (const PerformanceMetric& metric : m_performanceMetrics) {
+        if (metric.timestamp >= startTime && metric.timestamp <= endTime) {
+            responseTimes.append(metric.responseTimeMs);
+            totalOperations++;
+            if (metric.success) {
+                successfulOperations++;
+            }
+            operationCounts[metric.operation]++;
+        }
+    }
+    
+    if (!responseTimes.isEmpty()) {
+        std::sort(responseTimes.begin(), responseTimes.end());
+        double average = std::accumulate(responseTimes.begin(), responseTimes.end(), 0.0) / responseTimes.size();
+        
+        report["reportPeriod"] = QVariantMap{
+            {"startTime", startTime},
+            {"endTime", endTime}
+        };
+        report["totalOperations"] = totalOperations;
+        report["successfulOperations"] = successfulOperations;
+        report["successRate"] = totalOperations > 0 ? (double)successfulOperations / totalOperations * 100.0 : 0.0;
+        report["averageResponseTime"] = average;
+        report["minResponseTime"] = responseTimes.first();
+        report["maxResponseTime"] = responseTimes.last();
+        report["p95ResponseTime"] = responseTimes[qRound(responseTimes.size() * 0.95) - 1];
+        
+        QVariantMap operationBreakdown;
+        for (auto it = operationCounts.begin(); it != operationCounts.end(); ++it) {
+            operationBreakdown[it.key()] = it.value();
+        }
+        report["operationBreakdown"] = operationBreakdown;
+    }
+    
+    return report;
+}
+
+QVariantMap TelemetryService::generateSafetyReport(const QDateTime& startTime, const QDateTime& endTime) const {
+    QVariantMap report;
+    
+    QHash<QString, int> eventTypeCounts;
+    QHash<QString, int> severityCounts;
+    int totalEvents = 0;
+    
+    for (const SafetyMetric& metric : m_safetyMetrics) {
+        if (metric.timestamp >= startTime && metric.timestamp <= endTime) {
+            eventTypeCounts[metric.eventType]++;
+            severityCounts[alertLevelToString(metric.severity)]++;
+            totalEvents++;
+        }
+    }
+    
+    QVariantMap reportPeriod;
+    reportPeriod["startTime"] = startTime;
+    reportPeriod["endTime"] = endTime;
+    report["reportPeriod"] = reportPeriod;
+    report["totalSafetyEvents"] = totalEvents;
+    
+    QVariantMap eventBreakdown;
+    for (auto it = eventTypeCounts.begin(); it != eventTypeCounts.end(); ++it) {
+        eventBreakdown[it.key()] = it.value();
+    }
+    report["eventTypeBreakdown"] = eventBreakdown;
+    
+    QVariantMap severityBreakdown;
+    for (auto it = severityCounts.begin(); it != severityCounts.end(); ++it) {
+        severityBreakdown[it.key()] = it.value();
+    }
+    report["severityBreakdown"] = severityBreakdown;
+    
+    return report;
 }
 
 } // namespace RailFlux::Route

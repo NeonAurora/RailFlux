@@ -13,6 +13,7 @@
 #include <chrono>
 
 // Forward declarations
+#include "SafetyMonitorService.h"
 class DatabaseManager;
 class InterlockingService;
 
@@ -73,6 +74,8 @@ struct ValidationResult {
         return result;
     }
 };
+
+// SafetyViolation struct moved to SafetyMonitorService.h to avoid redefinition
 
 struct RouteAssignment {
     QUuid id;
@@ -158,12 +161,12 @@ public:
     Q_INVOKABLE QVariantMap getRouteStatistics() const;
 
     // === SAFETY MONITORING ===
-    Q_INVOKABLE bool performSafetyCheck(const QString& routeId = QString());
+    Q_INVOKABLE ValidationResult performSafetyCheck(const QString& routeId = QString());
     Q_INVOKABLE QVariantMap getSafetyStatus() const;
     Q_INVOKABLE QVariantList detectSafetyViolations() const;
 
     // === RESOURCE MANAGEMENT ===
-    Q_INVOKABLE bool lockRouteResources(
+    Q_INVOKABLE ValidationResult lockRouteResources(
         const QString& routeId,
         const QStringList& circuits,
         const QStringList& pointMachines
@@ -243,6 +246,7 @@ private:
 
     // Safety monitoring
     void recordSafetyEvent(const QString& eventType, const QString& routeId, const QString& details);
+    void recordSafetyViolation(const QString& routeId, const QString& description);
     void checkForSafetyViolations();
     void updateSafetySystemHealth();
 
@@ -290,7 +294,7 @@ private:
 
     // Safety monitoring
     QDateTime m_lastSafetyCheck;
-    QStringList m_recentSafetyViolations;
+    QList<SafetyViolation> m_recentSafetyViolations;
     int m_consecutiveFailures = 0;
 
     // Configuration constants

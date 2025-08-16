@@ -99,7 +99,7 @@ void VitalRouteController::initialize() {
 }
 
 bool VitalRouteController::loadActiveRoutesFromDatabase() {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT 
             id, route_name, source_signal_id, dest_signal_id, direction,
@@ -768,14 +768,21 @@ void VitalRouteController::checkForSafetyViolations() {
     
     for (const RouteAssignment& route : m_activeRoutes) {
         if (!isRouteConflictFree(route)) {
-            QString violation = QString("Route conflict detected for route %1").arg(route.key());
+            QString violationDesc = QString("Route conflict detected for route %1").arg(route.key());
+            SafetyViolation violation;
+            violation.description = violationDesc;
+            violation.affectedRoutes = {route.key()};
+            violation.type = ViolationType::ROUTE_CONFLICT;
+            violation.severity = ComplianceLevel::MAJOR_DEVIATION;
+            violation.detectedAt = QDateTime::currentDateTime();
+            violation.isActive = true;
             m_recentSafetyViolations.append(violation);
             m_safetyViolations++;
             
-            emit safetyViolationDetected(route.key(), "route_conflict", violation);
+            emit safetyViolationDetected(route.key(), "route_conflict", violationDesc);
             
             if (m_telemetryService) {
-                m_telemetryService->recordSafetyViolation("route_conflict", route.key(), violation);
+                m_telemetryService->recordSafetyViolation("route_conflict", route.key(), violationDesc);
             }
         }
     }
@@ -950,8 +957,331 @@ bool VitalRouteController::updateRouteInDatabase(const RouteAssignment& route) {
     return true; // Placeholder
 }
 
-void VitalRouteController::updateSafetySystemHealth() {
-    // Implementation above
+void VitalRouteController::onTrackCircuitOccupancyChanged(const QString& circuitId, bool isOccupied) {
+    if (!m_isOperational) {
+        return;
+    }
+    
+    qDebug() << "🔄 VitalRouteController: Track circuit" << circuitId << (isOccupied ? "OCCUPIED" : "CLEAR");
+    
+    // Check if this circuit affects any active routes
+    if (m_routesByCircuit.contains(circuitId)) {
+        QStringList affectedRoutes = m_routesByCircuit[circuitId];
+        
+        for (const QString& routeId : affectedRoutes) {
+            if (m_activeRoutes.contains(routeId)) {
+                RouteAssignment& route = m_activeRoutes[routeId];
+                
+                // Handle route state changes based on occupancy
+                if (isOccupied && route.state == RouteState::ACTIVE) {
+                    // Train is using the route
+                    if (route.assignedCircuits.contains(circuitId)) {
+                        // Normal progression
+                        recordSafetyEvent("route_train_progression", routeId, 
+                                        QString("Train entered circuit %1").arg(circuitId));
+                    } else if (route.overlapCircuits.contains(circuitId)) {
+                        // Train entered overlap region
+                        recordSafetyEvent("route_overlap_occupied", routeId,
+                                        QString("Train entered overlap circuit %1").arg(circuitId));
+                    }
+                } else if (isOccupied && route.state == RouteState::RESERVED) {
+                    // Unauthorized occupancy
+                    recordSafetyViolation(routeId, 
+                                        QString("Unauthorized occupancy of reserved circuit %1").arg(circuitId));
+                }
+            }
+        }
+    }
+}
+
+void VitalRouteController::onPointMachinePositionChanged(const QString& machineId, const QString& position) {
+    qDebug() << "🔄 VitalRouteController: Point machine" << machineId << "position:" << position;
+    
+    // Check if this point machine affects any active routes
+    for (auto& route : m_activeRoutes) {
+        if (route.lockedPointMachines.contains(machineId)) {
+            recordSafetyEvent("route_point_machine_change", route.key(),
+                            QString("Point machine %1 changed to %2").arg(machineId, position));
+        }
+    }
+}
+
+void VitalRouteController::onSignalAspectChanged(const QString& signalId, const QString& aspect) {
+    qDebug() << "🔄 VitalRouteController: Signal" << signalId << "aspect:" << aspect;
+    
+    // Check if this signal affects any active routes
+    for (auto& route : m_activeRoutes) {
+        if (route.sourceSignalId == signalId || route.destSignalId == signalId) {
+            recordSafetyEvent("route_signal_change", route.key(),
+                            QString("Signal %1 changed to %2").arg(signalId, aspect));
+        }
+    }
+}
+
+QVariantMap VitalRouteController::releaseRouteResources(const QString& routeId) {
+    if (!m_activeRoutes.contains(routeId)) {
+        return QVariantMap{{"success", false}, {"error", "Route not found"}};
+    }
+    
+    const RouteAssignment& route = m_activeRoutes[routeId];
+    bool success = true;
+    QStringList errors;
+    
+    // Release resource locks
+    if (m_resourceLockService) {
+        // Release track circuits
+        for (const QString& circuitId : route.assignedCircuits + route.overlapCircuits) {
+            if (!m_resourceLockService->unlockResource("TRACK_CIRCUIT", circuitId, routeId)) {
+                QString error = QString("Failed to unlock circuit %1").arg(circuitId);
+                qWarning() << error << "for route" << routeId;
+                errors.append(error);
+                success = false;
+            }
+        }
+        
+        // Release point machines
+        for (const QString& machineId : route.lockedPointMachines) {
+            if (!m_resourceLockService->unlockResource("POINT_MACHINE", machineId, routeId)) {
+                QString error = QString("Failed to unlock point machine %1").arg(machineId);
+                qWarning() << error << "for route" << routeId;
+                errors.append(error);
+                success = false;
+            }
+        }
+    }
+    
+    QVariantMap result;
+    result["success"] = success;
+    result["routeId"] = routeId;
+    if (!errors.isEmpty()) {
+        result["errors"] = errors;
+    }
+    return result;
+}
+
+QVariantMap VitalRouteController::emergencyReleaseAll(const QString& reason) {
+    qCritical() << "🚨 VitalRouteController: EMERGENCY RELEASE ALL ROUTES - Reason:" << reason;
+    
+    QStringList releasedRoutes;
+    QStringList failedReleases;
+    
+    for (auto it = m_activeRoutes.begin(); it != m_activeRoutes.end(); ++it) {
+        QString routeId = it.key();
+        QVariantMap result = emergencyRelease(routeId, reason);
+        
+        if (result["success"].toBool()) {
+            releasedRoutes.append(routeId);
+        } else {
+            failedReleases.append(routeId);
+        }
+    }
+    
+    // Clear all routes if successful
+    if (failedReleases.isEmpty()) {
+        m_activeRoutes.clear();
+        m_routesByCircuit.clear();
+    }
+    
+    // Record emergency event
+    recordSafetyEvent("emergency_release_all", "ALL_ROUTES",
+                     QString("Emergency release all: %1. Released: %2, Failed: %3")
+                     .arg(reason).arg(releasedRoutes.size()).arg(failedReleases.size()));
+    
+    return QVariantMap{
+        {"success", failedReleases.isEmpty()},
+        {"releasedRoutes", releasedRoutes},
+        {"failedReleases", failedReleases},
+        {"reason", reason}
+    };
+}
+
+bool VitalRouteController::updateRouteState(const QString& routeId, const QString& newState) {
+    if (!m_activeRoutes.contains(routeId)) {
+        return false;
+    }
+    
+    RouteAssignment& route = m_activeRoutes[routeId];
+    RouteState oldState = route.state;
+    route.state = stringToRouteState(newState);
+    
+    updateRouteInDatabase(route);
+    
+    qDebug() << "🔄 VitalRouteController: Route" << routeId << "state changed from" 
+             << routeStateToString(oldState) << "to" << newState;
+    
+    recordSafetyEvent("route_state_change", routeId,
+                     QString("State changed from %1 to %2")
+                     .arg(routeStateToString(oldState), newState));
+    
+    return true;
+}
+
+QVariantMap VitalRouteController::getRouteStatus(const QString& routeId) const {
+    if (!m_activeRoutes.contains(routeId)) {
+        return QVariantMap{{"error", "Route not found"}};
+    }
+    
+    const RouteAssignment& route = m_activeRoutes[routeId];
+    return routeAssignmentToVariantMap(route);
+}
+
+QVariantList VitalRouteController::getActiveRoutes() const {
+    QVariantList result;
+    
+    for (const RouteAssignment& route : m_activeRoutes.values()) {
+        result.append(routeAssignmentToVariantMap(route));
+    }
+    
+    return result;
+}
+
+QVariantMap VitalRouteController::getRouteStatistics() const {
+    return QVariantMap{
+        {"activeRoutes", m_activeRoutes.size()},
+        {"totalValidations", m_totalValidations},
+        {"successfulValidations", m_successfulValidations},
+        {"emergencyReleases", m_emergencyReleases},
+        {"safetyViolations", m_recentSafetyViolations.size()},
+        {"averageValidationTimeMs", m_averageValidationTime},
+        {"safetySystemHealthy", m_safetySystemHealthy},
+        {"successRate", m_totalValidations > 0 ? (double)m_successfulValidations / m_totalValidations * 100.0 : 0.0}
+    };
+}
+
+ValidationResult VitalRouteController::performSafetyCheck(const QString& routeId) {
+    if (!m_activeRoutes.contains(routeId)) {
+        return ValidationResult::blocked("Route not found", SafetyLevel::DANGER);
+    }
+    
+    const RouteAssignment& route = m_activeRoutes[routeId];
+    
+    // Comprehensive safety check
+    ValidationResult result = ValidationResult::allowed("Safety check passed");
+    result.safetyLevel = SafetyLevel::VITAL_SAFE;
+    
+    // Check resource locks
+    if (m_resourceLockService) {
+        for (const QString& circuitId : route.assignedCircuits) {
+            if (!m_resourceLockService->isResourceLocked("TRACK_CIRCUIT", circuitId)) {
+                result = ValidationResult::blocked(
+                    QString("Circuit %1 is not properly locked").arg(circuitId),
+                    SafetyLevel::DANGER
+                );
+                break;
+            }
+        }
+    }
+    
+    return result;
+}
+
+QVariantMap VitalRouteController::getSafetyStatus() const {
+    return QVariantMap{
+        {"safetySystemHealthy", m_safetySystemHealthy},
+        {"recentViolations", m_recentSafetyViolations.size()},
+        {"isOperational", m_isOperational},
+        {"averageValidationTime", m_averageValidationTime},
+        {"targetValidationTime", static_cast<double>(TARGET_VALIDATION_TIME.count())},
+        {"performanceAcceptable", m_averageValidationTime < TARGET_VALIDATION_TIME.count() * 2}
+    };
+}
+
+QVariantList VitalRouteController::detectSafetyViolations() const {
+    QVariantList violations;
+    
+    for (const auto& violation : m_recentSafetyViolations) {
+        QVariantMap violationMap;
+        violationMap["routeId"] = violation.routeId;
+        violationMap["description"] = violation.description;
+        violationMap["timestamp"] = violation.timestamp;
+        violationMap["severity"] = "HIGH";
+        violations.append(violationMap);
+    }
+    
+    return violations;
+}
+
+ValidationResult VitalRouteController::lockRouteResources(const QString& routeId, const QStringList& circuits, const QStringList& pointMachines) {
+    if (!m_activeRoutes.contains(routeId)) {
+        return ValidationResult::blocked("Route not found", SafetyLevel::DANGER);
+    }
+    
+    RouteAssignment& route = m_activeRoutes[routeId];
+    route.assignedCircuits = circuits;
+    route.lockedPointMachines = pointMachines;
+    
+    bool success = lockResourcesForRoute(route);
+    
+    if (success) {
+        return ValidationResult::allowed("Resources locked successfully");
+    } else {
+        return ValidationResult::blocked("Failed to lock one or more resources", SafetyLevel::WARNING);
+    }
+}
+
+bool VitalRouteController::unlockRouteResources(const QString& routeId) {
+    QVariantMap result = releaseRouteResources(routeId);
+    return result.value("success", false).toBool();
+}
+
+QVariantMap VitalRouteController::getResourceUtilization() const {
+    QVariantMap utilization;
+    
+    // Count locked resources
+    int lockedCircuits = 0;
+    int lockedPointMachines = 0;
+    
+    for (const RouteAssignment& route : m_activeRoutes.values()) {
+        lockedCircuits += route.assignedCircuits.size() + route.overlapCircuits.size();
+        lockedPointMachines += route.lockedPointMachines.size();
+    }
+    
+    utilization["lockedCircuits"] = lockedCircuits;
+    utilization["lockedPointMachines"] = lockedPointMachines;
+    utilization["activeRoutes"] = m_activeRoutes.size();
+    
+    return utilization;
+}
+
+QVariantMap VitalRouteController::routeAssignmentToVariantMap(const RouteAssignment& route) const {
+    return QVariantMap{
+        {"id", route.id.toString()},
+        {"routeName", route.routeName},
+        {"sourceSignalId", route.sourceSignalId},
+        {"destSignalId", route.destSignalId},
+        {"direction", route.direction},
+        {"assignedCircuits", route.assignedCircuits},
+        {"overlapCircuits", route.overlapCircuits},
+        {"lockedPointMachines", route.lockedPointMachines},
+        {"state", routeStateToString(route.state)},
+        {"priority", route.priority},
+        {"operatorId", route.operatorId},
+        {"createdAt", route.createdAt},
+        {"activatedAt", route.activatedAt},
+        {"releasedAt", route.releasedAt}
+    };
+}
+
+void VitalRouteController::recordSafetyViolation(const QString& routeId, const QString& description) {
+    SafetyViolation violation;
+    violation.routeId = routeId;
+    violation.description = description;
+    violation.timestamp = QDateTime::currentDateTime();
+    
+    m_recentSafetyViolations.append(violation);
+    
+    // Keep only recent violations (last hour)
+    QDateTime cutoff = QDateTime::currentDateTime().addSecs(-3600);
+    m_recentSafetyViolations.erase(
+        std::remove_if(m_recentSafetyViolations.begin(), m_recentSafetyViolations.end(),
+                      [cutoff](const SafetyViolation& v) { return v.timestamp < cutoff; }),
+        m_recentSafetyViolations.end()
+    );
+    
+    qCritical() << "🚨 VitalRouteController: Safety violation -" << routeId << ":" << description;
+    
+    recordSafetyEvent("safety_violation", routeId, description);
+    updateSafetySystemHealth();
 }
 
 } // namespace RailFlux::Route

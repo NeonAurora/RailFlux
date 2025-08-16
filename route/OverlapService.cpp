@@ -70,7 +70,7 @@ void OverlapService::initialize() {
 }
 
 bool OverlapService::loadOverlapDefinitionsFromDatabase() {
-    QSqlQuery query(m_dbManager->database());
+    QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT 
             signal_id,
@@ -159,7 +159,7 @@ QVariantMap OverlapService::calculateOverlap(
     };
 }
 
-OverlapService::OverlapCalculationResult OverlapService::calculateOverlapInternal(const OverlapCalculationRequest& request) {
+OverlapCalculationResult OverlapService::calculateOverlapInternal(const OverlapCalculationRequest& request) {
     OverlapCalculationResult result;
 
     // Check if destination signal has overlap definition
@@ -195,7 +195,7 @@ OverlapService::OverlapCalculationResult OverlapService::calculateOverlapInterna
     return result;
 }
 
-OverlapService::OverlapCalculationResult OverlapService::calculateFixedOverlap(const QString& signalId) {
+OverlapCalculationResult OverlapService::calculateFixedOverlap(const QString& signalId) {
     OverlapCalculationResult result;
 
     if (!m_overlapDefinitions.contains(signalId)) {
@@ -215,7 +215,7 @@ OverlapService::OverlapCalculationResult OverlapService::calculateFixedOverlap(c
     return result;
 }
 
-OverlapService::OverlapCalculationResult OverlapService::calculateDynamicOverlap(const OverlapCalculationRequest& request) {
+OverlapCalculationResult OverlapService::calculateDynamicOverlap(const OverlapCalculationRequest& request) {
     OverlapCalculationResult result;
 
     // Start with fixed overlap as base
@@ -250,7 +250,7 @@ OverlapService::OverlapCalculationResult OverlapService::calculateDynamicOverlap
     return result;
 }
 
-OverlapService::OverlapCalculationResult OverlapService::calculateSafetyMarginOverlap(const OverlapCalculationRequest& request) {
+OverlapCalculationResult OverlapService::calculateSafetyMarginOverlap(const OverlapCalculationRequest& request) {
     OverlapCalculationResult result;
 
     // Start with fixed overlap
@@ -712,6 +712,110 @@ QVariantMap OverlapService::overlapDefinitionToVariantMap(const OverlapDefinitio
         {"type", overlapTypeToString(definition.type)},
         {"holdSeconds", definition.holdSeconds},
         {"isActive", definition.isActive}
+    };
+}
+
+void OverlapService::refreshOverlapDefinitions() {
+    loadOverlapDefinitionsFromDatabase();
+}
+
+void OverlapService::onRouteStateChanged(const QString& routeId, const QString& newState) {
+    Q_UNUSED(routeId)
+    Q_UNUSED(newState)
+}
+
+bool OverlapService::forceReleaseOverlap(const QString& routeId, const QString& signalId, const QString& operatorId, const QString& reason) {
+    QString overlapKey = QString("%1:%2").arg(routeId, signalId);
+    
+    if (!m_activeOverlaps.contains(overlapKey)) {
+        return false;
+    }
+
+    m_forceReleases++;
+    
+    qWarning() << "🚨 OverlapService: Force releasing overlap" << overlapKey << "by" << operatorId << "reason:" << reason;
+    
+    bool result = releaseOverlap(routeId, signalId, true);
+    if (result) {
+        emit overlapForceReleased(routeId, signalId, reason);
+    }
+    
+    return result;
+}
+
+QVariantMap OverlapService::getOverlapStatus(const QString& routeId, const QString& signalId) const {
+    QString overlapKey = QString("%1:%2").arg(routeId, signalId);
+    
+    if (!m_activeOverlaps.contains(overlapKey)) {
+        return QVariantMap();
+    }
+
+    const ActiveOverlap& overlap = m_activeOverlaps[overlapKey];
+    return overlapToVariantMap(overlap);
+}
+
+QVariantList OverlapService::getActiveOverlaps() const {
+    QVariantList result;
+    for (const ActiveOverlap& overlap : m_activeOverlaps) {
+        result.append(overlapToVariantMap(overlap));
+    }
+    return result;
+}
+
+QVariantList OverlapService::getPendingReleases() const {
+    QVariantList result;
+    for (const ActiveOverlap& overlap : m_activeOverlaps) {
+        if (overlap.state == OverlapState::RELEASING) {
+            result.append(overlapToVariantMap(overlap));
+        }
+    }
+    return result;
+}
+
+bool OverlapService::hasActiveOverlap(const QString& circuitId) const {
+    return m_circuitOverlaps.contains(circuitId) && !m_circuitOverlaps[circuitId].isEmpty();
+}
+
+QVariantList OverlapService::getAllOverlapDefinitions() const {
+    QVariantList result;
+    for (const OverlapDefinition& definition : m_overlapDefinitions) {
+        result.append(overlapDefinitionToVariantMap(definition));
+    }
+    return result;
+}
+
+bool OverlapService::updateOverlapDefinition(const QString& signalId, const QStringList& overlapCircuits, const QStringList& releaseTriggers, int holdSeconds) {
+    if (!m_overlapDefinitions.contains(signalId)) {
+        return false;
+    }
+
+    OverlapDefinition& definition = m_overlapDefinitions[signalId];
+    definition.overlapCircuitIds = overlapCircuits;
+    definition.releaseTriggerCircuitIds = releaseTriggers;
+    definition.holdSeconds = holdSeconds;
+
+    return true;
+}
+
+QVariantList OverlapService::getOverlapHistory(const QString& signalId, int limitDays) const {
+    Q_UNUSED(signalId)
+    Q_UNUSED(limitDays)
+    return QVariantList();
+}
+
+QVariantMap OverlapService::overlapToVariantMap(const ActiveOverlap& overlap) const {
+    return QVariantMap{
+        {"routeId", overlap.routeId.toString()},
+        {"signalId", overlap.signalId},
+        {"reservedCircuits", overlap.reservedCircuits},
+        {"releaseTriggerCircuits", overlap.releaseTriggerCircuits},
+        {"state", overlapStateToString(overlap.state)},
+        {"reservedAt", overlap.reservedAt},
+        {"releaseTimerStarted", overlap.releaseTimerStarted},
+        {"scheduledReleaseAt", overlap.scheduledReleaseAt},
+        {"holdSeconds", overlap.holdSeconds},
+        {"operatorId", overlap.operatorId},
+        {"isExpired", overlap.isExpired()}
     };
 }
 

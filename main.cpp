@@ -52,9 +52,9 @@ int main(int argc, char *argv[])
     TelemetryService* telemetryService = new TelemetryService(dbManager, &app);
     
     // Layer 3: Route Management Services
-    VitalRouteController* vitalRouteController = new VitalRouteController(dbManager, interlockingService, &app);
+    VitalRouteController* vitalRouteController = new VitalRouteController(dbManager, interlockingService, resourceLockService, telemetryService, &app);
     RouteAssignmentService* routeAssignmentService = new RouteAssignmentService(&app);
-    SafetyMonitorService* safetyMonitorService = new SafetyMonitorService(dbManager, &app);
+    SafetyMonitorService* safetyMonitorService = new SafetyMonitorService(dbManager, telemetryService, &app);
     
     // Compose services using the service composition pattern
     routeAssignmentService->setServices(
@@ -160,7 +160,12 @@ int main(int argc, char *argv[])
 
     // C. Database to Route Service (Track Circuit Changes) - reactive updates
     QObject::connect(dbManager, &DatabaseManager::trackCircuitUpdated,
-                     routeAssignmentService, &RouteAssignmentService::onTrackCircuitOccupancyChanged);
+                     routeAssignmentService, [routeAssignmentService, dbManager](const QString& circuitId) {
+        // Get occupancy state from database and call the slot
+        auto circuit = dbManager->getTrackCircuitById(circuitId);
+        bool isOccupied = circuit.value("is_occupied", false).toBool();
+        routeAssignmentService->onTrackCircuitOccupancyChanged(circuitId, isOccupied);
+    });
     
     QObject::connect(dbManager, &DatabaseManager::pointMachineUpdated,
                      routeAssignmentService, [routeAssignmentService, dbManager](const QString& machineId) {
