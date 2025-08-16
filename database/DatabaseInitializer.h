@@ -30,11 +30,14 @@ public:
     QString currentOperation() const { return m_currentOperation; }
     QString lastError() const { return m_lastError; }
 
-    // Main operations callable from QML
-    Q_INVOKABLE void resetDatabaseAsync();
+    // Main operations
+    Q_INVOKABLE bool initializeDatabase();
     Q_INVOKABLE bool isDatabaseConnected();
     Q_INVOKABLE QVariantMap getDatabaseStatus();
     Q_INVOKABLE void testConnection();
+
+    // Async operations (for backward compatibility)
+    Q_INVOKABLE void resetDatabaseAsync();
 
 public slots:
     Q_INVOKABLE void testConnectionAsync();
@@ -54,8 +57,6 @@ private:
     // Properties
     bool m_isRunning = false;
     int m_progress = 0;
-    int m_portablePort = 5433;
-    int m_systemPort = 5432;
     QString m_currentOperation;
     QString m_lastError;
 
@@ -63,64 +64,153 @@ private:
     QSqlDatabase db;
     QTimer* resetTimer;
 
-    // Core operations
+    // ============================================================================
+    // CORE DATABASE OPERATIONS
+    // ============================================================================
+
+    // Connection management
     bool connectToDatabase();
     bool connectToSystemPostgreSQL();
     bool connectToPortablePostgreSQL();
-    bool dropExistingSchemas();
-    bool createSchemas();
+
+    // Unified schema creation approach
+    bool dropAndCreateSchemas();
+    bool createUnifiedTables();
+    bool validateDatabase();
+
+    // ============================================================================
+    // UNIFIED TABLE CREATION METHODS
+    // ============================================================================
+
+    // Configuration tables with route assignment integration
+    bool createConfigurationTables();
+
+    // Control tables with route assignment integration
+    bool createControlTables();
+
+    // Route assignment specific tables
+    bool createRouteAssignmentTables();
+
+    // Audit and logging tables
+    bool createAuditTables();
+
+    // ============================================================================
+    // DATABASE STRUCTURE CREATION
+    // ============================================================================
+
+    // Performance and safety indexes
+    bool createIndexes();
+
+    // Database functions (utility and route assignment)
+    bool createFunctions();
+
+    // Database triggers (audit and notifications)
+    bool createTriggers();
+
+    // Database views (with route assignment integration)
+    bool createViews();
+
+    // Role-based security
+    bool setupRolePermissions();
+
+    // ============================================================================
+    // DATA POPULATION METHODS
+    // ============================================================================
+
+    // Main data population coordinator
+    bool populateInitialData();
+
+    // Configuration data
     bool populateConfigurationData();
 
-    // ✅ NEW: Track Segment circuits population method
+    // Track infrastructure with route assignment integration
     bool populateTrackCircuits();
     bool populateTrackSegments();
+
+    // Signal data with route assignment properties
     bool populateSignals();
+
+    // Point machine data with route assignment integration
     bool populatePointMachines();
+
+    // Additional infrastructure
     bool populateTextLabels();
     bool populateInterlockingRules();
-    bool validateDatabase();
-    bool verifySchemas();
 
-    // Advanced schema creation methods
-    bool createAdvancedFunctions();
-    bool createAdvancedTriggers();
-    bool createGinIndexes();
-    bool createViews();
-    bool setupRolePermissions();
-    
-    // Route assignment schema extensions
-    bool executeRouteAssignmentSchema();
+    // ============================================================================
+    // ROUTE ASSIGNMENT DATA POPULATION
+    // ============================================================================
+
+    // Route assignment specific data coordinator
     bool populateRouteAssignmentData();
+
+    // Pathfinding infrastructure
     bool populateSignalAdjacencyAnchors();
     bool populateTrackCircuitEdges();
+
+    // Safety overlap definitions
     bool populateSignalOverlapDefinitions();
 
-    // Helper methods
+    // ============================================================================
+    // HELPER METHODS
+    // ============================================================================
+
+    // Query execution
     bool executeQuery(const QString& query, const QVariantList& params = QVariantList());
-    bool executeSchemaScript();
+
+    // Error and progress management
     void setError(const QString& error);
     void updateProgress(int value, const QString& operation);
 
-    // Data population helpers
-    int insertSignalType(const QString& typeCode, const QString& typeName, int maxAspects);
-    int insertSignalAspect(const QString& aspectCode, const QString& aspectName, const QString& colorCode, int safetyLevel);
+    // ============================================================================
+    // DATA INSERTION HELPERS
+    // ============================================================================
+
+    // Configuration data insertion
+    int insertSignalType(const QString& typeCode, const QString& typeName, int maxAspects = 2);
+    int insertSignalAspect(const QString& aspectCode, const QString& aspectName,
+                           const QString& colorCode, int safetyLevel);
     int insertPointPosition(const QString& positionCode, const QString& positionName);
+
+    // Utility helpers
     int getAspectIdByCode(const QString& aspectCode);
 
-    // ✅ NEW: Track Segment circuit helper methods
-    bool insertTrackCircuit(const QString& circuitId, const QString& circuitName);
-    bool linkSegmentToCircuit(const QString& segmentId, const QString& circuitId);
+    // ============================================================================
+    // DATA SOURCE METHODS
+    // ============================================================================
 
-    // StationData.js conversion functions
+    // Track infrastructure data
     QJsonArray getTrackSegmentsData();
+    QJsonArray getTrackCircuitMappings();
+
+    // Signal data by type
     QJsonArray getOuterSignalsData();
     QJsonArray getHomeSignalsData();
     QJsonArray getStarterSignalsData();
     QJsonArray getAdvancedStarterSignalsData();
+
+    // Other infrastructure data
     QJsonArray getPointMachinesData();
     QJsonArray getTextLabelsData();
 
-    // ✅ NEW: Track Segment circuits data method
-    QJsonArray getTrackCircuitMappings();
+    // Safety and interlocking data
     QJsonArray getInterlockingRulesData();
+
+    // ============================================================================
+    // LEGACY METHODS (for backward compatibility)
+    // ============================================================================
+
+    // Legacy schema operations
+    bool dropExistingSchemas();
+    bool createSchemas();
+    bool verifySchemas();
+    bool executeSchemaScript();
+
+    // Legacy advanced schema methods
+    bool createAdvancedFunctions();
+    bool createAdvancedTriggers();
+    bool createGinIndexes();
+
+    // Legacy route assignment methods
+    bool executeRouteAssignmentSchema();
 };
