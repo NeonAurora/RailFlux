@@ -1091,4 +1091,7 @@ Rectangle {
             }
         }
     }
+    RouteAssignmentDialog {
+        id: routeAssignmentDialog
+    }
 }

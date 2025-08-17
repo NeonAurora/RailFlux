@@ -284,22 +284,27 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton  // ✅ ADD: Accept both buttons
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
-        onClicked: function(mouse) {  // ✅ CHANGE: Use function(mouse) parameter
+        onClicked: function(mouse) {
             if (!isOperational()) {
                 console.log("Starter signal operation blocked:", signalId, "Active:", isActive)
                 return
             }
 
-            if (mouse.button === Qt.LeftButton) {  // ✅ ADD: Left click handling
-                console.log("Starter signal clicked:", signalId, "Current aspect:", currentAspect, "Direction:", direction, "Aspect count:", aspectCount)
-                starterSignal.signalClicked(signalId, currentAspect)
-            } else if (mouse.button === Qt.RightButton) {  // ✅ ADD: Right click context menu
-                console.log("Starter signal right-clicked:", signalId, "Showing context menu")
+            if (mouse.button === Qt.LeftButton) {
+                // ✅ NEW: Left-click shows context menu (moved from right-click)
+                console.log("Starter signal left-clicked:", signalId, "Showing context menu")
                 starterSignal.contextMenuRequested(signalId, signalName, currentAspect, possibleAspects,
                                                  mouse.x + starterSignal.x, mouse.y + starterSignal.y)
+            } else if (mouse.button === Qt.RightButton) {
+                // ✅ NEW: Right-click reserved for future route assignment
+                console.log("Starter signal right-clicked:", signalId, "Reserved for route assignment")
+                // TODO: Future route assignment functionality
+                if (routeAssignmentDialog) {
+                    routeAssignmentDialog.openForSignal(signalId, signalName)
+                }
             }
         }
 

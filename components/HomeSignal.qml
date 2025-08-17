@@ -489,10 +489,10 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton  // ✅ ADD: Accept both buttons
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
-        onClicked: function(mouse) {  // ✅ CHANGE: Use function(mouse) instead of plain onClicked
+        onClicked: function(mouse) {
             if (!isOperational()) {
                 console.log("Home signal operation blocked:", signalId,
                            "Active:", isActive,
@@ -500,22 +500,19 @@ Item {
                 return
             }
 
-            if (mouse.button === Qt.LeftButton) {  // ✅ ADD: Left click handling
-                console.log("Home signal clicked:", signalId,
-                           "Name:", signalName || "Unnamed",
-                           "Main aspect:", currentAspect, "(" + getAspectDisplayName(currentAspect) + ")",
-                           "Calling-on:", callingOnAspect, "(visible:" + isCallingOnVisible + ")",
-                           "Loop:", loopAspect, "(visible:" + isLoopSignalVisible + ")",
-                           "Loop config:", loopSignalConfiguration,
-                           "Direction:", direction,
-                           "Type:", getSignalTypeDescription())
-                homeSignal.signalClicked(signalId, currentAspect)
-            } else if (mouse.button === Qt.RightButton) {  // ✅ ADD: Right click context menu
-                console.log("Home signal right-clicked:", signalId, "Showing context menu")
-                // ✅ ENHANCED: Pass subsidiary signal aspects
+            if (mouse.button === Qt.LeftButton) {
+                // ✅ NEW: Left-click shows context menu (moved from right-click)
+                console.log("Home signal left-clicked:", signalId, "Showing context menu")
                 homeSignal.contextMenuRequested(signalId, signalName, currentAspect, possibleAspects,
                                                 callingOnAspect, loopAspect,
                                                 mouse.x + homeSignal.x, mouse.y + homeSignal.y)
+            } else if (mouse.button === Qt.RightButton) {
+                // ✅ NEW: Right-click reserved for future route assignment
+                console.log("Home signal right-clicked:", signalId, "Reserved for route assignment")
+                // TODO: Future route assignment functionality
+                if (routeAssignmentDialog) {
+                    routeAssignmentDialog.openForSignal(signalId, signalName)
+                }
             }
         }
 

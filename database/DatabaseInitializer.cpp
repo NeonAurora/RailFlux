@@ -2986,69 +2986,69 @@ bool DatabaseInitializer::populateSignalOverlapDefinitions() {
         // HOME signals - overlap to next platform section
         QJsonObject{
             {"signal_id", "HM001"},
-            {"overlap_circuits", QJsonArray{"3T"}},
+            {"overlap_circuits", QJsonArray{"W22T","3T"}},
             {"overlap_distance", 180},
-            {"release_conditions", QJsonArray{"train_clear_W22T"}}
+            {"release_conditions", QJsonArray{"train_clear_6T"}}
         },
         QJsonObject{
             {"signal_id", "HM002"},
-            {"overlap_circuits", QJsonArray{"2T"}},
+            {"overlap_circuits", QJsonArray{"W21T","3T"}},
             {"overlap_distance", 180},
-            {"release_conditions", QJsonArray{"train_clear_W21T"}}
+            {"release_conditions", QJsonArray{"train_clear_1T"}}
         },
 
         // STARTER signals - overlap beyond platform
         QJsonObject{
             {"signal_id", "ST001"},
-            {"overlap_circuits", QJsonArray{"2T", "1T"}},
+            {"overlap_circuits", QJsonArray{"W21T", "2T"}},
             {"overlap_distance", 150},
-            {"release_conditions", QJsonArray{"train_clear_3T"}}
+            {"release_conditions", QJsonArray{"train_clear_W22T"}}
         },
         QJsonObject{
             {"signal_id", "ST002"},
             {"overlap_circuits", QJsonArray{"W21T", "2T"}},
             {"overlap_distance", 150},
-            {"release_conditions", QJsonArray{"train_clear_4T"}}
+            {"release_conditions", QJsonArray{"train_clear_W22T"}}
         },
         QJsonObject{
             {"signal_id", "ST003"},
-            {"overlap_circuits", QJsonArray{"5T", "6T"}},
+            {"overlap_circuits", QJsonArray{"W22T", "5T"}},
             {"overlap_distance", 150},
-            {"release_conditions", QJsonArray{"train_clear_3T"}}
+            {"release_conditions", QJsonArray{"train_clear_W21T"}}
         },
         QJsonObject{
             {"signal_id", "ST004"},
             {"overlap_circuits", QJsonArray{"W22T", "5T"}},
             {"overlap_distance", 150},
-            {"release_conditions", QJsonArray{"train_clear_4T"}}
+            {"release_conditions", QJsonArray{"train_clear_W21T"}}
         },
 
         // ADVANCED_STARTER signals - final overlap
         QJsonObject{
             {"signal_id", "AS001"},
-            {"overlap_circuits", QJsonArray{"A1T"}},
+            {"overlap_circuits", QJsonArray{"1T", "A1T"}},
             {"overlap_distance", 120},
-            {"release_conditions", QJsonArray{"train_clear_1T"}}
+            {"release_conditions", QJsonArray{"train_clear_W21T"}}
         },
         QJsonObject{
             {"signal_id", "AS002"},
-            {"overlap_circuits", QJsonArray{"A42T"}},
+            {"overlap_circuits", QJsonArray{"6T", "A42T"}},
             {"overlap_distance", 120},
-            {"release_conditions", QJsonArray{"train_clear_6T"}}
+            {"release_conditions", QJsonArray{"train_clear_W22T"}}
         },
 
         // OUTER signals - approach overlap
         QJsonObject{
             {"signal_id", "OT001"},
-            {"overlap_circuits", QJsonArray{"W22T"}},
+            {"overlap_circuits", QJsonArray{"6T", "5T"}},
             {"overlap_distance", 200},
-            {"release_conditions", QJsonArray{"train_clear_5T"}}
+            {"release_conditions", QJsonArray{"tain_clear_A42T"}}
         },
         QJsonObject{
             {"signal_id", "OT002"},
-            {"overlap_circuits", QJsonArray{"A1T"}},
+            {"overlap_circuits", QJsonArray{"1T", "2T"}},
             {"overlap_distance", 200},
-            {"release_conditions", QJsonArray{"train_clear_1T"}}
+            {"release_conditions", QJsonArray{"train_clear_A1T"}}
         }
     };
 

@@ -285,7 +285,7 @@ Item {
         id: mouseArea
         anchors.fill: parent
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton  // ✅ Accept both buttons
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         cursorShape: isOperational() ? Qt.PointingHandCursor : Qt.ForbiddenCursor
 
         onClicked: function(mouse) {
@@ -295,20 +295,16 @@ Item {
             }
 
             if (mouse.button === Qt.LeftButton) {
-                // ✅ Original left-click behavior
-                console.log("Outer signal clicked:", signalId, "Current aspect:", currentAspect, "Direction:", direction)
-                outerSignal.signalClicked(signalId, currentAspect)
-            } else if (mouse.button === Qt.RightButton) {
-                // ✅ NEW: Right-click context menu
-                console.log("Outer signal right-clicked:", signalId, "Showing context menu")
-                console.log("DEBUG possibleAspects:", possibleAspects)
-                console.log("DEBUG possibleAspects type:", typeof possibleAspects)
-                console.log("DEBUG possibleAspects length:", possibleAspects.length)
-                for (var i = 0; i < possibleAspects.length; i++) {
-                    console.log("DEBUG aspect", i, ":", possibleAspects[i])
-                }
+                // Left-click shows context menu
+                console.log("Outer signal left-clicked:", signalId, "Showing context menu")
                 outerSignal.contextMenuRequested(signalId, signalName, currentAspect, possibleAspects,
                                                mouse.x + outerSignal.x, mouse.y + outerSignal.y)
+            } else if (mouse.button === Qt.RightButton) {
+                // Right-click shows route assignment dialog
+                console.log("Outer signal right-clicked:", signalId, "Opening route assignment dialog")
+                if (routeAssignmentDialog) {
+                    routeAssignmentDialog.openForSignal(signalId, signalName)
+                }
             }
         }
 
