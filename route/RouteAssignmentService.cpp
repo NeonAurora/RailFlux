@@ -19,8 +19,8 @@ namespace RailFlux::Route {
 RouteAssignmentService::RouteAssignmentService(QObject* parent)
     : QObject(parent)
     , m_processingTimer(new QTimer(this))
-    , m_maintenanceTimer(new QTimer(this))
     , m_serviceStartTime(QDateTime::currentDateTime().toSecsSinceEpoch())
+    , m_maintenanceTimer(new QTimer(this))
 {
     // Setup processing timer
     m_processingTimer->setInterval(m_queueProcessingIntervalMs);
@@ -483,6 +483,8 @@ ProcessingResult RouteAssignmentService::performPathfinding(const RouteRequest& 
 ProcessingResult RouteAssignmentService::calculateOverlap(const RouteRequest& request, const QStringList& path) {
     ProcessingResult result;
 
+    Q_UNUSED(path)
+
     if (!m_overlapService) {
         result.error = "OverlapService not available";
         return result;
@@ -861,8 +863,18 @@ QString RouteAssignmentService::generateRequestId() const {
 }
 
 QString RouteAssignmentService::routeStateToString(RouteState state) const {
-    // Implementation would mirror VitalRouteController
-    return "UNKNOWN"; // Placeholder
+    // Basic implementation - adjust based on actual RouteState enum values
+    switch (state) {
+    case RouteState::REQUESTED: return "REQUESTED";
+    case RouteState::VALIDATING: return "VALIDATING";
+    case RouteState::RESERVED: return "RESERVED";
+    case RouteState::ACTIVE: return "ACTIVE";
+    case RouteState::PARTIALLY_RELEASED: return "PARTIALLY_RELEASED";
+    case RouteState::RELEASED: return "RELEASED";
+    case RouteState::FAILED: return "FAILED";
+    case RouteState::EMERGENCY_RELEASED: return "EMERGENCY_RELEASED";
+    default: return "UNKNOWN";
+    }
 }
 
 // Database integration stubs
@@ -1011,7 +1023,7 @@ QVariantMap RouteAssignmentService::getSystemStatus() const {
 }
 
 bool RouteAssignmentService::setMaxConcurrentRoutes(int maxRoutes) {
-    if (maxRoutes < 1 || maxRoutes > 50) {
+    if ((maxRoutes < 1) || (maxRoutes > 50)) {
         return false;
     }
     m_maxConcurrentRoutes = maxRoutes;
@@ -1020,7 +1032,7 @@ bool RouteAssignmentService::setMaxConcurrentRoutes(int maxRoutes) {
 }
 
 bool RouteAssignmentService::setProcessingTimeout(int timeoutMs) {
-    if (timeoutMs < 1000 || timeoutMs > 300000) { // 1s to 5min
+    if ((timeoutMs < 1000) || (timeoutMs > 300000)) { // 1s to 5min
         return false;
     }
     m_processingTimeoutMs = timeoutMs;
