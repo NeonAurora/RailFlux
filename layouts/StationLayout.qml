@@ -1009,25 +1009,21 @@ Rectangle {
                 radius: 4
                 border.color: "#4a5568"
                 border.width: 1
-
                 Column {
                     anchors.fill: parent
                     anchors.margins: 8
                     spacing: 4
-
                     Text {
                         text: "Database Controls"
                         color: "#ffffff"
                         font.pixelSize: 11
                         font.weight: Font.Bold
                     }
-
                     Rectangle {
                         width: parent.width - 10
                         height: 18
                         color: testConnectionMouse.pressed ? "#2c5aa0" : "#3182ce"
                         radius: 3
-
                         Text {
                             anchors.centerIn: parent
                             text: "Test Connection"
@@ -1035,7 +1031,6 @@ Rectangle {
                             font.pixelSize: 8
                             font.weight: Font.Bold
                         }
-
                         MouseArea {
                             id: testConnectionMouse
                             anchors.fill: parent
@@ -1047,13 +1042,35 @@ Rectangle {
                             }
                         }
                     }
-
+                    // ✅ NEW: Debug Connection Test Button
+                    Rectangle {
+                        width: parent.width - 10
+                        height: 18
+                        color: debugConnectionMouse.pressed ? "#805ad5" : "#9f7aea"
+                        radius: 3
+                        Text {
+                            anchors.centerIn: parent
+                            text: "🔍 Debug Connection"
+                            color: "#ffffff"
+                            font.pixelSize: 8
+                            font.weight: Font.Bold
+                        }
+                        MouseArea {
+                            id: debugConnectionMouse
+                            anchors.fill: parent
+                            onClicked: {
+                                console.log("Running debug connection test...")
+                                if (globalDatabaseInitializer) {
+                                    globalDatabaseInitializer.debugConnectionTest()
+                                }
+                            }
+                        }
+                    }
                     Rectangle {
                         width: parent.width - 10
                         height: 20
                         color: resetButtonMouse.pressed ? "#c53030" : "#e53e3e"
                         radius: 3
-
                         Text {
                             anchors.centerIn: parent
                             text: "⚠️ Reset Database"
@@ -1061,7 +1078,6 @@ Rectangle {
                             font.pixelSize: 8
                             font.weight: Font.Bold
                         }
-
                         MouseArea {
                             id: resetButtonMouse
                             anchors.fill: parent

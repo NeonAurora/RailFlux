@@ -71,22 +71,16 @@ CREATE TABLE railway_config.point_positions (
 -- ============================================================================
 
 -- Track circuits with route assignment enhancements
+-- Simplified track_circuits table
 CREATE TABLE railway_control.track_circuits (
     id SERIAL PRIMARY KEY,
     circuit_id VARCHAR(20) NOT NULL UNIQUE, -- e.g., "W22T", "A42", "6T"
     circuit_name VARCHAR(100),
-    location_row NUMERIC(10,2),
-    location_col NUMERIC(10,2),
     is_occupied BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     occupied_by VARCHAR(50),
     last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    -- Route assignment extensions
-    circuit_type TEXT DEFAULT 'MAIN' CHECK (circuit_type IN ('MAIN', 'SIDING', 'JUNCTION', 'PLATFORM')),
-    max_occupancy INTEGER DEFAULT 1,
-    is_critical_path BOOLEAN DEFAULT FALSE,
-    pathfinding_weight NUMERIC DEFAULT 1.0,
-    overlap_eligible BOOLEAN DEFAULT TRUE,
+    -- Route assignment extensions (keep only what you need)
     protecting_signals TEXT[],
     length_meters NUMERIC(10,2),
     max_speed_kmh INTEGER,
@@ -418,7 +412,6 @@ CREATE SEQUENCE railway_audit.event_sequence;
 -- Track circuits indexes
 CREATE INDEX idx_track_circuits_id ON railway_control.track_circuits(circuit_id);
 CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE;
-CREATE INDEX idx_track_circuits_location ON railway_control.track_circuits USING btree(location_row, location_col);
 CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE;
 
 -- Track segments indexes
@@ -1005,7 +998,7 @@ BEGIN
         OR
         (
             tce.condition_point_machine_id IS NOT NULL
-            AND point_machine_states ? tce.condition_point_machine_id
+            AND jsonb_exists(point_machine_states, tce.condition_point_machine_id)
             AND (point_machine_states ->> tce.condition_point_machine_id) = tce.condition_position
         )
     );
@@ -1366,29 +1359,25 @@ SELECT
     ts.created_at,
     ts.updated_at,
 
-    -- Circuit occupancy (existing)
+    -- Circuit occupancy information
     COALESCE(tc.is_occupied, false) as is_occupied,
     tc.occupied_by,
     tc.last_changed_at as occupancy_changed_at,
 
-    -- Enhanced circuit information (NEW)
+    -- Simplified circuit information (matching new schema)
     tc.circuit_name,
-    tc.location_row as circuit_location_row,
-    tc.location_col as circuit_location_col,
-    tc.circuit_type,
-    tc.max_occupancy,
-    tc.is_critical_path,
-    tc.pathfinding_weight,
-    tc.overlap_eligible,
+    tc.length_meters as circuit_length_meters,
+    tc.max_speed_kmh as circuit_max_speed_kmh,
+    tc.protecting_signals as circuit_protecting_signals,
 
-    -- Route assignment status (NEW)
+    -- Route assignment status
     rl.is_active as is_route_locked,
     rl.lock_type as route_lock_type,
     rl.acquired_at as route_locked_at,
     rl.acquired_by as route_locked_by,
     rl.expires_at as route_lock_expires_at,
 
-    -- Route context (NEW)
+    -- Route context
     ra.id as route_id,
     ra.source_signal_id as route_source_signal,
     ra.dest_signal_id as route_dest_signal,
@@ -1397,7 +1386,7 @@ SELECT
     ra.priority as route_priority,
     ra.created_at as route_created_at,
 
-    -- Availability status (NEW)
+    -- Simplified availability status
     CASE
         WHEN NOT ts.is_active THEN 'INACTIVE'
         WHEN tc.is_occupied = true THEN 'OCCUPIED'
@@ -1407,15 +1396,7 @@ SELECT
         ELSE 'AVAILABLE'
     END as availability_status,
 
-    -- Performance indicators (NEW)
-    CASE
-        WHEN tc.is_critical_path = true AND tc.is_occupied = true THEN 'CRITICAL_OCCUPIED'
-        WHEN tc.is_critical_path = true THEN 'CRITICAL_AVAILABLE'
-        WHEN tc.pathfinding_weight > 2.0 THEN 'HIGH_WEIGHT'
-        ELSE 'NORMAL'
-    END as operational_priority,
-
-    -- Route assignment eligibility (NEW)
+    -- Route assignment eligibility
     CASE
         WHEN tc.circuit_id = 'INVALID' OR tc.circuit_id IS NULL THEN false
         WHEN NOT ts.is_active OR NOT tc.is_active THEN false
@@ -1445,19 +1426,9 @@ SELECT
     COUNT(DISTINCT ts.segment_id) FILTER (WHERE ts.is_assigned = true) as assigned_count,
     COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true OR ts.is_assigned = true) as unavailable_count,
 
-    -- Route assignment metrics (NEW)
+    -- Route assignment metrics
     COUNT(DISTINCT ts.segment_id) FILTER (WHERE rl.is_active = true) as route_locked_count,
     COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true) as total_unavailable_count,
-
-    -- Circuit type breakdown (NEW)
-    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'MAIN') as main_line_segments,
-    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'JUNCTION') as junction_segments,
-    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'PLATFORM') as platform_segments,
-    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'SIDING') as siding_segments,
-
-    -- Critical path utilization (NEW)
-    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true) as critical_path_segments,
-    COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true AND tc.is_occupied = true) as critical_path_occupied,
 
     -- Utilization percentages
     ROUND(
@@ -1466,15 +1437,12 @@ SELECT
         2
     ) as total_utilization_percentage,
 
-    ROUND(
-        (COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true AND tc.is_occupied = true)::NUMERIC /
-         NULLIF(COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true), 0)) * 100,
-        2
-    ) as critical_path_utilization_percentage,
+    -- Active routes count
+    COUNT(DISTINCT ra.id) as active_routes_count,
 
-    -- Performance metrics (NEW)
-    AVG(tc.pathfinding_weight) as avg_pathfinding_weight,
-    COUNT(DISTINCT ra.id) as active_routes_count
+    -- Speed and length metrics (from circuit data)
+    AVG(tc.length_meters) as avg_circuit_length_meters,
+    AVG(tc.max_speed_kmh) as avg_circuit_max_speed_kmh
 
 FROM railway_control.track_segments ts
 LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id

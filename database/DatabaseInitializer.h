@@ -35,6 +35,7 @@ public:
     Q_INVOKABLE bool isDatabaseConnected();
     Q_INVOKABLE QVariantMap getDatabaseStatus();
     Q_INVOKABLE void testConnection();
+    Q_INVOKABLE void debugConnectionTest();
 
     // Async operations (for backward compatibility)
     Q_INVOKABLE void resetDatabaseAsync();

@@ -23,89 +23,132 @@ bool DatabaseInitializer::initializeDatabase() {
 
     m_isRunning = true;
     m_progress = 0;
+    m_lastError.clear(); // ? Clear any previous errors
     emit isRunningChanged();
 
-    qDebug() << "🚀 DatabaseInitializer: Starting unified database initialization...";
+    qDebug() << "?? DatabaseInitializer: Starting unified database initialization...";
 
     try {
         updateProgress(5, "Connecting to database");
+        qDebug() << "?? Step 1: Connecting to database...";
         if (!connectToDatabase()) {
-            setError("Failed to connect to database");
+            qDebug() << "? Step 1 FAILED: Database connection failed";
+            qDebug() << "? Error details:" << m_lastError;
             m_isRunning = false;
             emit isRunningChanged();
             return false;
         }
+        qDebug() << "? Step 1 SUCCESS: Database connected";
 
         updateProgress(15, "Dropping and creating schemas");
+        qDebug() << "?? Step 2: Dropping and creating schemas...";
         if (!dropAndCreateSchemas()) {
-            setError("Failed to create schemas");
+            qDebug() << "? Step 2 FAILED: Schema creation failed";
+            qDebug() << "? Error details:" << m_lastError;
+            if (m_lastError.isEmpty()) {
+                setError("Schema creation failed (no specific error captured)");
+            }
             m_isRunning = false;
             emit isRunningChanged();
             return false;
         }
+        qDebug() << "? Step 2 SUCCESS: Schemas created";
 
         updateProgress(25, "Creating unified table structure");
+        qDebug() << "?? Step 3: Creating unified tables...";
         if (!createUnifiedTables()) {
-            setError("Failed to create unified tables");
+            qDebug() << "? Step 3 FAILED: Table creation failed";
+            qDebug() << "? Error details:" << m_lastError;
+            if (m_lastError.isEmpty()) {
+                setError("Table creation failed (no specific error captured)");
+            }
             m_isRunning = false;
             emit isRunningChanged();
             return false;
         }
+        qDebug() << "? Step 3 SUCCESS: Tables created";
 
         updateProgress(40, "Creating indexes and constraints");
+        qDebug() << "?? Step 4: Creating indexes...";
         if (!createIndexes()) {
-            setError("Failed to create indexes");
+            qDebug() << "? Step 4 FAILED: Index creation failed";
+            qDebug() << "? Error details:" << m_lastError;
+            if (m_lastError.isEmpty()) {
+                setError("Index creation failed (no specific error captured)");
+            }
             m_isRunning = false;
             emit isRunningChanged();
             return false;
         }
+        qDebug() << "? Step 4 SUCCESS: Indexes created";
 
         updateProgress(50, "Creating functions and triggers");
+        qDebug() << "?? Step 5: Creating functions...";
         if (!createFunctions()) {
-            qWarning() << "Some functions failed to create - continuing";
+            qWarning() << "?? Step 5 WARNING: Some functions failed to create - continuing";
+        } else {
+            qDebug() << "? Step 5 SUCCESS: Functions created";
         }
+
+        qDebug() << "?? Step 6: Creating triggers...";
         if (!createTriggers()) {
-            qWarning() << "Some triggers failed to create - continuing";
+            qWarning() << "?? Step 6 WARNING: Some triggers failed to create - continuing";
+        } else {
+            qDebug() << "? Step 6 SUCCESS: Triggers created";
         }
 
         updateProgress(60, "Creating views");
+        qDebug() << "?? Step 7: Creating views...";
         if (!createViews()) {
-            qWarning() << "Some views failed to create - continuing";
+            qWarning() << "?? Step 7 WARNING: Some views failed to create - continuing";
+        } else {
+            qDebug() << "? Step 7 SUCCESS: Views created";
         }
 
         updateProgress(70, "Setting up database security");
+        qDebug() << "?? Step 8: Creating roles and permissions...";
         if (!createRolesAndPermissions()) {
-            qWarning() << "Some roles/permissions failed to create - continuing";
+            qWarning() << "?? Step 8 WARNING: Some roles/permissions failed to create - continuing";
+        } else {
+            qDebug() << "? Step 8 SUCCESS: Roles and permissions created";
         }
 
         updateProgress(80, "Populating initial data");
+        qDebug() << "?? Step 9: Populating initial data...";
         if (!populateInitialData()) {
-            setError("Failed to populate initial data");
+            qDebug() << "? Step 9 FAILED: Data population failed";
+            qDebug() << "? Error details:" << m_lastError;
+            if (m_lastError.isEmpty()) {
+                setError("Initial data population failed (no specific error captured)");
+            }
             m_isRunning = false;
             emit isRunningChanged();
             return false;
         }
+        qDebug() << "? Step 9 SUCCESS: Initial data populated";
 
         updateProgress(90, "Validating database");
+        qDebug() << "?? Step 10: Validating database...";
         if (!validateDatabase()) {
-            setError("Database validation failed");
+            qDebug() << "? Step 10 FAILED: Database validation failed";
+            qDebug() << "? Error details:" << m_lastError;
+            if (m_lastError.isEmpty()) {
+                setError("Database validation failed (no specific error captured)");
+            }
             m_isRunning = false;
             emit isRunningChanged();
             return false;
         }
+        qDebug() << "? Step 10 SUCCESS: Database validated";
 
         updateProgress(100, "Database initialization completed");
-        qDebug() << "✅ DatabaseInitializer: Unified database schema created successfully";
+        qDebug() << "? DatabaseInitializer: Unified database schema created successfully";
         m_isRunning = false;
         emit isRunningChanged();
         return true;
 
     } catch (const std::exception& e) {
-        setError(QString("Exception during initialization: %1").arg(e.what()));
-        m_isRunning = false;
-        emit isRunningChanged();
-        return false;
-    } catch (const std::exception& e) {
+        qDebug() << "? EXCEPTION during initialization:" << e.what();
         setError(QString("Exception during initialization: %1").arg(e.what()));
         m_isRunning = false;
         emit isRunningChanged();
@@ -118,13 +161,14 @@ bool DatabaseInitializer::connectToDatabase() {
         db.close();
     }
 
-    // Try system PostgreSQL first
+    // ✅ Clear any previous connection errors
+    m_lastError.clear();
+
+    // Try system PostgreSQL first (we know this works from your test)
     if (connectToSystemPostgreSQL()) {
         qDebug() << "✅ DatabaseInitializer: Connected to system PostgreSQL";
         return true;
     }
-
-    qDebug() << "🔄 DatabaseInitializer: System PostgreSQL unavailable, trying portable mode...";
 
     // Fall back to portable PostgreSQL
     if (connectToPortablePostgreSQL()) {
@@ -132,8 +176,36 @@ bool DatabaseInitializer::connectToDatabase() {
         return true;
     }
 
-    setError("Failed to connect to any PostgreSQL instance");
+    // ✅ Only set generic error if no specific error was captured
+    if (m_lastError.isEmpty()) {
+        setError("Failed to connect to any PostgreSQL instance");
+    }
     return false;
+}
+
+
+// Add this to DatabaseInitializer.cpp:
+void DatabaseInitializer::debugConnectionTest() {
+    qDebug() << "🔍 Testing PostgreSQL connections separately...";
+
+    // Test system PostgreSQL
+    qDebug() << "Testing system PostgreSQL (port 5432)...";
+    if (connectToSystemPostgreSQL()) {
+        qDebug() << "✅ System PostgreSQL: SUCCESS";
+        db.close();
+    } else {
+        qDebug() << "❌ System PostgreSQL: FAILED -" << m_lastError;
+    }
+
+    // Clear error and test portable
+    m_lastError.clear();
+    qDebug() << "Testing portable PostgreSQL (port 5433)...";
+    if (connectToPortablePostgreSQL()) {
+        qDebug() << "✅ Portable PostgreSQL: SUCCESS";
+        db.close();
+    } else {
+        qDebug() << "❌ Portable PostgreSQL: FAILED -" << m_lastError;
+    }
 }
 
 bool DatabaseInitializer::connectToSystemPostgreSQL() {
@@ -153,8 +225,15 @@ bool DatabaseInitializer::connectToSystemPostgreSQL() {
             qDebug() << "✅ DatabaseInitializer: Connected to system PostgreSQL";
             return true;
         }
+
+        // ✅ FIX: Capture actual database error
+        QString error = db.lastError().text();
+        qDebug() << "❌ DatabaseInitializer: System PostgreSQL connection failed:" << error;
+        setError(QString("System PostgreSQL connection failed: %1").arg(error));
+
     } catch (...) {
-        qDebug() << "❌ DatabaseInitializer: System PostgreSQL connection failed";
+        qDebug() << "❌ DatabaseInitializer: System PostgreSQL connection failed with exception";
+        setError("System PostgreSQL connection failed with exception");
     }
 
     if (db.isOpen()) {
@@ -171,17 +250,24 @@ bool DatabaseInitializer::connectToPortablePostgreSQL() {
 
         db = QSqlDatabase::addDatabase("QPSQL", "initializer_portable_connection");
         db.setHostName("localhost");
-        db.setPort(5433);
+        db.setPort(5433); // Usually different port for portable
         db.setDatabaseName("railway_control_system");
         db.setUserName("postgres");
         db.setPassword("qwerty");
 
         if (db.open()) {
-            qDebug() << "✅ DatabaseInitializer: Connected to portable PostgreSQL on port 5433";
+            qDebug() << "✅ DatabaseInitializer: Connected to portable PostgreSQL";
             return true;
         }
+
+        // ✅ FIX: Capture actual database error
+        QString error = db.lastError().text();
+        qDebug() << "❌ DatabaseInitializer: Portable PostgreSQL connection failed:" << error;
+        setError(QString("Portable PostgreSQL connection failed: %1").arg(error));
+
     } catch (...) {
-        qDebug() << "❌ DatabaseInitializer: Portable PostgreSQL connection failed";
+        qDebug() << "❌ DatabaseInitializer: Portable PostgreSQL connection failed with exception";
+        setError("Portable PostgreSQL connection failed with exception");
     }
 
     if (db.isOpen()) {
@@ -303,18 +389,11 @@ bool DatabaseInitializer::createControlTables() {
             id SERIAL PRIMARY KEY,
             circuit_id VARCHAR(20) NOT NULL UNIQUE, -- e.g., "W22T", "A42", "6T"
             circuit_name VARCHAR(100),
-            location_row NUMERIC(10,2),
-            location_col NUMERIC(10,2),
             is_occupied BOOLEAN DEFAULT FALSE,
             is_active BOOLEAN DEFAULT TRUE,
             occupied_by VARCHAR(50),
             last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            -- Route assignment extensions
-            circuit_type TEXT DEFAULT 'MAIN' CHECK (circuit_type IN ('MAIN', 'SIDING', 'JUNCTION', 'PLATFORM')),
-            max_occupancy INTEGER DEFAULT 1,
-            is_critical_path BOOLEAN DEFAULT FALSE,
-            pathfinding_weight NUMERIC DEFAULT 1.0,
-            overlap_eligible BOOLEAN DEFAULT TRUE,
+            -- Route assignment extensions (keep only what you need)
             protecting_signals TEXT[],
             length_meters NUMERIC(10,2),
             max_speed_kmh INTEGER,
@@ -672,7 +751,6 @@ bool DatabaseInitializer::createIndexes() {
         // Track circuits indexes
         "CREATE INDEX idx_track_circuits_id ON railway_control.track_circuits(circuit_id)",
         "CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE",
-        "CREATE INDEX idx_track_circuits_location ON railway_control.track_circuits USING btree(location_row, location_col)",
         "CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE",
 
         // Track segments indexes
@@ -1258,7 +1336,7 @@ bool DatabaseInitializer::createFunctions() {
             OR
             (
                 tce.condition_point_machine_id IS NOT NULL
-                AND point_machine_states ? tce.condition_point_machine_id
+                AND jsonb_exists(point_machine_states, tce.condition_point_machine_id)
                 AND (point_machine_states ->> tce.condition_point_machine_id) = tce.condition_position
             )
         );
@@ -1637,29 +1715,25 @@ bool DatabaseInitializer::createViews() {
         ts.created_at,
         ts.updated_at,
 
-        -- Circuit occupancy (existing)
+        -- Circuit occupancy information
         COALESCE(tc.is_occupied, false) as is_occupied,
         tc.occupied_by,
         tc.last_changed_at as occupancy_changed_at,
 
-        -- Enhanced circuit information (NEW)
+        -- Simplified circuit information (matching new schema)
         tc.circuit_name,
-        tc.location_row as circuit_location_row,
-        tc.location_col as circuit_location_col,
-        tc.circuit_type,
-        tc.max_occupancy,
-        tc.is_critical_path,
-        tc.pathfinding_weight,
-        tc.overlap_eligible,
+        tc.length_meters as circuit_length_meters,
+        tc.max_speed_kmh as circuit_max_speed_kmh,
+        tc.protecting_signals as circuit_protecting_signals,
 
-        -- Route assignment status (NEW)
+        -- Route assignment status
         rl.is_active as is_route_locked,
         rl.lock_type as route_lock_type,
         rl.acquired_at as route_locked_at,
         rl.acquired_by as route_locked_by,
         rl.expires_at as route_lock_expires_at,
 
-        -- Route context (NEW)
+        -- Route context
         ra.id as route_id,
         ra.source_signal_id as route_source_signal,
         ra.dest_signal_id as route_dest_signal,
@@ -1668,7 +1742,7 @@ bool DatabaseInitializer::createViews() {
         ra.priority as route_priority,
         ra.created_at as route_created_at,
 
-        -- Availability status (NEW)
+        -- Simplified availability status
         CASE
             WHEN NOT ts.is_active THEN 'INACTIVE'
             WHEN tc.is_occupied = true THEN 'OCCUPIED'
@@ -1678,15 +1752,7 @@ bool DatabaseInitializer::createViews() {
             ELSE 'AVAILABLE'
         END as availability_status,
 
-        -- Performance indicators (NEW)
-        CASE
-            WHEN tc.is_critical_path = true AND tc.is_occupied = true THEN 'CRITICAL_OCCUPIED'
-            WHEN tc.is_critical_path = true THEN 'CRITICAL_AVAILABLE'
-            WHEN tc.pathfinding_weight > 2.0 THEN 'HIGH_WEIGHT'
-            ELSE 'NORMAL'
-        END as operational_priority,
-
-        -- Route assignment eligibility (NEW)
+        -- Route assignment eligibility
         CASE
             WHEN tc.circuit_id = 'INVALID' OR tc.circuit_id IS NULL THEN false
             WHEN NOT ts.is_active OR NOT tc.is_active THEN false
@@ -1715,19 +1781,9 @@ bool DatabaseInitializer::createViews() {
         COUNT(DISTINCT ts.segment_id) FILTER (WHERE ts.is_assigned = true) as assigned_count,
         COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true OR ts.is_assigned = true) as unavailable_count,
 
-        -- Route assignment metrics (NEW)
+        -- Route assignment metrics
         COUNT(DISTINCT ts.segment_id) FILTER (WHERE rl.is_active = true) as route_locked_count,
         COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true) as total_unavailable_count,
-
-        -- Circuit type breakdown (NEW)
-        COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'MAIN') as main_line_segments,
-        COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'JUNCTION') as junction_segments,
-        COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'PLATFORM') as platform_segments,
-        COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.circuit_type = 'SIDING') as siding_segments,
-
-        -- Critical path utilization (NEW)
-        COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true) as critical_path_segments,
-        COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true AND tc.is_occupied = true) as critical_path_occupied,
 
         -- Utilization percentages
         ROUND(
@@ -1736,15 +1792,12 @@ bool DatabaseInitializer::createViews() {
             2
         ) as total_utilization_percentage,
 
-        ROUND(
-            (COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true AND tc.is_occupied = true)::NUMERIC /
-             NULLIF(COUNT(DISTINCT ts.segment_id) FILTER (WHERE tc.is_critical_path = true), 0)) * 100,
-            2
-        ) as critical_path_utilization_percentage,
+        -- Active routes count
+        COUNT(DISTINCT ra.id) as active_routes_count,
 
-        -- Performance metrics (NEW)
-        AVG(tc.pathfinding_weight) as avg_pathfinding_weight,
-        COUNT(DISTINCT ra.id) as active_routes_count
+        -- Speed and length metrics (from circuit data)
+        AVG(tc.length_meters) as avg_circuit_length_meters,
+        AVG(tc.max_speed_kmh) as avg_circuit_max_speed_kmh
 
     FROM railway_control.track_segments ts
     LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
@@ -2432,16 +2485,15 @@ QVariantMap DatabaseInitializer::getDatabaseStatus() {
 // ============================================================================
 
 bool DatabaseInitializer::populateTrackCircuits() {
-    qDebug() << "🔄 Populating track circuits with enhanced route assignment integration...";
+    qDebug() << "🔄 Populating track circuits...";
 
     QJsonArray circuitData = getTrackCircuitMappings();
 
     QString insertQuery = R"(
         INSERT INTO railway_control.track_circuits
-        (circuit_id, circuit_name, location_row, location_col, is_occupied, is_active,
-         protecting_signals, circuit_type, max_occupancy, is_critical_path,
-         pathfinding_weight, overlap_eligible, length_meters, max_speed_kmh)
-        VALUES (?, ?, ?, ?, FALSE, TRUE, ?, ?, ?, ?, ?, TRUE, ?, ?)
+        (circuit_id, circuit_name, is_occupied, is_active,
+         protecting_signals, length_meters, max_speed_kmh)
+        VALUES (?, ?, FALSE, TRUE, ?, ?, ?)
         ON CONFLICT (circuit_id) DO NOTHING
     )";
 
@@ -2462,56 +2514,22 @@ bool DatabaseInitializer::populateTrackCircuits() {
             protectingSignalsStr = "{" + protectingSignalsList.join(",") + "}";
         }
 
-        // Enhanced circuit type determination
+        // Simplified parameters - no location, type, weights, etc.
         QString circuitId = circuit["circuit_id"].toString();
-        QString circuitType = "MAIN";
-        bool isCriticalPath = false;
-        double weight = 1.0;
-        int maxOccupancy = 1;
         double lengthMeters = 100.0; // Default length
         int maxSpeedKmh = 80; // Default speed
 
-        if (circuitId.startsWith("W")) {
-            circuitType = "JUNCTION";
-            weight = 1.5;
-            isCriticalPath = true;
-            lengthMeters = 50.0;
-        } else if (circuitId.contains("T") && (circuitId == "3T" || circuitId == "4T")) {
-            circuitType = "PLATFORM";
-            weight = 1.2;
-            maxSpeedKmh = 25;
-            lengthMeters = 150.0;
+        // Adjust only speed based on circuit type for safety
+        if (circuitId.contains("T") && (circuitId == "3T" || circuitId == "4T")) {
+            maxSpeedKmh = 25; // Platform areas
         } else if (circuitId.startsWith("A")) {
-            circuitType = "MAIN";
-            weight = 1.0;
-            lengthMeters = 200.0;
-            maxSpeedKmh = 100;
+            maxSpeedKmh = 100; // Approach blocks
         }
-
-        // Calculate approximate location based on circuit name
-        double locationRow = 110.0; // Default row
-        double locationCol = 100.0; // Default col
-        if (circuitId == "A42T") { locationRow = 110.0; locationCol = 25.0; }
-        else if (circuitId == "6T") { locationRow = 110.0; locationCol = 50.0; }
-        else if (circuitId == "5T") { locationRow = 110.0; locationCol = 80.0; }
-        else if (circuitId == "W22T") { locationRow = 110.0; locationCol = 125.0; }
-        else if (circuitId == "3T") { locationRow = 110.0; locationCol = 190.0; }
-        else if (circuitId == "4T") { locationRow = 88.0; locationCol = 190.0; }
-        else if (circuitId == "W21T") { locationRow = 110.0; locationCol = 255.0; }
-        else if (circuitId == "2T") { locationRow = 110.0; locationCol = 295.0; }
-        else if (circuitId == "1T") { locationRow = 110.0; locationCol = 320.0; }
-        else if (circuitId == "A1T") { locationRow = 110.0; locationCol = 350.0; }
 
         QVariantList params = {
             circuit["circuit_id"].toString(),
             circuit["circuit_name"].toString(),
-            locationRow,
-            locationCol,
             protectingSignalsStr,
-            circuitType,
-            maxOccupancy,
-            isCriticalPath,
-            weight,
             lengthMeters,
             maxSpeedKmh
         };
@@ -2521,7 +2539,7 @@ bool DatabaseInitializer::populateTrackCircuits() {
         }
     }
 
-    qDebug() << "✅ Populated" << circuitData.size() << "track circuits with enhanced route assignment properties";
+    qDebug() << "✅ Populated" << circuitData.size() << "track circuits";
     return true;
 }
 
@@ -3351,10 +3369,26 @@ void DatabaseInitializer::resetDatabaseAsync() {
 }
 
 void DatabaseInitializer::performReset() {
+    qDebug() << "🔄 DatabaseInitializer::performReset() - Starting reset process";
+    qDebug() << "🔄 Current m_isRunning state:" << m_isRunning;
+    qDebug() << "🔄 Current m_lastError:" << m_lastError;
+
+    // ✅ FIX: Reset the running flag before calling initializeDatabase
+    m_isRunning = false;
+    emit isRunningChanged();
+
     bool success = initializeDatabase();
+
+    qDebug() << "🔄 DatabaseInitializer::performReset() - initializeDatabase() returned:" << success;
+    qDebug() << "🔄 Current m_lastError after initializeDatabase():" << m_lastError;
+
     QString resultMessage = success ?
                                 "Database has been reset and populated with unified schema" :
                                 QString("Database reset failed: %1").arg(m_lastError);
+
+    qDebug() << "DatabaseInitializer::performReset() - Success:" << success;
+    qDebug() << "DatabaseInitializer::performReset() - Error message:" << m_lastError;
+    qDebug() << "DatabaseInitializer::performReset() - Result message:" << resultMessage;
 
     emit resetCompleted(success, resultMessage);
 }
