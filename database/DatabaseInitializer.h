@@ -111,7 +111,7 @@ private:
     bool createViews();
 
     // Role-based security
-    bool setupRolePermissions();
+    bool createRolesAndPermissions();
 
     // ============================================================================
     // DATA POPULATION METHODS
@@ -122,6 +122,7 @@ private:
 
     // Configuration data
     bool populateConfigurationData();
+    bool populateRouteConfiguration();
 
     // Track infrastructure with route assignment integration
     bool populateTrackCircuits();
@@ -167,10 +168,13 @@ private:
     // ============================================================================
 
     // Configuration data insertion
-    int insertSignalType(const QString& typeCode, const QString& typeName, int maxAspects = 2);
+    int insertSignalType(const QString& typeCode, const QString& typeName,
+                         int maxAspects, bool isRouteSignal, int routePriority);
     int insertSignalAspect(const QString& aspectCode, const QString& aspectName,
-                           const QString& colorCode, int safetyLevel);
-    int insertPointPosition(const QString& positionCode, const QString& positionName);
+                           const QString& colorCode, int safetyLevel,
+                           bool permitsRouteEstablishment, bool requiresOverlap);
+    int insertPointPosition(const QString& positionCode, const QString& positionName,
+                            double pathfindingWeight, int transitionTimeMs);
 
     // Utility helpers
     int getAspectIdByCode(const QString& aspectCode);
