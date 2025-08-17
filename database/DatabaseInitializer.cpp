@@ -1485,7 +1485,6 @@ bool DatabaseInitializer::createFunctions() {
             payload := payload || json_build_object(
                 'circuit_id', COALESCE(NEW.circuit_id, OLD.circuit_id),
                 'is_occupied', COALESCE(NEW.is_occupied, false),
-                'circuit_type', COALESCE(NEW.circuit_type, OLD.circuit_type)
             );
         ELSIF TG_TABLE_NAME = 'signals' THEN
             payload := payload || json_build_object(
