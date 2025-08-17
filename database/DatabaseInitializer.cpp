@@ -2863,12 +2863,12 @@ bool DatabaseInitializer::populateSignalAdjacencyAnchors() {
     // Signal pathfinding anchors mapping based on station layout
     QJsonArray anchorMappings = QJsonArray {
         // OUTER signals
-        QJsonObject{{"signal_id", "OT001"}, {"preceded_by", "6T"}, {"succeeded_by", "5T"}},
-        QJsonObject{{"signal_id", "OT002"}, {"preceded_by", "2T"}, {"succeeded_by", "1T"}},
+        QJsonObject{{"signal_id", "OT001"}, {"preceded_by", "A42T"}, {"succeeded_by", "6T"}},
+        QJsonObject{{"signal_id", "OT002"}, {"preceded_by", "A1T"}, {"succeeded_by", "1T"}},
 
         // HOME signals
         QJsonObject{{"signal_id", "HM001"}, {"preceded_by", "5T"}, {"succeeded_by", "W22T"}},
-        QJsonObject{{"signal_id", "HM002"}, {"preceded_by", "3T"}, {"succeeded_by", "W21T"}},
+        QJsonObject{{"signal_id", "HM002"}, {"preceded_by", "2T"}, {"succeeded_by", "W21T"}},
 
         // STARTER signals
         QJsonObject{{"signal_id", "ST001"}, {"preceded_by", "3T"}, {"succeeded_by", "W21T"}},
@@ -2877,8 +2877,8 @@ bool DatabaseInitializer::populateSignalAdjacencyAnchors() {
         QJsonObject{{"signal_id", "ST004"}, {"preceded_by", "4T"}, {"succeeded_by", "W22T"}},
 
         // ADVANCED_STARTER signals
-        QJsonObject{{"signal_id", "AS001"}, {"preceded_by", "1T"}, {"succeeded_by", "A1T"}},
-        QJsonObject{{"signal_id", "AS002"}, {"preceded_by", "6T"}, {"succeeded_by", "A42T"}}
+        QJsonObject{{"signal_id", "AS001"}, {"preceded_by", "2T"}, {"succeeded_by", "1T"}},
+        QJsonObject{{"signal_id", "AS002"}, {"preceded_by", "5T"}, {"succeeded_by", "6T"}}
     };
 
     for (const QJsonValue& value : anchorMappings) {
@@ -2912,8 +2912,8 @@ bool DatabaseInitializer::populateTrackCircuitEdges() {
         QJsonObject{{"from", "A42T"}, {"to", "6T"}, {"side", "RIGHT"}, {"weight", 1.0}},
         QJsonObject{{"from", "6T"}, {"to", "5T"}, {"side", "RIGHT"}, {"weight", 1.0}},
         QJsonObject{{"from", "5T"}, {"to", "W22T"}, {"side", "RIGHT"}, {"weight", 1.0}},
-        QJsonObject{{"from", "W22T"}, {"to", "3T"}, {"side", "RIGHT"}, {"weight", 1.0}},
-        QJsonObject{{"from", "3T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "W22T"}, {"to", "3T"}, {"side", "RIGHT"}, {"pm", "PM001"}, {"position", "NORMAL"}, {"weight", 1.0}},
+        QJsonObject{{"from", "3T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"pm", "PM003"}, {"position", "NORMAL"}, {"weight", 1.0}},
         QJsonObject{{"from", "W21T"}, {"to", "2T"}, {"side", "RIGHT"}, {"weight", 1.0}},
         QJsonObject{{"from", "2T"}, {"to", "1T"}, {"side", "RIGHT"}, {"weight", 1.0}},
         QJsonObject{{"from", "1T"}, {"to", "A1T"}, {"side", "RIGHT"}, {"weight", 1.0}},
@@ -2922,21 +2922,17 @@ bool DatabaseInitializer::populateTrackCircuitEdges() {
         QJsonObject{{"from", "A1T"}, {"to", "1T"}, {"side", "LEFT"}, {"weight", 1.0}},
         QJsonObject{{"from", "1T"}, {"to", "2T"}, {"side", "LEFT"}, {"weight", 1.0}},
         QJsonObject{{"from", "2T"}, {"to", "W21T"}, {"side", "LEFT"}, {"weight", 1.0}},
-        QJsonObject{{"from", "W21T"}, {"to", "3T"}, {"side", "LEFT"}, {"weight", 1.0}},
-        QJsonObject{{"from", "3T"}, {"to", "W22T"}, {"side", "LEFT"}, {"weight", 1.0}},
+        QJsonObject{{"from", "W21T"}, {"to", "3T"}, {"side", "LEFT"}, {"pm", "PM003"}, {"position", "NORMAL"}, {"weight", 1.0}},
+        QJsonObject{{"from", "3T"}, {"to", "W22T"}, {"side", "LEFT"}, {"pm", "PM001"}, {"position", "NORMAL"}, {"weight", 1.0}},
         QJsonObject{{"from", "W22T"}, {"to", "5T"}, {"side", "LEFT"}, {"weight", 1.0}},
         QJsonObject{{"from", "5T"}, {"to", "6T"}, {"side", "LEFT"}, {"weight", 1.0}},
         QJsonObject{{"from", "6T"}, {"to", "A42T"}, {"side", "LEFT"}, {"weight", 1.0}},
 
         // Platform loop connections via junctions (conditional on point machine positions)
-        QJsonObject{{"from", "W22T"}, {"to", "4T"}, {"side", "RIGHT"}, {"pm", "PM001"}, {"position", "REVERSE"}, {"weight", 1.2}},
-        QJsonObject{{"from", "4T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"weight", 1.0}},
-        QJsonObject{{"from", "W21T"}, {"to", "4T"}, {"side", "LEFT"}, {"weight", 1.0}},
-        QJsonObject{{"from", "4T"}, {"to", "W22T"}, {"side", "LEFT"}, {"pm", "PM001"}, {"position", "REVERSE"}, {"weight", 1.2}},
-
-        // Direct connections when point machines are NORMAL (bypass platform)
-        QJsonObject{{"from", "W22T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"pm", "PM001"}, {"position", "NORMAL"}, {"weight", 2.0}},
-        QJsonObject{{"from", "W21T"}, {"to", "W22T"}, {"side", "LEFT"}, {"pm", "PM001"}, {"position", "NORMAL"}, {"weight", 2.0}}
+        QJsonObject{{"from", "W22T"}, {"to", "4T"}, {"side", "RIGHT"}, {"pm", "PM001"}, {"position", "REVERSE"}, {"weight", 1.0}},
+        QJsonObject{{"from", "4T"}, {"to", "W21T"}, {"side", "RIGHT"}, {"pm", "PM003"}, {"position", "REVERSE"}, {"weight", 1.0}},
+        QJsonObject{{"from", "W21T"}, {"to", "4T"}, {"side", "LEFT"}, {"pm", "PM003"}, {"position", "REVERSE"}, {"weight", 1.0}},
+        QJsonObject{{"from", "4T"}, {"to", "W22T"}, {"side", "LEFT"}, {"pm", "PM001"}, {"position", "REVERSE"}, {"weight", 1.0}},
     };
 
     for (const QJsonValue& value : edgeDefinitions) {

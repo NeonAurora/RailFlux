@@ -11,7 +11,9 @@
 #include <QQueue>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QSqlQuery>
 #include <memory>
+#include <optional>
 
 // Forward declarations
 class DatabaseManager;
@@ -27,6 +29,7 @@ class VitalRouteController;
 
 // Forward declaration - RouteState defined in VitalRouteController.h
 enum class RouteState;
+enum class Direction;
 
 struct RouteRequest {
     QUuid requestId;
@@ -66,6 +69,31 @@ public:
     explicit RouteAssignmentService(QObject* parent = nullptr);
     ~RouteAssignmentService();
 
+    // === SCAN RESULT STRUCTURES ===
+    struct DestinationCandidate {
+        QString destSignalId;
+        QString displayName;
+        QString direction;
+        QString reachability; // REACHABLE_CLEAR, REACHABLE_REQUIRES_PM, BLOCKED
+        QString blockedReason; // OCCUPIED, RESERVED, LOCKED_PM, etc.
+
+        struct PathSummary {
+            int hopCount = 0;
+            QStringList circuitsPreview; // First few + last circuit
+            double estimatedWeight = 0.0;
+        } pathSummary;
+
+        struct RequiredPMAction {
+            QString machineId;
+            QString currentPosition;
+            QString targetPosition;
+        };
+        QList<RequiredPMAction> requiredPMActions;
+
+        QStringList conflicts;
+        QVariantMap telemetry;
+    };
+
     // Service composition - must be called after construction
     void setServices(
         DatabaseManager* dbManager,
@@ -74,7 +102,7 @@ public:
         OverlapService* overlapService,
         TelemetryService* telemetryService,
         VitalRouteController* vitalController
-    );
+        );
 
     // Properties
     bool isOperational() const { return m_isOperational; }
@@ -82,6 +110,13 @@ public:
     int pendingRequests() const { return m_requestQueue.size(); }
     double averageProcessingTimeMs() const { return m_averageProcessingTime; }
     bool emergencyMode() const { return m_emergencyMode; }
+
+    // === ROUTE SCANNING API ===
+    Q_INVOKABLE QVariantMap scanDestinationSignals(
+        const QString& sourceSignalId,
+        const QString& direction = "AUTO", // AUTO, UP, DOWN
+        bool includeBlocked = true
+        );
 
     // === MAIN API ===
     Q_INVOKABLE QString requestRoute(
@@ -91,35 +126,35 @@ public:
         const QString& requestedBy = "operator",
         const QVariantMap& trainData = QVariantMap(),
         const QString& priority = "NORMAL"
-    );
+        );
 
     Q_INVOKABLE bool cancelRoute(
         const QString& routeId,
         const QString& reason = "operator_cancel"
-    );
+        );
 
     Q_INVOKABLE bool activateRoute(
         const QString& routeId
-    );
+        );
 
     Q_INVOKABLE bool releaseRoute(
         const QString& routeId,
         const QString& reason = "normal_release"
-    );
+        );
 
     // === EMERGENCY OPERATIONS ===
     Q_INVOKABLE bool emergencyReleaseRoute(
         const QString& routeId,
         const QString& reason
-    );
+        );
 
     Q_INVOKABLE bool emergencyReleaseAllRoutes(
         const QString& reason
-    );
+        );
 
     Q_INVOKABLE void activateEmergencyMode(
         const QString& reason
-    );
+        );
 
     Q_INVOKABLE void deactivateEmergencyMode();
 
@@ -167,6 +202,41 @@ signals:
     void performanceWarning(const QString& metric, double value, double threshold);
 
 private:
+    // === CLEARANCE CHECK STRUCTURES ===
+    struct ClearanceCheckResult {
+        bool isCleared = true;
+        QString blockReason;
+        QStringList conflicts;
+        QList<DestinationCandidate::RequiredPMAction> requiredPMActions;
+    };
+
+    // === SCAN IMPLEMENTATION ===
+    QList<DestinationCandidate> performDestinationScan(
+        const QString& sourceSignalId,
+        const QString& direction
+        );
+
+    QStringList getEligibleDestinationSignals(
+        const QString& sourceSignalId,
+        const QString& direction
+        );
+
+    DestinationCandidate evaluateDestinationReachability(
+        const QString& sourceSignalId,
+        const QString& destSignalId,
+        const QString& direction
+        );
+
+    QString determineSignalDirection(const QString& signalId);
+    bool isValidSignalProgression(const QString& sourceType, const QString& destType);
+    QVariantMap formatScanResults(const QList<DestinationCandidate>& candidates);
+
+    // === CLEARANCE CHECKING ===
+    ClearanceCheckResult checkPathClearance(const QStringList& path);
+    bool isCircuitReserved(const QString& circuitId);
+    bool isPointMachineSettable(const QString& machineId);
+    QList<DestinationCandidate::RequiredPMAction> getRequiredPointMachineActions(const QStringList& path);
+
     // Main route processing pipeline
     ProcessingResult processRouteRequest(const RouteRequest& request);
 

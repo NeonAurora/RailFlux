@@ -11,10 +11,12 @@ Rectangle {
     property var availableSignals: []
     property string selectedDestSignalId: ""
     property bool isVisible: false
+    property var scanResults: ({})
+    property bool isScanning: false
 
     // === DIALOG CONFIGURATION ===
-    width: 280
-    height: 280  // Increased height
+    width: 400  // Increased width for scan results
+    height: 500  // Increased height for scan results
     visible: isVisible
     z: 1000  // High z-order to appear on top
 
@@ -26,6 +28,7 @@ Rectangle {
     readonly property color accentBlue: "#0ea5e9"
     readonly property color accentBlueDark: "#0284c7"
     readonly property color successGreen: "#10b981"
+    readonly property color warningYellow: "#f59e0b"
     readonly property color errorRed: "#ef4444"
     readonly property color borderLight: "#e2e8f0"
     readonly property color borderMedium: "#cbd5e1"
@@ -234,103 +237,353 @@ Rectangle {
             }
         }
 
-        // === TO SIGNAL (DROPDOWN) ===
-        ColumnLayout {
+        // === SCAN DESTINATIONS BUTTON ===
+        Button {
+            id: scanButton
             Layout.fillWidth: true
-            spacing: 6
+            Layout.preferredHeight: 44
+            enabled: sourceSignalId && !isScanning
 
-            Text {
-                text: "To:"
-                font.pixelSize: 12
-                font.weight: Font.Medium
-                color: textSecondary
+            text: isScanning ? "Scanning..." : "Scan Destinations"
+
+            onClicked: performDestinationScan()
+
+            background: Rectangle {
+                color: {
+                    if (!parent.enabled) return borderLight
+                    if (parent.pressed) return accentBlueDark
+                    if (parent.hovered) return accentBlue
+                    return accentBlue
+                }
+                radius: 8
+
+                Behavior on color { ColorAnimation { duration: 200 } }
             }
 
-            ComboBox {
-                id: destSignalCombo
-                Layout.fillWidth: true
-                Layout.preferredHeight: 44
+            contentItem: RowLayout {
+                spacing: 8
 
-                model: availableSignals
-                textRole: "display"
-                valueRole: "signalId"
+                // Loading spinner
+                Rectangle {
+                    width: 16
+                    height: 16
+                    color: "transparent"
+                    visible: isScanning
 
-                displayText: currentIndex >= 0 ? currentText : "Select destination..."
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 12
+                        radius: 6
+                        border.color: "#ffffff"
+                        border.width: 2
+                        color: "transparent"
 
-                onCurrentValueChanged: {
-                    selectedDestSignalId = currentValue || ""
-                }
-
-                background: Rectangle {
-                    color: destSignalCombo.hovered ? hoverBackground : cardBackground
-                    border.color: destSignalCombo.activeFocus ? accentBlue : borderMedium
-                    border.width: destSignalCombo.activeFocus ? 2 : 1
-                    radius: 8
-
-                    Behavior on border.color { ColorAnimation { duration: 200 } }
-                    Behavior on color { ColorAnimation { duration: 200 } }
-                }
-
-                contentItem: Text {
-                    text: destSignalCombo.displayText
-                    font.pixelSize: 13
-                    color: destSignalCombo.currentIndex >= 0 ? textPrimary : textMuted
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: 12
-                }
-
-                popup: Popup {
-                    y: destSignalCombo.height + 2
-                    width: destSignalCombo.width
-                    height: Math.min(contentItem.implicitHeight + 12, 200)
-
-                    background: Rectangle {
-                        color: cardBackground
-                        border.color: borderLight
-                        border.width: 1
-                        radius: 8
-
-                        // Native popup shadow
                         Rectangle {
-                            anchors.fill: parent
-                            anchors.topMargin: 2
-                            anchors.leftMargin: 1
-                            anchors.rightMargin: -1
-                            anchors.bottomMargin: -1
-                            color: "#000000"
-                            opacity: 0.05
-                            radius: 8
-                            z: -1
-                        }
-                    }
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: "#ffffff"
 
-                    contentItem: ListView {
-                        anchors.margins: 6
-                        implicitHeight: contentHeight
-                        model: destSignalCombo.popup.visible ? destSignalCombo.delegateModel : null
-                        currentIndex: destSignalCombo.highlightedIndex
-
-                        ScrollIndicator.vertical: ScrollIndicator {
-                            active: true
+                            RotationAnimation on rotation {
+                                running: isScanning
+                                loops: Animation.Infinite
+                                duration: 1000
+                                from: 0
+                                to: 360
+                            }
                         }
                     }
                 }
 
-                delegate: ItemDelegate {
-                    width: destSignalCombo.width - 12
-                    height: 36
+                Text {
+                    text: scanButton.text
+                    font.pixelSize: 13
+                    font.weight: Font.Medium
+                    color: scanButton.enabled ? "#ffffff" : textMuted
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                }
+            }
+        }
 
-                    background: Rectangle {
-                        color: parent.hovered ? hoverBackground : "transparent"
-                        radius: 4
+        // === SCAN RESULTS TABS ===
+        TabBar {
+            id: resultsTabBar
+            Layout.fillWidth: true
+            visible: scanResults.success || false
+
+            background: Rectangle {
+                color: "transparent"
+            }
+
+            TabButton {
+                text: "Ready (" + (scanResults.reachable_clear ? scanResults.reachable_clear.length : 0) + ")"
+                background: Rectangle {
+                    color: parent.checked ? successGreen : "transparent"
+                    radius: 6
+                }
+                contentItem: Text {
+                    text: parent.text
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                    color: parent.checked ? "#ffffff" : textSecondary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            TabButton {
+                text: "Needs PM (" + (scanResults.reachable_requires_pm ? scanResults.reachable_requires_pm.length : 0) + ")"
+                background: Rectangle {
+                    color: parent.checked ? warningYellow : "transparent"
+                    radius: 6
+                }
+                contentItem: Text {
+                    text: parent.text
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                    color: parent.checked ? "#ffffff" : textSecondary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+
+            TabButton {
+                text: "Blocked (" + (scanResults.blocked ? scanResults.blocked.length : 0) + ")"
+                background: Rectangle {
+                    color: parent.checked ? errorRed : "transparent"
+                    radius: 6
+                }
+                contentItem: Text {
+                    text: parent.text
+                    font.pixelSize: 11
+                    font.weight: Font.Medium
+                    color: parent.checked ? "#ffffff" : textSecondary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+
+        // === SCAN RESULTS CONTENT ===
+        StackLayout {
+            id: resultsStack
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            currentIndex: resultsTabBar.currentIndex
+            visible: scanResults.success || false
+
+            // Ready destinations
+            ScrollView {
+                ListView {
+                    id: readyList
+                    model: scanResults.reachable_clear || []
+                    delegate: destinationDelegate
+                    spacing: 4
+
+                    Component {
+                        id: destinationDelegate
+                        Rectangle {
+                            width: readyList.width
+                            height: 60
+                            color: mouseArea.containsMouse ? hoverBackground : "transparent"
+                            border.color: selectedDestSignalId === modelData.dest_signal_id ? accentBlue : borderLight
+                            border.width: selectedDestSignalId === modelData.dest_signal_id ? 2 : 1
+                            radius: 8
+
+                            MouseArea {
+                                id: mouseArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: selectDestination(modelData)
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Text {
+                                        text: modelData.display_name || modelData.dest_signal_id
+                                        font.pixelSize: 13
+                                        font.weight: Font.Medium
+                                        color: textPrimary
+                                    }
+
+                                    Text {
+                                        text: formatPathPreview(modelData.path_summary)
+                                        font.pixelSize: 11
+                                        color: textSecondary
+                                    }
+                                }
+
+                                // Status chip
+                                Rectangle {
+                                    width: 60
+                                    height: 20
+                                    radius: 10
+                                    color: getStatusColor(modelData.reachability)
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: getStatusText(modelData.reachability)
+                                        font.pixelSize: 10
+                                        font.weight: Font.Medium
+                                        color: "#ffffff"
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
+            }
 
-                    contentItem: Text {
-                        text: model.display
-                        font.pixelSize: 13
-                        color: textPrimary
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: 8
+            // Requires PM destinations
+            ScrollView {
+                ListView {
+                    id: pmList
+                    model: scanResults.reachable_requires_pm || []
+                    delegate: destinationDelegateWithPM
+                    spacing: 4
+
+                    Component {
+                        id: destinationDelegateWithPM
+                        Rectangle {
+                            width: pmList.width
+                            height: 80
+                            color: mouseArea2.containsMouse ? hoverBackground : "transparent"
+                            border.color: selectedDestSignalId === modelData.dest_signal_id ? accentBlue : borderLight
+                            border.width: selectedDestSignalId === modelData.dest_signal_id ? 2 : 1
+                            radius: 8
+
+                            MouseArea {
+                                id: mouseArea2
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: selectDestination(modelData)
+                            }
+
+                            ColumnLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 4
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Text {
+                                            text: modelData.display_name || modelData.dest_signal_id
+                                            font.pixelSize: 13
+                                            font.weight: Font.Medium
+                                            color: textPrimary
+                                        }
+
+                                        Text {
+                                            text: formatPathPreview(modelData.path_summary)
+                                            font.pixelSize: 11
+                                            color: textSecondary
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: 70
+                                        height: 20
+                                        radius: 10
+                                        color: warningYellow
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "PM x" + (modelData.required_pm_actions ? modelData.required_pm_actions.length : 0)
+                                            font.pixelSize: 10
+                                            font.weight: Font.Medium
+                                            color: "#ffffff"
+                                        }
+                                    }
+                                }
+
+                                // PM actions preview
+                                Text {
+                                    text: formatPMActions(modelData.required_pm_actions)
+                                    font.pixelSize: 10
+                                    color: textMuted
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Blocked destinations
+            ScrollView {
+                ListView {
+                    id: blockedList
+                    model: scanResults.blocked || []
+                    delegate: blockedDestinationDelegate
+                    spacing: 4
+
+                    Component {
+                        id: blockedDestinationDelegate
+                        Rectangle {
+                            width: blockedList.width
+                            height: 60
+                            color: "#fef2f2"
+                            border.color: borderLight
+                            border.width: 1
+                            radius: 8
+                            opacity: 0.7
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    Text {
+                                        text: modelData.display_name || modelData.dest_signal_id
+                                        font.pixelSize: 13
+                                        font.weight: Font.Medium
+                                        color: textPrimary
+                                    }
+
+                                    Text {
+                                        text: modelData.blocked_reason || "Blocked"
+                                        font.pixelSize: 11
+                                        color: errorRed
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 60
+                                    height: 20
+                                    radius: 10
+                                    color: errorRed
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "BLOCKED"
+                                        font.pixelSize: 9
+                                        font.weight: Font.Medium
+                                        color: "#ffffff"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -340,20 +593,21 @@ Rectangle {
         Item {
             Layout.fillHeight: true
             Layout.minimumHeight: 10
+            visible: !scanResults.success
         }
 
-        // === ACTION BUTTONS (FIXED TO STAY WITHIN BOUNDS) ===
+        // === ACTION BUTTONS ===
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 40
             spacing: 8
 
-            // Request Route Button (LEFT)
+            // Request Route Button
             Button {
-                text: "Request"
+                text: "Request Route"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
-                enabled: sourceSignalId && selectedDestSignalId
+                enabled: sourceSignalId && selectedDestSignalId && isDestinationAssignable()
 
                 onClicked: submitRouteRequest()
 
@@ -379,7 +633,7 @@ Rectangle {
                 }
             }
 
-            // Cancel Button (RIGHT)
+            // Cancel Button
             Button {
                 text: "Cancel"
                 Layout.fillWidth: true
@@ -416,7 +670,6 @@ Rectangle {
     function openForSignal(signalId, signalName) {
         sourceSignalId = signalId
         sourceSignalName = signalName || signalId
-        loadAvailableSignals()
         resetForm()
         open()
     }
@@ -429,34 +682,103 @@ Rectangle {
 
     function close() {
         isVisible = false
-    }
-
-    function loadAvailableSignals() {
-        if (!globalDatabaseManager) {
-            console.error("❌ DatabaseManager not available for loading signals")
-            return
-        }
-
-        var signals = globalDatabaseManager.getAllSignalsList()
-        var signalOptions = []
-
-        for (var i = 0; i < signals.length; i++) {
-            var signal = signals[i]
-            if (signal.signal_id !== sourceSignalId) {
-                signalOptions.push({
-                    signalId: signal.signal_id,
-                    display: signal.signal_id + " - " + signal.type
-                })
-            }
-        }
-
-        availableSignals = signalOptions
-        console.log("✅ Loaded", signalOptions.length, "destination signal options")
+        resetForm()
     }
 
     function resetForm() {
         selectedDestSignalId = ""
-        destSignalCombo.currentIndex = -1
+        scanResults = {}
+        resultsTabBar.currentIndex = 0
+    }
+
+    function performDestinationScan() {
+        if (!globalRouteAssignmentService) {
+            console.error("❌ RouteAssignmentService not available for scanning")
+            return
+        }
+
+        if (!sourceSignalId) {
+            console.error("❌ No source signal ID for scanning")
+            return
+        }
+
+        isScanning = true
+        console.log("🔍 Scanning destinations for signal:", sourceSignalId)
+
+        // Call the new scanning API
+        scanResults = globalRouteAssignmentService.scanDestinationSignals(
+            sourceSignalId,
+            "AUTO",  // Auto-determine direction
+            true     // Include blocked destinations
+        )
+
+        isScanning = false
+
+        if (scanResults.success) {
+            console.log("✅ Destination scan completed:",
+                "Ready:", scanResults.reachable_clear?.length || 0,
+                "Needs PM:", scanResults.reachable_requires_pm?.length || 0,
+                "Blocked:", scanResults.blocked?.length || 0)
+        } else {
+            console.error("❌ Destination scan failed:", scanResults.error)
+        }
+    }
+
+    function selectDestination(destData) {
+        selectedDestSignalId = destData.dest_signal_id
+        console.log("📍 Selected destination:", destData.dest_signal_id, "reachability:", destData.reachability)
+    }
+
+    function isDestinationAssignable() {
+        if (!selectedDestSignalId || !scanResults.success) return false
+
+        // Find selected destination in scan results
+        var allDestinations = (scanResults.reachable_clear || [])
+            .concat(scanResults.reachable_requires_pm || [])
+
+        for (var i = 0; i < allDestinations.length; i++) {
+            if (allDestinations[i].dest_signal_id === selectedDestSignalId) {
+                var reachability = allDestinations[i].reachability
+                return reachability === "REACHABLE_CLEAR" || reachability === "REACHABLE_REQUIRES_PM"
+            }
+        }
+
+        return false
+    }
+
+    function formatPathPreview(pathSummary) {
+        if (!pathSummary || !pathSummary.circuits_preview) return ""
+
+        var preview = pathSummary.circuits_preview.join(" → ")
+        return preview + " (" + (pathSummary.hop_count || 0) + " hops)"
+    }
+
+    function formatPMActions(pmActions) {
+        if (!pmActions || pmActions.length === 0) return ""
+
+        var actions = []
+        for (var i = 0; i < pmActions.length; i++) {
+            actions.push(pmActions[i].machine_id + "→" + pmActions[i].target_position)
+        }
+        return "Requires: " + actions.join(", ")
+    }
+
+    function getStatusColor(reachability) {
+        switch (reachability) {
+            case "REACHABLE_CLEAR": return successGreen
+            case "REACHABLE_REQUIRES_PM": return warningYellow
+            case "BLOCKED": return errorRed
+            default: return textMuted
+        }
+    }
+
+    function getStatusText(reachability) {
+        switch (reachability) {
+            case "REACHABLE_CLEAR": return "READY"
+            case "REACHABLE_REQUIRES_PM": return "NEEDS PM"
+            case "BLOCKED": return "BLOCKED"
+            default: return "UNKNOWN"
+        }
     }
 
     function submitRouteRequest() {
@@ -465,11 +787,10 @@ Rectangle {
             return
         }
 
-        console.log("🎯 Submitting minimal route request:")
+        console.log("🎯 Submitting route request:")
         console.log("   From:", sourceSignalId)
         console.log("   To:", selectedDestSignalId)
 
-        // Submit with default values for removed fields
         var routeId = globalRouteAssignmentService.requestRoute(
             sourceSignalId,
             selectedDestSignalId,
