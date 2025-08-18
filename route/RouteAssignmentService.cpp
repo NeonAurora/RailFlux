@@ -1215,12 +1215,12 @@ QStringList RouteAssignmentService::getEligibleDestinationSignals(
     // Query database for signals matching criteria
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
-        SELECT signal_id, signal_name, signal_type_name
+        SELECT signal_id, signal_name, signal_type
         FROM railway_control.v_signals_complete
         WHERE direction = ?
           AND is_active = true
           AND is_route_signal = true
-          AND signal_type_name = ANY(?)
+          AND signal_type = ANY(?)
           AND manual_control_active = false
           AND preceded_by_circuit_id IS NOT NULL
           AND succeeded_by_circuit_id IS NOT NULL
@@ -1349,8 +1349,7 @@ QString RouteAssignmentService::determineSignalDirection(const QString& signalId
     return signal.value("direction", "UP").toString();
 }
 
-QVariantMap RouteAssignmentService::formatScanResults(
-    const QList<DestinationCandidate>& candidates) {
+QVariantMap RouteAssignmentService::formatScanResults(const QList<DestinationCandidate>& candidates) {
 
     QVariantMap result;
     QVariantList reachableClear, reachableRequiresPM, blocked;
@@ -1402,7 +1401,6 @@ QVariantMap RouteAssignmentService::formatScanResults(
 
     return result;
 }
-
 // ✅ CORRECT - Fully qualified name
 RouteAssignmentService::ClearanceCheckResult RouteAssignmentService::checkPathClearance(const QStringList& path) {
     ClearanceCheckResult result;  // Inside the method, you can use the short name

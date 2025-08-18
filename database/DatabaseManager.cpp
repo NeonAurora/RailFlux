@@ -549,24 +549,57 @@ bool DatabaseManager::isPortableServerRunning()
 QVariantList DatabaseManager::getTrackSegmentsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "?? SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY";
+    qDebug() << "🔍 SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY";
 
     QVariantList trackSegments;
     QSqlQuery trackSegmentQuery(db);
-    // ? Use the view that joins with circuits for occupancy
+
+    // ✅ UPDATED: Query with new schema fields
     QString trackSegmentSql = R"(
-        SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
-               track_segment_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
-        FROM railway_control.v_track_segments_with_occupancy
-        ORDER BY segment_id
+        SELECT
+            ts.id,
+            ts.segment_id,
+            ts.segment_name,
+            ts.start_row,
+            ts.start_col,
+            ts.end_row,
+            ts.end_col,
+            ts.track_segment_type,
+            ts.is_assigned,
+            ts.is_active,
+            ts.circuit_id,
+            -- ✅ NEW FIELDS
+            ts.length_meters,
+            ts.max_speed_kmh,
+            ts.protecting_signals,
+            ts.created_at,
+            ts.updated_at,
+            -- ✅ OCCUPANCY DATA FROM TRACK_CIRCUITS
+            COALESCE(tc.is_occupied, false) as is_occupied,
+            tc.occupied_by,
+            -- ✅ ROUTE ASSIGNMENT STATUS
+            CASE
+                WHEN tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true THEN false
+                ELSE true
+            END as route_assignment_eligible
+        FROM railway_control.track_segments ts
+        LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
+        LEFT JOIN railway_control.resource_locks rl ON (
+            rl.resource_type = 'TRACK_CIRCUIT'
+            AND rl.resource_id = tc.circuit_id
+            AND rl.is_active = true
+        )
+        WHERE ts.is_active = TRUE
+        ORDER BY ts.segment_id
     )";
 
     if (trackSegmentQuery.exec(trackSegmentSql)) {
         while (trackSegmentQuery.next()) {
             trackSegments.append(convertTrackSegmentRowToVariant(trackSegmentQuery));
         }
+        qDebug() << "✅ Loaded" << trackSegments.size() << "track segments with occupancy data";
     } else {
-        qWarning() << "? SAFETY CRITICAL: Track Segment query failed:" << trackSegmentQuery.lastError().text();
+        qWarning() << "❌ SAFETY CRITICAL: Track Segment query failed:" << trackSegmentQuery.lastError().text();
     }
 
     return trackSegments;
@@ -578,12 +611,14 @@ QVariantList DatabaseManager::getAllSignalsList() {
     QVariantList signalsList;
     QSqlQuery signalQuery(db);
 
-    // ✅ SIMPLIFIED: Use the enhanced view instead of complex joins
+    // ✅ UPDATED: Query based on actual v_signals_complete view schema
     QString signalSql = R"(
         SELECT
+            id,
             signal_id,
             signal_name,
             signal_type,
+            signal_type_name,
             location_row as row,
             location_col as col,
             direction,
@@ -602,7 +637,16 @@ QVariantList DatabaseManager::getAllSignalsList() {
             is_active,
             location_description as location,
             last_changed_at,
-            last_changed_by
+            last_changed_by,
+            interlocked_with,
+            protected_track_circuits,
+            manual_control_active,
+            preceded_by_circuit_id,
+            succeeded_by_circuit_id,
+            is_route_signal,
+            route_signal_type,
+            created_at,
+            updated_at
         FROM railway_control.v_signals_complete
         ORDER BY signal_id
     )";
@@ -622,25 +666,91 @@ QVariantList DatabaseManager::getAllSignalsList() {
 QVariantList DatabaseManager::getAllPointMachinesList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from getAllPointMachinesList()";
+    qDebug() << "SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from v_point_machines_complete";
 
     QVariantList points;
     QSqlQuery pointQuery(db);
+
+    // ? UPDATED: Query the complete view with all route assignment fields
     QString pointSql = R"(
-        SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
-               pm.root_track_segment_connection, pm.normal_track_segment_connection, pm.reverse_track_segment_connection,
-               pp.position_code as position, pm.operating_status, pm.transition_time_ms
-        FROM railway_control.point_machines pm
-        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
-        ORDER BY pm.machine_id
+        SELECT
+            id,
+            machine_id,
+            machine_name,
+            junction_row,
+            junction_col,
+            root_track_segment_connection,
+            normal_track_segment_connection,
+            reverse_track_segment_connection,
+
+            -- Position information
+            current_position,
+            current_position_name,
+            position_description,
+            position_pathfinding_weight,
+            position_default_transition_time_ms,
+
+            -- Operational status and timing
+            operating_status,
+            transition_time_ms,
+            last_operated_at,
+            last_operated_by,
+            operation_count,
+
+            -- Locking and safety
+            is_locked,
+            lock_reason,
+            safety_interlocks,
+            protected_signals,
+
+            -- Route assignment extensions
+            paired_entity,
+            route_locking_enabled,
+            auto_normalize_after_route,
+
+            -- Paired entity information
+            paired_machine_name,
+            paired_current_position,
+            paired_current_position_name,
+            paired_operating_status,
+            paired_is_locked,
+
+            -- Resource lock status
+            is_route_locked,
+            locked_by_route_id,
+            route_lock_type,
+            route_locked_at,
+            route_locked_by,
+            route_lock_expires_at,
+
+            -- Route assignment context
+            route_source_signal,
+            route_dest_signal,
+            route_state,
+            route_direction,
+
+            -- Status fields
+            paired_sync_status,
+            availability_status,
+
+            -- Performance metrics
+            avg_time_between_operations_seconds,
+
+            -- Timestamps
+            created_at,
+            updated_at
+
+        FROM railway_control.v_point_machines_complete
+        ORDER BY machine_id
     )";
 
     if (pointQuery.exec(pointSql)) {
         while (pointQuery.next()) {
             points.append(convertPointMachineRowToVariant(pointQuery));
         }
+        qDebug() << "? Loaded" << points.size() << "point machines with complete route assignment information";
     } else {
-        qWarning() << "SAFETY CRITICAL: Point machine query failed:" << pointQuery.lastError().text();
+        qWarning() << "? SAFETY CRITICAL: Point machine complete view query failed:" << pointQuery.lastError().text();
     }
 
     return points;
@@ -740,6 +850,7 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
     QSqlQuery query(db);
     query.prepare(R"(
         SELECT
+            id,
             signal_id,
             signal_name,
             signal_type,
@@ -762,7 +873,16 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
             is_active,
             location_description as location,
             last_changed_at,
-            last_changed_by
+            last_changed_by,
+            interlocked_with,
+            protected_track_circuits,
+            manual_control_active,
+            preceded_by_circuit_id,
+            succeeded_by_circuit_id,
+            is_route_signal,
+            route_signal_type,
+            created_at,
+            updated_at
         FROM railway_control.v_signals_complete
         WHERE signal_id = ?
     )");
@@ -780,14 +900,41 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
 QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) {
     if (!connected) return QVariantMap();
 
-    qDebug() << "?? QUERY: getTrackSegmentById(" << trackSegmentId << ")";
+    qDebug() << "🔍 QUERY: getTrackSegmentById(" << trackSegmentId << ")";
 
     QSqlQuery query(db);
     query.prepare(R"(
-        SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
-               track_segment_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
-        FROM railway_control.v_track_segments_with_occupancy
-        WHERE segment_id = ?
+        SELECT
+            ts.id,
+            ts.segment_id,
+            ts.segment_name,
+            ts.start_row,
+            ts.start_col,
+            ts.end_row,
+            ts.end_col,
+            ts.track_segment_type,
+            ts.is_assigned,
+            ts.is_active,
+            ts.circuit_id,
+            ts.length_meters,
+            ts.max_speed_kmh,
+            ts.protecting_signals,
+            ts.created_at,
+            ts.updated_at,
+            COALESCE(tc.is_occupied, false) as is_occupied,
+            tc.occupied_by,
+            CASE
+                WHEN tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true THEN false
+                ELSE true
+            END as route_assignment_eligible
+        FROM railway_control.track_segments ts
+        LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
+        LEFT JOIN railway_control.resource_locks rl ON (
+            rl.resource_type = 'TRACK_CIRCUIT'
+            AND rl.resource_id = tc.circuit_id
+            AND rl.is_active = true
+        )
+        WHERE ts.segment_id = ?
     )");
     query.addBindValue(trackSegmentId);
 
@@ -795,7 +942,7 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) 
         return convertTrackSegmentRowToVariant(query);
     }
 
-    qWarning() << "? Track segment" << trackSegmentId << "not found";
+    qWarning() << "❌ Track segment" << trackSegmentId << "not found";
     return QVariantMap();
 }
 
@@ -808,11 +955,74 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
 
     // FIXED: Added paired_entity to SELECT statement
     query.prepare(R"(
-        SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
-               pm.root_track_segment_connection, pm.normal_track_segment_connection, pm.reverse_track_segment_connection,
-               pp.position_code as position, pm.operating_status, pm.transition_time_ms, pm.paired_entity
-        FROM railway_control.point_machines pm
-        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
+        SELECT
+            id,
+            machine_id,
+            machine_name,
+            junction_row,
+            junction_col,
+            root_track_segment_connection,
+            normal_track_segment_connection,
+            reverse_track_segment_connection,
+
+            -- Position information
+            current_position,
+            current_position_name,
+            position_description,
+            position_pathfinding_weight,
+            position_default_transition_time_ms,
+
+            -- Operational status and timing
+            operating_status,
+            transition_time_ms,
+            last_operated_at,
+            last_operated_by,
+            operation_count,
+
+            -- Locking and safety
+            is_locked,
+            lock_reason,
+            safety_interlocks,
+            protected_signals,
+
+            -- Route assignment extensions
+            paired_entity,
+            route_locking_enabled,
+            auto_normalize_after_route,
+
+            -- Paired entity information
+            paired_machine_name,
+            paired_current_position,
+            paired_current_position_name,
+            paired_operating_status,
+            paired_is_locked,
+
+            -- Resource lock status
+            is_route_locked,
+            locked_by_route_id,
+            route_lock_type,
+            route_locked_at,
+            route_locked_by,
+            route_lock_expires_at,
+
+            -- Route assignment context
+            route_source_signal,
+            route_dest_signal,
+            route_state,
+            route_direction,
+
+            -- Status fields
+            paired_sync_status,
+            availability_status,
+
+            -- Performance metrics
+            avg_time_between_operations_seconds,
+
+            -- Timestamps
+            created_at,
+            updated_at
+
+        FROM railway_control.v_point_machines_complete
         WHERE pm.machine_id = ?
     )");
     query.addBindValue(machineId);
@@ -826,34 +1036,6 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
     return QVariantMap();
 }
 
-QVariantList DatabaseManager::getPointMachinesList() {
-    if (!connected) return QVariantList();
-
-    qDebug() << "SAFETY: getAllPointMachinesList() - DIRECT DATABASE QUERY from getAllPointMachinesList()";
-
-    QVariantList points;
-    QSqlQuery pointQuery(db);
-
-    // FIXED: Added paired_entity to SELECT statement
-    QString pointSql = R"(
-        SELECT pm.machine_id, pm.machine_name, pm.junction_row, pm.junction_col,
-               pm.root_track_segment_connection, pm.normal_track_segment_connection, pm.reverse_track_segment_connection,
-               pp.position_code as position, pm.operating_status, pm.transition_time_ms, pm.paired_entity
-        FROM railway_control.point_machines pm
-        LEFT JOIN railway_config.point_positions pp ON pm.current_position_id = pp.id
-        ORDER BY pm.machine_id
-    )";
-
-    if (pointQuery.exec(pointSql)) {
-        while (pointQuery.next()) {
-            points.append(convertPointMachineRowToVariant(pointQuery));
-        }
-    } else {
-        qWarning() << "SAFETY CRITICAL: Point machine query failed:" << pointQuery.lastError().text();
-    }
-
-    return points;
-}
 
 bool DatabaseManager::updateMainSignalAspect(const QString& signalId, const QString& newAspect) {
     if (!connected) return false;
@@ -1319,7 +1501,7 @@ bool DatabaseManager::updateTrackCircuitOccupancy(const QString& trackCircuitId,
     qDebug() << "CIRCUIT: Track Segment circuit occupancy change:" << trackCircuitId << "→" << isOccupied;
 
     QSqlQuery query(db);
-    query.prepare("SELECT railway_control.update_track_segment_circuit_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
+    query.prepare("SELECT railway_control.update_track_circuit_occupancy(?, ?, NULL, 'HARDWARE_AUTO')");
     query.addBindValue(trackCircuitId);
     query.addBindValue(isOccupied);
 
@@ -1332,7 +1514,7 @@ bool DatabaseManager::updateTrackCircuitOccupancy(const QString& trackCircuitId,
         return success;
     }
 
-    qCritical() << "CIRCUIT FAILURE: Track Segment circuit occupancy update failed:" << query.lastError().text();
+    qCritical() << "CIRCUIT FAILURE: Track circuit occupancy update failed:" << query.lastError().text();
     return false;
 }
 
@@ -1343,22 +1525,49 @@ bool DatabaseManager::getTrackCircuitOccupancy(const QString& trackCircuitId) {
     if (query.exec() && query.next()) {
         return query.value(0).toBool();
     }
-    return false; // Safe default
+    return true; // Safe default
 }
 
 QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCircuitId) {
     if (!connected) return QVariantList();
 
-    qDebug() << "QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ")";
+    qDebug() << "🔍 QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ")";
 
     QVariantList segments;
     QSqlQuery query(db);
     query.prepare(R"(
-        SELECT segment_id, segment_name, start_row, start_col, end_row, end_col,
-               track_segment_type, is_occupied, is_assigned, occupied_by, is_active, circuit_id
-        FROM railway_control.v_track_segments_with_occupancy
-        WHERE circuit_id = ?
-        ORDER BY segment_id
+        SELECT
+            ts.id,
+            ts.segment_id,
+            ts.segment_name,
+            ts.start_row,
+            ts.start_col,
+            ts.end_row,
+            ts.end_col,
+            ts.track_segment_type,
+            ts.is_assigned,
+            ts.is_active,
+            ts.circuit_id,
+            ts.length_meters,
+            ts.max_speed_kmh,
+            ts.protecting_signals,
+            ts.created_at,
+            ts.updated_at,
+            COALESCE(tc.is_occupied, false) as is_occupied,
+            tc.occupied_by,
+            CASE
+                WHEN tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true THEN false
+                ELSE true
+            END as route_assignment_eligible
+        FROM railway_control.track_segments ts
+        LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
+        LEFT JOIN railway_control.resource_locks rl ON (
+            rl.resource_type = 'TRACK_CIRCUIT'
+            AND rl.resource_id = tc.circuit_id
+            AND rl.is_active = true
+        )
+        WHERE ts.circuit_id = ?
+        ORDER BY ts.segment_id
     )");
     query.addBindValue(trackCircuitId);
 
@@ -1366,8 +1575,9 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
         while (query.next()) {
             segments.append(convertTrackSegmentRowToVariant(query));
         }
+        qDebug() << "✅ Found" << segments.size() << "segments for circuit" << trackCircuitId;
     } else {
-        qWarning() << "Failed to get segments for circuit" << trackCircuitId << ":" << query.lastError().text();
+        qWarning() << "❌ Failed to get segments for circuit" << trackCircuitId << ":" << query.lastError().text();
     }
 
     return segments;
@@ -1376,41 +1586,37 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
 QVariantList DatabaseManager::getTrackCircuitsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY";
+    qDebug() << "🔍 SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY";
 
     QVariantList circuits;
     QSqlQuery query(db);
+
+    // ✅ ENHANCED: Include all schema fields
     QString sql = R"(
-        SELECT circuit_id, circuit_name, is_occupied, occupied_by,
-               length_meters, max_speed_kmh, is_active, protecting_signals
+        SELECT
+            id,
+            circuit_id,
+            circuit_name,
+            is_occupied,
+            occupied_by,
+            is_active,
+            last_changed_at,
+            protecting_signals,
+            length_meters,
+            max_speed_kmh,
+            created_at,
+            updated_at
         FROM railway_control.track_circuits
         ORDER BY circuit_id
     )";
 
     if (query.exec(sql)) {
         while (query.next()) {
-            QVariantMap circuit;
-            circuit["id"] = query.value("circuit_id").toString();
-            circuit["name"] = query.value("circuit_name").toString();
-            circuit["occupied"] = query.value("is_occupied").toBool();
-            circuit["occupiedBy"] = query.value("occupied_by").toString();
-            circuit["lengthMeters"] = query.value("length_meters").toDouble();
-            circuit["maxSpeedKmh"] = query.value("max_speed_kmh").toInt();
-            circuit["isActive"] = query.value("is_active").toBool();
-
-            // Handle protecting signals array
-            QString protectingSignalsStr = query.value("protecting_signals").toString();
-            if (!protectingSignalsStr.isEmpty()) {
-                protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
-                circuit["protectingSignals"] = protectingSignalsStr.split(",");
-            } else {
-                circuit["protectingSignals"] = QStringList();
-            }
-
-            circuits.append(circuit);
+            circuits.append(convertTrackCircuitRowToVariant(query));
         }
+        qDebug() << "✅ Loaded" << circuits.size() << "track circuits with complete information";
     } else {
-        qWarning() << "SAFETY CRITICAL: Track Segment circuits query failed:" << query.lastError().text();
+        qWarning() << "❌ SAFETY CRITICAL: Track circuits query failed:" << query.lastError().text();
     }
 
     return circuits;
@@ -1540,20 +1746,33 @@ QStringList DatabaseManager::getProtectedTrackCircuitsFromInterlockingRules(cons
 QVariantMap DatabaseManager::getTrackCircuitById(const QString& circuitId) {
     if (!connected) return QVariantMap();
 
+    qDebug() << "🔍 QUERY: getTrackCircuitById(" << circuitId << ")";
+
     QSqlQuery query(db);
-    query.prepare("SELECT * FROM railway_control.track_circuits WHERE circuit_id = ?");
+    query.prepare(R"(
+        SELECT
+            id,
+            circuit_id,
+            circuit_name,
+            is_occupied,
+            occupied_by,
+            is_active,
+            last_changed_at,
+            protecting_signals,
+            length_meters,
+            max_speed_kmh,
+            created_at,
+            updated_at
+        FROM railway_control.track_circuits
+        WHERE circuit_id = ?
+    )");
     query.addBindValue(circuitId);
 
     if (query.exec() && query.next()) {
-        QVariantMap circuit;
-        circuit["circuitId"] = query.value("circuit_id").toString();
-        circuit["circuitName"] = query.value("circuit_name").toString();
-        circuit["occupied"] = query.value("is_occupied").toBool();
-        circuit["occupiedBy"] = query.value("occupied_by").toString();
-        circuit["isActive"] = query.value("is_active").toBool();
-        return circuit;
+        return convertTrackCircuitRowToVariant(query);
     }
 
+    qWarning() << "❌ Track circuit" << circuitId << "not found";
     return QVariantMap();
 }
 
@@ -1585,21 +1804,48 @@ QVariantMap DatabaseManager::getTrackCircuitById(const QString& circuitId) {
 // SAFETY: Row conversion helpers (unchanged)
 QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
     QVariantMap signal;
+
+    // ✅ BASIC SIGNAL INFO
     signal["id"] = query.value("signal_id").toString();
     signal["name"] = query.value("signal_name").toString();
     signal["type"] = query.value("signal_type").toString();
+    signal["typeName"] = query.value("signal_type_name").toString();
     signal["row"] = query.value("row").toDouble();
     signal["col"] = query.value("col").toDouble();
     signal["direction"] = query.value("direction").toString();
+    signal["isActive"] = query.value("is_active").toBool();
+    signal["location"] = query.value("location_description").toString();
+
+    // ✅ ASPECT INFORMATION
     signal["currentAspect"] = query.value("current_aspect").toString();
+    signal["currentAspectName"] = query.value("current_aspect_name").toString();
+    signal["currentAspectColor"] = query.value("current_aspect_color").toString();
     signal["callingOnAspect"] = query.value("calling_on_aspect").toString();
+    signal["callingOnAspectName"] = query.value("calling_on_aspect_name").toString();
+    signal["callingOnAspectColor"] = query.value("calling_on_aspect_color").toString();
     signal["loopAspect"] = query.value("loop_aspect").toString();
+    signal["loopAspectName"] = query.value("loop_aspect_name").toString();
+    signal["loopAspectColor"] = query.value("loop_aspect_color").toString();
     signal["loopSignalConfiguration"] = query.value("loop_signal_configuration").toString();
     signal["aspectCount"] = query.value("aspect_count").toInt();
-    signal["isActive"] = query.value("is_active").toBool();
-    signal["location"] = query.value("location").toString();
 
-    // Convert PostgreSQL array to QStringList
+    // ✅ OPERATIONAL INFO
+    signal["manualControlActive"] = query.value("manual_control_active").toBool();
+    signal["lastChangedAt"] = query.value("last_changed_at").toString();
+    signal["lastChangedBy"] = query.value("last_changed_by").toString();
+
+    // ✅ NEW ROUTE ASSIGNMENT FIELDS
+    signal["precededByCircuitId"] = query.value("preceded_by_circuit_id").toString();
+    signal["succeededByCircuitId"] = query.value("succeeded_by_circuit_id").toString();
+    signal["isRouteSignal"] = query.value("is_route_signal").toBool();
+    signal["routeSignalType"] = query.value("route_signal_type").toString();
+
+    // ✅ TIMESTAMPS
+    signal["createdAt"] = query.value("created_at").toString();
+    signal["updatedAt"] = query.value("updated_at").toString();
+
+    // ✅ HANDLE POSTGRESQL ARRAYS
+    // Convert possible_aspects array
     QString aspectsStr = query.value("possible_aspects").toString();
     if (!aspectsStr.isEmpty()) {
         aspectsStr = aspectsStr.mid(1, aspectsStr.length() - 2); // Remove { }
@@ -1608,11 +1854,45 @@ QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
         signal["possibleAspects"] = QStringList();
     }
 
+    // Convert interlocked_with array (integers)
+    QString interlockStr = query.value("interlocked_with").toString();
+    if (!interlockStr.isEmpty()) {
+        interlockStr = interlockStr.mid(1, interlockStr.length() - 2); // Remove { }
+        QStringList interlockList = interlockStr.split(",");
+        QVariantList interlockVariants;
+        for (const QString& item : interlockList) {
+            bool ok;
+            int intValue = item.trimmed().toInt(&ok);
+            if (ok) {
+                interlockVariants.append(intValue);
+            }
+        }
+        signal["interlocked_with"] = interlockVariants;
+    } else {
+        signal["interlocked_with"] = QVariantList();
+    }
+
+    // Convert protected_track_circuits array (text)
+    QString circuitsStr = query.value("protected_track_circuits").toString();
+    if (!circuitsStr.isEmpty()) {
+        circuitsStr = circuitsStr.mid(1, circuitsStr.length() - 2); // Remove { }
+        QStringList circuitsList = circuitsStr.split(",");
+        QStringList cleanCircuits;
+        for (const QString& circuit : circuitsList) {
+            cleanCircuits.append(circuit.trimmed());
+        }
+        signal["protectedTrackCircuits"] = cleanCircuits;
+    } else {
+        signal["protectedTrackCircuits"] = QStringList();
+    }
+
     return signal;
 }
 
 QVariantMap DatabaseManager::convertTrackSegmentRowToVariant(const QSqlQuery& query) {
     QVariantMap trackSegment;
+
+    // ✅ BASIC SEGMENT INFO
     trackSegment["id"] = query.value("segment_id").toString();
     trackSegment["name"] = query.value("segment_name").toString();
     trackSegment["startRow"] = query.value("start_row").toDouble();
@@ -1620,48 +1900,115 @@ QVariantMap DatabaseManager::convertTrackSegmentRowToVariant(const QSqlQuery& qu
     trackSegment["endRow"] = query.value("end_row").toDouble();
     trackSegment["endCol"] = query.value("end_col").toDouble();
     trackSegment["trackSegmentType"] = query.value("track_segment_type").toString();
-    trackSegment["occupied"] = query.value("is_occupied").toBool();  // Now from circuit via view
-    trackSegment["assigned"] = query.value("is_assigned").toBool();
-    trackSegment["occupiedBy"] = query.value("occupied_by").toString();
     trackSegment["isActive"] = query.value("is_active").toBool();
-    trackSegment["circuitId"] = query.value("circuit_id").toString();  // NEW: Include circuit_id
+    trackSegment["circuitId"] = query.value("circuit_id").toString();
+
+    // ✅ ASSIGNMENT AND OCCUPANCY (from track_circuits)
+    trackSegment["assigned"] = query.value("is_assigned").toBool();
+    trackSegment["occupied"] = query.value("is_occupied").toBool();
+    trackSegment["occupiedBy"] = query.value("occupied_by").toString();
+
+    // ✅ NEW FIELDS FROM SCHEMA
+    trackSegment["lengthMeters"] = query.value("length_meters").toDouble();
+    trackSegment["maxSpeedKmh"] = query.value("max_speed_kmh").toInt();
+    trackSegment["createdAt"] = query.value("created_at").toString();
+    trackSegment["updatedAt"] = query.value("updated_at").toString();
+
+    // ✅ ROUTE ASSIGNMENT STATUS
+    trackSegment["routeAssignmentEligible"] = query.value("route_assignment_eligible").toBool();
+
+    // ✅ HANDLE PROTECTING_SIGNALS ARRAY
+    QString protectingSignalsStr = query.value("protecting_signals").toString();
+    if (!protectingSignalsStr.isEmpty()) {
+        protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
+        QStringList signalsList = protectingSignalsStr.split(",");
+        QStringList cleanSignals;
+        for (const QString& signal : signalsList) {
+            cleanSignals.append(signal.trimmed());
+        }
+        trackSegment["protectingSignals"] = cleanSignals;
+    } else {
+        trackSegment["protectingSignals"] = QStringList();
+    }
 
     return trackSegment;
 }
 
 QVariantMap DatabaseManager::convertPointMachineRowToVariant(const QSqlQuery& query) {
     QVariantMap pm;
+
+    // ✅ BASIC MACHINE INFO
     pm["id"] = query.value("machine_id").toString();
     pm["name"] = query.value("machine_name").toString();
-    pm["position"] = query.value("position").toString();
     pm["operatingStatus"] = query.value("operating_status").toString();
     pm["transitionTime"] = query.value("transition_time_ms").toInt();
 
-    // NEW: Add paired entity information with error checking
-    if (query.record().contains("paired_entity")) {
-        QString pairedEntity = query.value("paired_entity").toString();
-        pm["pairedEntity"] = pairedEntity.isEmpty() ? QVariant() : pairedEntity;
-        pm["isPaired"] = !pairedEntity.isEmpty();
-    } else {
-        qWarning() << "paired_entity field not found in query results";
-        pm["pairedEntity"] = QVariant();
-        pm["isPaired"] = false;
-    }
+    // ✅ POSITION INFORMATION (Enhanced)
+    pm["position"] = query.value("current_position").toString();
+    pm["currentPosition"] = query.value("current_position").toString();
+    pm["currentPositionName"] = query.value("current_position_name").toString();
+    pm["positionDescription"] = query.value("position_description").toString();
+    pm["positionPathfindingWeight"] = query.value("position_pathfinding_weight").toDouble();
+    pm["positionDefaultTransitionTime"] = query.value("position_default_transition_time_ms").toInt();
 
-    // Add isActive field - default to true if not present in database
-    if (query.record().contains("is_active")) {
-        pm["isActive"] = query.value("is_active").toBool();
-    } else {
-        pm["isActive"] = true; // Default to active if field doesn't exist
-    }
+    // ✅ OPERATIONAL STATUS AND TIMING
+    pm["lastOperatedAt"] = query.value("last_operated_at").toString();
+    pm["lastOperatedBy"] = query.value("last_operated_by").toString();
+    pm["operationCount"] = query.value("operation_count").toInt();
 
-    // Junction point
+    // ✅ LOCKING AND SAFETY
+    pm["isLocked"] = query.value("is_locked").toBool();
+    pm["lockReason"] = query.value("lock_reason").toString();
+
+    // ✅ ROUTE ASSIGNMENT EXTENSIONS
+    QString pairedEntity = query.value("paired_entity").toString();
+    pm["pairedEntity"] = pairedEntity.isEmpty() ? QVariant() : pairedEntity;
+    pm["isPaired"] = !pairedEntity.isEmpty();
+    pm["routeLockingEnabled"] = query.value("route_locking_enabled").toBool();
+    pm["autoNormalizeAfterRoute"] = query.value("auto_normalize_after_route").toBool();
+
+    // ✅ PAIRED ENTITY INFORMATION
+    pm["pairedMachineName"] = query.value("paired_machine_name").toString();
+    pm["pairedCurrentPosition"] = query.value("paired_current_position").toString();
+    pm["pairedCurrentPositionName"] = query.value("paired_current_position_name").toString();
+    pm["pairedOperatingStatus"] = query.value("paired_operating_status").toString();
+    pm["pairedIsLocked"] = query.value("paired_is_locked").toBool();
+
+    // ✅ RESOURCE LOCK STATUS
+    pm["isRouteLocked"] = query.value("is_route_locked").toBool();
+    pm["lockedByRouteId"] = query.value("locked_by_route_id").toString();
+    pm["routeLockType"] = query.value("route_lock_type").toString();
+    pm["routeLockedAt"] = query.value("route_locked_at").toString();
+    pm["routeLockedBy"] = query.value("route_locked_by").toString();
+    pm["routeLockExpiresAt"] = query.value("route_lock_expires_at").toString();
+
+    // ✅ ROUTE ASSIGNMENT CONTEXT
+    pm["routeSourceSignal"] = query.value("route_source_signal").toString();
+    pm["routeDestSignal"] = query.value("route_dest_signal").toString();
+    pm["routeState"] = query.value("route_state").toString();
+    pm["routeDirection"] = query.value("route_direction").toString();
+
+    // ✅ STATUS FIELDS
+    pm["pairedSyncStatus"] = query.value("paired_sync_status").toString();
+    pm["availabilityStatus"] = query.value("availability_status").toString();
+    pm["isActive"] = query.value("availability_status").toString() != "FAILED" &&
+                     query.value("availability_status").toString() != "MAINTENANCE";
+
+    // ✅ PERFORMANCE METRICS
+    QVariant avgTime = query.value("avg_time_between_operations_seconds");
+    pm["avgTimeBetweenOperations"] = avgTime.isNull() ? QVariant() : avgTime.toDouble();
+
+    // ✅ TIMESTAMPS
+    pm["createdAt"] = query.value("created_at").toString();
+    pm["updatedAt"] = query.value("updated_at").toString();
+
+    // ✅ JUNCTION POINT
     QVariantMap junctionPoint;
     junctionPoint["row"] = query.value("junction_row").toDouble();
     junctionPoint["col"] = query.value("junction_col").toDouble();
     pm["junctionPoint"] = junctionPoint;
 
-    // Track Segment connections (parse JSON)
+    // ✅ TRACK SEGMENT CONNECTIONS (parse JSON)
     QString rootConnStr = query.value("root_track_segment_connection").toString();
     QString normalConnStr = query.value("normal_track_segment_connection").toString();
     QString reverseConnStr = query.value("reverse_track_segment_connection").toString();
@@ -1681,7 +2028,79 @@ QVariantMap DatabaseManager::convertPointMachineRowToVariant(const QSqlQuery& qu
         pm["reverseTrackSegment"] = reverseDoc.object().toVariantMap();
     }
 
+    // ✅ HANDLE POSTGRESQL ARRAYS
+    // Convert safety_interlocks array (integers)
+    QString interlocksStr = query.value("safety_interlocks").toString();
+    if (!interlocksStr.isEmpty()) {
+        interlocksStr = interlocksStr.mid(1, interlocksStr.length() - 2); // Remove { }
+        QStringList interlockList = interlocksStr.split(",");
+        QVariantList interlockVariants;
+        for (const QString& item : interlockList) {
+            bool ok;
+            int intValue = item.trimmed().toInt(&ok);
+            if (ok) {
+                interlockVariants.append(intValue);
+            }
+        }
+        pm["safetyInterlocks"] = interlockVariants;
+    } else {
+        pm["safetyInterlocks"] = QVariantList();
+    }
+
+    // Convert protected_signals array (text)
+    QString signalsStr = query.value("protected_signals").toString();
+    if (!signalsStr.isEmpty()) {
+        signalsStr = signalsStr.mid(1, signalsStr.length() - 2); // Remove { }
+        QStringList signalsList = signalsStr.split(",");
+        QStringList cleanSignals;
+        for (const QString& signal : signalsList) {
+            cleanSignals.append(signal.trimmed());
+        }
+        pm["protectedSignals"] = cleanSignals;
+    } else {
+        pm["protectedSignals"] = QStringList();
+    }
+
     return pm;
+}
+
+QVariantMap DatabaseManager::convertTrackCircuitRowToVariant(const QSqlQuery& query) {
+    QVariantMap circuit;
+
+    // ✅ BASIC CIRCUIT INFO
+    circuit["id"] = query.value("circuit_id").toString();
+    circuit["databaseId"] = query.value("id").toInt(); // Primary key for internal use
+    circuit["name"] = query.value("circuit_name").toString();
+    circuit["isActive"] = query.value("is_active").toBool();
+
+    // ✅ OCCUPANCY STATUS
+    circuit["occupied"] = query.value("is_occupied").toBool();
+    circuit["occupiedBy"] = query.value("occupied_by").toString();
+    circuit["lastChangedAt"] = query.value("last_changed_at").toString();
+
+    // ✅ PHYSICAL PROPERTIES
+    circuit["lengthMeters"] = query.value("length_meters").toDouble();
+    circuit["maxSpeedKmh"] = query.value("max_speed_kmh").toInt();
+
+    // ✅ TIMESTAMPS
+    circuit["createdAt"] = query.value("created_at").toString();
+    circuit["updatedAt"] = query.value("updated_at").toString();
+
+    // ✅ HANDLE PROTECTING SIGNALS ARRAY
+    QString protectingSignalsStr = query.value("protecting_signals").toString();
+    if (!protectingSignalsStr.isEmpty()) {
+        protectingSignalsStr = protectingSignalsStr.mid(1, protectingSignalsStr.length() - 2); // Remove { }
+        QStringList signalsList = protectingSignalsStr.split(",");
+        QStringList cleanSignals;
+        for (const QString& signal : signalsList) {
+            cleanSignals.append(signal.trimmed());
+        }
+        circuit["protectingSignals"] = cleanSignals;
+    } else {
+        circuit["protectingSignals"] = QStringList();
+    }
+
+    return circuit;
 }
 
 // Legacy methods for compatibility
@@ -1762,81 +2181,77 @@ void DatabaseManager::logError(const QString& operation, const QSqlError& error)
 // ROUTE ASSIGNMENT METHODS IMPLEMENTATION
 // ============================================================================
 
-bool DatabaseManager::insertRouteAssignment(
-    const QString& routeId,
-    const QString& sourceSignalId,
-    const QString& destSignalId,
-    const QString& direction,
-    const QStringList& assignedCircuits,
-    const QStringList& overlapCircuits,
-    const QString& state,
-    const QStringList& lockedPointMachines,
-    int priority,
-    const QString& operatorId
-) {
-    if (!connected) {
-        logError("insertRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
-        return false;
-    }
-
-    QSqlQuery query(db);
-    query.prepare(R"(
-        INSERT INTO railway_control.route_assignments (
-            id, source_signal_id, dest_signal_id, direction,
-            assigned_circuits, overlap_circuits, state,
-            locked_point_machines, priority, operator_id,
-            created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    )");
-
-    query.addBindValue(routeId);
-    query.addBindValue(sourceSignalId);
-    query.addBindValue(destSignalId);
-    query.addBindValue(direction);
-    
-    // Convert QStringList to PostgreSQL array format
-    QString assignedCircuitsArray = "{" + assignedCircuits.join(",") + "}";
-    QString overlapCircuitsArray = "{" + overlapCircuits.join(",") + "}";
-    QString lockedPointMachinesArray = "{" + lockedPointMachines.join(",") + "}";
-    
-    query.addBindValue(assignedCircuitsArray);
-    query.addBindValue(overlapCircuitsArray);
-    query.addBindValue(state);
-    query.addBindValue(lockedPointMachinesArray);
-    query.addBindValue(priority);
-    query.addBindValue(operatorId);
-
-    if (query.exec()) {
-        emit routeAssignmentInserted(routeId);
-        emit routeAssignmentsChanged();
-        return true;
-    } else {
-        logError("insertRouteAssignment", query.lastError());
-        return false;
-    }
-}
-
-bool DatabaseManager::updateRouteState(const QString& routeId, const QString& newState) {
+bool DatabaseManager::updateRouteState(const QString& routeId, const QString& newState, const QString& failureReason) {
     if (!connected) {
         logError("updateRouteState", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        UPDATE railway_control.route_assignments 
-        SET state = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    )");
-    query.addBindValue(newState);
-    query.addBindValue(routeId);
+    QElapsedTimer timer;
+    timer.start();
 
-    if (query.exec()) {
-        emit routeStateChanged(routeId, newState);
-        emit routeAssignmentsChanged();
-        return true;
+    qDebug() << "🚄 SAFETY: Updating route state:" << routeId << "to state:" << newState;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for state update";
+        emit operationBlocked(routeId, "Invalid route ID");
+        return false;
+    }
+
+    // Get current route state for logging
+    QVariantMap currentRoute = getRouteAssignment(routeId);
+    if (currentRoute.isEmpty()) {
+        qWarning() << "❌ Route not found:" << routeId;
+        emit operationBlocked(routeId, "Route not found");
+        return false;
+    }
+
+    QString currentState = currentRoute["state"].toString();
+    qDebug() << "🔄 Route state transition:" << currentState << "→" << newState;
+
+    // Database transaction for route state update
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route state update:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct UPDATE
+    query.prepare("SELECT railway_control.update_route_state(?, ?, ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue(newState);
+    query.addBindValue("HMI_USER"); // operator_id
+    query.addBindValue(failureReason.isEmpty() ? QVariant(QVariant::String) : failureReason);
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify state change
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT state FROM railway_control.route_assignments WHERE id = ?");
+            verifyQuery.addBindValue(routeId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString verifiedState = verifyQuery.value(0).toString();
+                qDebug() << "✅ SAFETY: Route" << routeId << "now has state:" << verifiedState;
+            }
+
+            // Emit success signals
+            emit routeStateChanged(routeId, newState);
+            emit routeAssignmentsChanged();
+
+            qDebug() << "✅ Route state update completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Route state update failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("updateRouteState", query.lastError());
+        qWarning() << "❌ Route state query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -1847,21 +2262,79 @@ bool DatabaseManager::updateRouteActivation(const QString& routeId) {
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        UPDATE railway_control.route_assignments 
-        SET state = 'ACTIVE', activated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    )");
-    query.addBindValue(routeId);
+    QElapsedTimer timer;
+    timer.start();
 
-    if (query.exec()) {
-        emit routeActivated(routeId);
-        emit routeStateChanged(routeId, "ACTIVE");
-        emit routeAssignmentsChanged();
-        return true;
+    qDebug() << "🚄 SAFETY: Activating route:" << routeId;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for activation";
+        emit operationBlocked(routeId, "Invalid route ID");
+        return false;
+    }
+
+    // Get current route state for logging and validation
+    QVariantMap currentRoute = getRouteAssignment(routeId);
+    if (currentRoute.isEmpty()) {
+        qWarning() << "❌ Route not found:" << routeId;
+        emit operationBlocked(routeId, "Route not found");
+        return false;
+    }
+
+    QString currentState = currentRoute["state"].toString();
+    qDebug() << "🔄 Route activation:" << currentState << "→ ACTIVE";
+
+    // Optional: Additional business logic validation before activation
+    // (The SQL function will also validate, but you can add app-specific checks here)
+    if (currentState != "RESERVED") {
+        qDebug() << "⚠️ Warning: Activating route from non-RESERVED state:" << currentState;
+    }
+
+    // Database transaction for route activation
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route activation:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct UPDATE
+    query.prepare("SELECT railway_control.update_route_state(?, ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue("ACTIVE");
+    query.addBindValue("HMI_USER"); // operator_id
+    // Note: failure_reason is not needed for activation, so we don't pass it
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify activation
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT state, activated_at FROM railway_control.route_assignments WHERE id = ?");
+            verifyQuery.addBindValue(routeId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString verifiedState = verifyQuery.value(0).toString();
+                QString activatedAt = verifyQuery.value(1).toString();
+                qDebug() << "✅ SAFETY: Route" << routeId << "activated. State:" << verifiedState << "Time:" << activatedAt;
+            }
+
+            // Emit success signals
+            emit routeActivated(routeId);
+            emit routeStateChanged(routeId, "ACTIVE");
+            emit routeAssignmentsChanged();
+
+            qDebug() << "✅ Route activation completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Route activation failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("updateRouteActivation", query.lastError());
+        qWarning() << "❌ Route activation query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -1872,21 +2345,79 @@ bool DatabaseManager::updateRouteRelease(const QString& routeId) {
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        UPDATE railway_control.route_assignments 
-        SET state = 'RELEASED', released_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    )");
-    query.addBindValue(routeId);
+    QElapsedTimer timer;
+    timer.start();
 
-    if (query.exec()) {
-        emit routeReleased(routeId);
-        emit routeStateChanged(routeId, "RELEASED");
-        emit routeAssignmentsChanged();
-        return true;
+    qDebug() << "🚄 SAFETY: Releasing route:" << routeId;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for release";
+        emit operationBlocked(routeId, "Invalid route ID");
+        return false;
+    }
+
+    // Get current route state for logging and validation
+    QVariantMap currentRoute = getRouteAssignment(routeId);
+    if (currentRoute.isEmpty()) {
+        qWarning() << "❌ Route not found:" << routeId;
+        emit operationBlocked(routeId, "Route not found");
+        return false;
+    }
+
+    QString currentState = currentRoute["state"].toString();
+    qDebug() << "🔄 Route release:" << currentState << "→ RELEASED";
+
+    // Optional: Additional business logic validation before release
+    // (The SQL function will also validate, but you can add app-specific checks here)
+    if (currentState != "ACTIVE" && currentState != "PARTIALLY_RELEASED") {
+        qDebug() << "⚠️ Warning: Releasing route from non-standard state:" << currentState;
+    }
+
+    // Database transaction for route release
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route release:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct UPDATE
+    query.prepare("SELECT railway_control.update_route_state(?, ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue("RELEASED");
+    query.addBindValue("HMI_USER"); // operator_id
+    // Note: failure_reason is not needed for normal release, so we don't pass it
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify release
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT state, released_at FROM railway_control.route_assignments WHERE id = ?");
+            verifyQuery.addBindValue(routeId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString verifiedState = verifyQuery.value(0).toString();
+                QString releasedAt = verifyQuery.value(1).toString();
+                qDebug() << "✅ SAFETY: Route" << routeId << "released. State:" << verifiedState << "Time:" << releasedAt;
+            }
+
+            // Emit success signals
+            emit routeReleased(routeId);
+            emit routeStateChanged(routeId, "RELEASED");
+            emit routeAssignmentsChanged();
+
+            qDebug() << "✅ Route release completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Route release failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("updateRouteRelease", query.lastError());
+        qWarning() << "❌ Route release query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -1897,22 +2428,87 @@ bool DatabaseManager::updateRouteFailure(const QString& routeId, const QString& 
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        UPDATE railway_control.route_assignments 
-        SET state = 'FAILED', failure_reason = ?
-        WHERE id = ?
-    )");
-    query.addBindValue(failureReason);
-    query.addBindValue(routeId);
+    QElapsedTimer timer;
+    timer.start();
 
-    if (query.exec()) {
-        emit routeFailed(routeId, failureReason);
-        emit routeStateChanged(routeId, "FAILED");
-        emit routeAssignmentsChanged();
-        return true;
+    qDebug() << "🚄 SAFETY: Marking route as FAILED:" << routeId << "Reason:" << failureReason;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for failure update";
+        emit operationBlocked(routeId, "Invalid route ID");
+        return false;
+    }
+
+    // Validate failure reason is provided
+    if (failureReason.isEmpty()) {
+        qWarning() << "❌ Failure reason must be provided for route failure";
+        emit operationBlocked(routeId, "Failure reason required");
+        return false;
+    }
+
+    // Get current route state for logging and validation
+    QVariantMap currentRoute = getRouteAssignment(routeId);
+    if (currentRoute.isEmpty()) {
+        qWarning() << "❌ Route not found:" << routeId;
+        emit operationBlocked(routeId, "Route not found");
+        return false;
+    }
+
+    QString currentState = currentRoute["state"].toString();
+    qDebug() << "🔄 Route failure:" << currentState << "→ FAILED (" << failureReason << ")";
+
+    // Optional: Log warning for certain state transitions
+    if (currentState == "ACTIVE") {
+        qWarning() << "⚠️ CRITICAL: Active route being marked as failed - this may affect traffic!";
+    }
+
+    // Database transaction for route failure update
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route failure:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct UPDATE
+    query.prepare("SELECT railway_control.update_route_state(?, ?, ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue("FAILED");
+    query.addBindValue("HMI_USER"); // operator_id
+    query.addBindValue(failureReason); // failure_reason_param
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify failure state and reason
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT state, failure_reason, updated_at FROM railway_control.route_assignments WHERE id = ?");
+            verifyQuery.addBindValue(routeId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString verifiedState = verifyQuery.value(0).toString();
+                QString verifiedReason = verifyQuery.value(1).toString();
+                QString updatedAt = verifyQuery.value(2).toString();
+                qDebug() << "✅ SAFETY: Route" << routeId << "marked as failed.";
+                qDebug() << "   State:" << verifiedState << "Reason:" << verifiedReason << "Time:" << updatedAt;
+            }
+
+            // Emit success signals
+            emit routeFailed(routeId, failureReason);
+            emit routeStateChanged(routeId, "FAILED");
+            emit routeAssignmentsChanged();
+
+            qDebug() << "✅ Route failure update completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Route failure update failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("updateRouteFailure", query.lastError());
+        qWarning() << "❌ Route failure query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -1923,22 +2519,67 @@ bool DatabaseManager::updateRoutePerformanceMetrics(const QString& routeId, cons
         return false;
     }
 
+    QElapsedTimer timer;
+    timer.start();
+
+    qDebug() << "📊 Updating performance metrics for route:" << routeId;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for performance metrics update";
+        return false;
+    }
+
+    // Validate metrics are provided
+    if (metrics.isEmpty()) {
+        qWarning() << "❌ No performance metrics provided for update";
+        return false;
+    }
+
+    // Convert metrics to JSON
     QJsonDocument jsonDoc = QJsonDocument::fromVariant(metrics);
     QString jsonString = jsonDoc.toJson(QJsonDocument::Compact);
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        UPDATE railway_control.route_assignments 
-        SET performance_metrics = ?::jsonb
-        WHERE id = ?
-    )");
-    query.addBindValue(jsonString);
-    query.addBindValue(routeId);
+    qDebug() << "📊 Performance metrics:" << jsonString;
 
-    if (query.exec()) {
-        return true;
+    // Database transaction for performance metrics update
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for performance metrics:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct UPDATE
+    query.prepare("SELECT railway_control.update_route_performance_metrics(?, ?::jsonb, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue(jsonString);
+    query.addBindValue("HMI_USER"); // operator_id
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Optional: Verify metrics were updated
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT performance_metrics FROM railway_control.route_assignments WHERE id = ?");
+            verifyQuery.addBindValue(routeId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString storedMetrics = verifyQuery.value(0).toString();
+                qDebug() << "✅ Performance metrics updated for route" << routeId;
+                qDebug() << "📊 Stored metrics:" << storedMetrics.left(100) << "..."; // Truncate for logging
+            }
+
+            qDebug() << "✅ Performance metrics update completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Performance metrics update failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("updateRoutePerformanceMetrics", query.lastError());
+        qWarning() << "❌ Performance metrics query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -2069,21 +2710,94 @@ QVariantList DatabaseManager::getRoutesBySignal(const QString& signalId) {
     return routes;
 }
 
-bool DatabaseManager::deleteRouteAssignment(const QString& routeId) {
+bool DatabaseManager::deleteRouteAssignment(const QString& routeId, bool forceDelete) {
     if (!connected) {
         logError("deleteRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare("DELETE FROM railway_control.route_assignments WHERE id = ?");
-    query.addBindValue(routeId);
+    QElapsedTimer timer;
+    timer.start();
 
-    if (query.exec()) {
-        emit routeAssignmentsChanged();
-        return true;
+    qDebug() << "🗑️ SAFETY: Deleting route assignment:" << routeId << "Force:" << forceDelete;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for deletion";
+        emit operationBlocked(routeId, "Invalid route ID");
+        return false;
+    }
+
+    // Get current route state for safety validation and logging
+    QVariantMap currentRoute = getRouteAssignment(routeId);
+    if (currentRoute.isEmpty()) {
+        qWarning() << "❌ Route not found for deletion:" << routeId;
+        emit operationBlocked(routeId, "Route not found");
+        return false;
+    }
+
+    QString currentState = currentRoute["state"].toString();
+    QString sourceSignal = currentRoute["sourceSignalId"].toString();
+    QString destSignal = currentRoute["destSignalId"].toString();
+
+    qDebug() << "🗑️ Route deletion: State:" << currentState << "Route:" << sourceSignal << "→" << destSignal;
+
+    // Safety warning for active route deletion
+    if ((currentState == "ACTIVE" || currentState == "RESERVED") && !forceDelete) {
+        qWarning() << "❌ SAFETY: Cannot delete active/reserved route without force flag";
+        emit operationBlocked(routeId, "Cannot delete active route - use force delete if necessary");
+        return false;
+    }
+
+    if (forceDelete && (currentState == "ACTIVE" || currentState == "RESERVED")) {
+        qCritical() << "🚨 CRITICAL: Force deleting active route - this may affect traffic safety!";
+    }
+
+    // Database transaction for route deletion
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route deletion:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct DELETE
+    query.prepare("SELECT railway_control.delete_route_assignment(?, ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue("HMI_USER"); // operator_id
+    query.addBindValue(forceDelete); // force_delete flag
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify deletion
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare("SELECT COUNT(*) FROM railway_control.route_assignments WHERE id = ?");
+            verifyQuery.addBindValue(routeId);
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                int remainingCount = verifyQuery.value(0).toInt();
+                if (remainingCount == 0) {
+                    qDebug() << "✅ SAFETY: Route" << routeId << "successfully deleted";
+                } else {
+                    qWarning() << "⚠️ Unexpected: Route still exists after deletion";
+                }
+            }
+
+            // Emit success signals
+            emit routeDeleted(routeId); // You may need to add this signal to header
+            emit routeAssignmentsChanged();
+
+            qDebug() << "✅ Route deletion completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Route deletion failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("deleteRouteAssignment", query.lastError());
+        qWarning() << "❌ Route deletion query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -2097,38 +2811,104 @@ bool DatabaseManager::insertRouteEvent(
     const QString& correlationId,
     double responseTimeMs,
     bool safetyCritical
-) {
+    ) {
     if (!connected) {
         logError("insertRouteEvent", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
         return false;
     }
 
+    QElapsedTimer timer;
+    timer.start();
+
+    // Log based on criticality
+    if (safetyCritical) {
+        qDebug() << "🚨 SAFETY-CRITICAL EVENT:" << eventType << "for route:" << routeId;
+    } else {
+        qDebug() << "📝 Logging route event:" << eventType << "for route:" << routeId;
+    }
+
+    // Validate required parameters
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for event logging";
+        return false;
+    }
+
+    if (eventType.isEmpty()) {
+        qWarning() << "❌ Event type cannot be empty";
+        return false;
+    }
+
+    // Convert event data to JSON
     QJsonDocument jsonDoc = QJsonDocument::fromVariant(eventData);
     QString jsonString = jsonDoc.toJson(QJsonDocument::Compact);
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        INSERT INTO railway_control.route_events (
-            route_id, event_type, event_data, operator_id,
-            source_component, correlation_id, response_time_ms,
-            safety_critical, event_timestamp
-        ) VALUES (?, ?, ?::jsonb, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    )");
+    // Log event details for debugging
+    qDebug() << "📝 Event details:";
+    qDebug() << "   Type:" << eventType;
+    qDebug() << "   Operator:" << (operatorId.isEmpty() ? "system" : operatorId);
+    qDebug() << "   Source:" << (sourceComponent.isEmpty() ? "DatabaseManager" : sourceComponent);
+    qDebug() << "   Critical:" << safetyCritical;
+    qDebug() << "   Response Time:" << responseTimeMs << "ms";
+    qDebug() << "   Data:" << jsonString.left(200) << (jsonString.length() > 200 ? "..." : "");
 
+    // Database transaction for route event insertion
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route event:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct INSERT
+    query.prepare("SELECT railway_control.insert_route_event(?, ?, ?::jsonb, ?, ?, ?, ?, ?)");
     query.addBindValue(routeId);
     query.addBindValue(eventType);
-    query.addBindValue(jsonString);
-    query.addBindValue(operatorId.isEmpty() ? QVariant() : operatorId);
-    query.addBindValue(sourceComponent.isEmpty() ? QVariant() : sourceComponent);
-    query.addBindValue(correlationId.isEmpty() ? QVariant() : correlationId);
-    query.addBindValue(responseTimeMs > 0.0 ? responseTimeMs : QVariant());
+    query.addBindValue(jsonString.isEmpty() ? "{}" : jsonString);
+    query.addBindValue(operatorId.isEmpty() ? QVariant(QVariant::String) : operatorId);
+    query.addBindValue(sourceComponent.isEmpty() ? QVariant(QVariant::String) : sourceComponent);
+    query.addBindValue(correlationId.isEmpty() ? QVariant(QVariant::String) : correlationId);
+    query.addBindValue(responseTimeMs > 0.0 ? responseTimeMs : QVariant(QVariant::Double));
     query.addBindValue(safetyCritical);
 
-    if (query.exec()) {
-        emit routeEventLogged(routeId, eventType);
-        return true;
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify event was logged (optional for performance)
+            if (safetyCritical) {
+                QSqlQuery verifyQuery(db);
+                verifyQuery.prepare(R"(
+                    SELECT event_timestamp, sequence_number
+                    FROM railway_control.route_events
+                    WHERE route_id = ? AND event_type = ?
+                    ORDER BY event_timestamp DESC LIMIT 1
+                )");
+                verifyQuery.addBindValue(routeId);
+                verifyQuery.addBindValue(eventType);
+                if (verifyQuery.exec() && verifyQuery.next()) {
+                    QString timestamp = verifyQuery.value(0).toString();
+                    qint64 sequenceNum = verifyQuery.value(1).toLongLong();
+                    qDebug() << "✅ SAFETY: Critical event logged at" << timestamp << "sequence:" << sequenceNum;
+                }
+            }
+
+            // Emit success signal
+            emit routeEventLogged(routeId, eventType);
+
+            if (safetyCritical) {
+                qDebug() << "✅ Safety-critical route event logged in" << timer.elapsed() << "ms";
+            } else {
+                qDebug() << "✅ Route event logged in" << timer.elapsed() << "ms";
+            }
+            return true;
+        } else {
+            qWarning() << "❌ Route event insertion failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("insertRouteEvent", query.lastError());
+        qWarning() << "❌ Route event query execution failed:" << query.lastError().text();
+        db.rollback();
         return false;
     }
 }
@@ -2182,29 +2962,121 @@ bool DatabaseManager::insertResourceLock(
     const QString& resourceId,
     const QString& routeId,
     const QString& lockType
-) {
+    ) {
     if (!connected) {
         logError("insertResourceLock", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        INSERT INTO railway_control.resource_locks (
-            resource_type, resource_id, route_id, lock_type, acquired_at
-        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    )");
+    QElapsedTimer timer;
+    timer.start();
 
+    qDebug() << "🔒 SAFETY: Acquiring resource lock";
+    qDebug() << "   Resource:" << resourceType << resourceId;
+    qDebug() << "   Route:" << routeId;
+    qDebug() << "   Lock Type:" << lockType;
+
+    // Validate required parameters
+    if (resourceType.isEmpty() || resourceId.isEmpty() || routeId.isEmpty() || lockType.isEmpty()) {
+        qWarning() << "❌ Missing required parameters for resource lock";
+        emit operationBlocked(resourceId, "Missing required lock parameters");
+        return false;
+    }
+
+    // Validate resource type
+    QStringList validResourceTypes = {"TRACK_CIRCUIT", "POINT_MACHINE", "SIGNAL"};
+    if (!validResourceTypes.contains(resourceType)) {
+        qWarning() << "❌ Invalid resource type:" << resourceType;
+        emit operationBlocked(resourceId, "Invalid resource type");
+        return false;
+    }
+
+    // Validate lock type
+    QStringList validLockTypes = {"EXCLUSIVE", "SHARED", "OVERLAP"};
+    if (!validLockTypes.contains(lockType)) {
+        qWarning() << "❌ Invalid lock type:" << lockType;
+        emit operationBlocked(resourceId, "Invalid lock type");
+        return false;
+    }
+
+    // Check if route exists before attempting lock
+    QVariantMap route = getRouteAssignment(routeId);
+    if (route.isEmpty()) {
+        qWarning() << "❌ Route not found for resource lock:" << routeId;
+        emit operationBlocked(resourceId, "Route not found");
+        return false;
+    }
+
+    QString routeState = route["state"].toString();
+    qDebug() << "🔒 Locking resource for route in state:" << routeState;
+
+    // Database transaction for resource lock acquisition
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for resource lock:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct INSERT
+    query.prepare("SELECT railway_control.acquire_resource_lock(?, ?, ?, ?, ?)");
     query.addBindValue(resourceType);
     query.addBindValue(resourceId);
     query.addBindValue(routeId);
     query.addBindValue(lockType);
+    query.addBindValue("HMI_USER"); // operator_id
+    // Note: expires_at is NULL for normal locks (no expiration)
 
-    if (query.exec()) {
-        emit resourceLockAcquired(routeId, resourceType, resourceId);
-        return true;
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify lock was acquired
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare(R"(
+                SELECT id, acquired_at, lock_type
+                FROM railway_control.resource_locks
+                WHERE resource_type = ? AND resource_id = ? AND route_id = ? AND is_active = TRUE
+                ORDER BY acquired_at DESC LIMIT 1
+            )");
+            verifyQuery.addBindValue(resourceType);
+            verifyQuery.addBindValue(resourceId);
+            verifyQuery.addBindValue(routeId);
+
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString lockId = verifyQuery.value(0).toString();
+                QString acquiredAt = verifyQuery.value(1).toString();
+                QString verifiedLockType = verifyQuery.value(2).toString();
+                qDebug() << "✅ SAFETY: Resource lock acquired";
+                qDebug() << "   Lock ID:" << lockId;
+                qDebug() << "   Acquired at:" << acquiredAt;
+                qDebug() << "   Lock type:" << verifiedLockType;
+            }
+
+            // Emit success signal
+            emit resourceLockAcquired(routeId, resourceType, resourceId);
+
+            qDebug() << "✅ Resource lock acquisition completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Resource lock acquisition failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("insertResourceLock", query.lastError());
+        qWarning() << "❌ Resource lock query execution failed:" << query.lastError().text();
+        QString errorDetail = query.lastError().text();
+
+        // Enhanced error reporting for common conflicts
+        if (errorDetail.contains("already locked")) {
+            qWarning() << "🔒 Resource conflict: Resource is already locked by another route";
+            emit operationBlocked(resourceId, "Resource already locked");
+        } else if (errorDetail.contains("not found")) {
+            qWarning() << "🔍 Resource not found or inactive";
+            emit operationBlocked(resourceId, "Resource not found");
+        }
+
+        db.rollback();
         return false;
     }
 }
@@ -2215,18 +3087,116 @@ bool DatabaseManager::releaseResourceLocks(const QString& routeId) {
         return false;
     }
 
-    QSqlQuery query(db);
-    query.prepare(R"(
-        DELETE FROM railway_control.resource_locks 
-        WHERE route_id = ?
-    )");
-    query.addBindValue(routeId);
+    QElapsedTimer timer;
+    timer.start();
 
-    if (query.exec()) {
-        emit resourceLockReleased(routeId);
-        return true;
+    qDebug() << "🔓 SAFETY: Releasing resource locks for route:" << routeId;
+
+    // Validate route ID format
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Invalid route ID provided for lock release";
+        emit operationBlocked(routeId, "Invalid route ID");
+        return false;
+    }
+
+    // Get current route state for validation and logging
+    QVariantMap currentRoute = getRouteAssignment(routeId);
+    if (currentRoute.isEmpty()) {
+        qWarning() << "❌ Route not found for lock release:" << routeId;
+        emit operationBlocked(routeId, "Route not found");
+        return false;
+    }
+
+    QString routeState = currentRoute["state"].toString();
+    QString sourceSignal = currentRoute["sourceSignalId"].toString();
+    QString destSignal = currentRoute["destSignalId"].toString();
+
+    qDebug() << "🔓 Releasing locks for route:" << sourceSignal << "→" << destSignal << "State:" << routeState;
+
+    // Get current locks for logging before release
+    QVariantList currentLocks = getResourceLocks(routeId);
+    int expectedLockCount = currentLocks.size();
+
+    qDebug() << "🔓 Found" << expectedLockCount << "active locks to release";
+    for (const auto& lockVar : currentLocks) {
+        QVariantMap lock = lockVar.toMap();
+        qDebug() << "   Lock:" << lock["resourceType"].toString() << lock["resourceId"].toString()
+                 << "(" << lock["lockType"].toString() << ")";
+    }
+
+    // Database transaction for resource lock release
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for lock release:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct DELETE/UPDATE
+    query.prepare("SELECT railway_control.release_resource_locks(?, ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue("HMI_USER"); // operator_id
+    query.addBindValue("ROUTE_COMPLETION"); // release_reason
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        int locksReleased = query.value(0).toInt();
+
+        if (db.commit()) {
+            // Verify locks were released
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare(R"(
+                SELECT COUNT(*) as active_locks,
+                       COUNT(*) FILTER (WHERE is_active = FALSE) as released_locks
+                FROM railway_control.resource_locks
+                WHERE route_id = ?
+            )");
+            verifyQuery.addBindValue(routeId);
+
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                int activeLocks = verifyQuery.value(0).toInt();
+                int releasedLocks = verifyQuery.value(1).toInt();
+                qDebug() << "✅ SAFETY: Lock release verification:";
+                qDebug() << "   Locks released:" << locksReleased;
+                qDebug() << "   Active locks remaining:" << activeLocks;
+                qDebug() << "   Total released locks:" << releasedLocks;
+
+                success = (locksReleased > 0 || expectedLockCount == 0);
+            } else {
+                // If verification fails, still consider successful if function returned > 0
+                success = (locksReleased >= 0);
+            }
+
+            if (success) {
+                // Emit success signal
+                emit resourceLockReleased(routeId);
+
+                if (locksReleased > 0) {
+                    qDebug() << "✅ Successfully released" << locksReleased << "resource locks in" << timer.elapsed() << "ms";
+                } else {
+                    qDebug() << "✅ No active locks found to release for route" << routeId;
+                }
+                return true;
+            } else {
+                qWarning() << "❌ Lock release verification failed";
+                return false;
+            }
+        } else {
+            qWarning() << "❌ Resource lock release commit failed:" << db.lastError().text();
+            db.rollback();
+            return false;
+        }
     } else {
-        logError("releaseResourceLocks", query.lastError());
+        qWarning() << "❌ Resource lock release query execution failed:" << query.lastError().text();
+        QString errorDetail = query.lastError().text();
+
+        // Enhanced error reporting
+        if (errorDetail.contains("not found")) {
+            qWarning() << "🔍 Route not found for lock release";
+            emit operationBlocked(routeId, "Route not found");
+        }
+
+        db.rollback();
         return false;
     }
 }

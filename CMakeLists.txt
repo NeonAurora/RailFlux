@@ -81,7 +81,7 @@ qt_add_qml_module(appRailFlux
 
     # Only non-code resources (SQL files, data files)
     RESOURCES
-        sql/sql_coomands_railflux.sql
+    sql/sql_commands_railflux.sql
         QML_FILES components/RouteAssignmentDialog.qml
 
 )

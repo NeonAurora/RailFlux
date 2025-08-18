@@ -77,7 +77,6 @@ public:
     Q_INVOKABLE QVariantList getHomeSignalsList();
     Q_INVOKABLE QVariantList getStarterSignalsList();
     Q_INVOKABLE QVariantList getAdvanceStarterSignalsList();
-    Q_INVOKABLE QVariantList getPointMachinesList();
     Q_INVOKABLE QVariantMap getSignalById(const QString& signalId);
     Q_INVOKABLE bool updateSignalAspect(const QString& signalId, const QString& aspectType, const QString& newAspect);
     Q_INVOKABLE QVariantMap getAllSignalStates();
@@ -121,7 +120,11 @@ public:
         const QString& operatorId
     );
     
-    Q_INVOKABLE bool updateRouteState(const QString& routeId, const QString& newState);
+    Q_INVOKABLE bool updateRouteState(
+        const QString& routeId,
+        const QString& newState,
+        const QString& failureReason = QString()
+        );
     Q_INVOKABLE bool updateRouteActivation(const QString& routeId);
     Q_INVOKABLE bool updateRouteRelease(const QString& routeId);
     Q_INVOKABLE bool updateRouteFailure(const QString& routeId, const QString& failureReason);
@@ -131,7 +134,6 @@ public:
     Q_INVOKABLE QVariantList getActiveRoutes();
     Q_INVOKABLE QVariantList getRoutesByState(const QString& state);
     Q_INVOKABLE QVariantList getRoutesBySignal(const QString& signalId);
-    Q_INVOKABLE bool deleteRouteAssignment(const QString& routeId);
     
     // Route event logging
     Q_INVOKABLE bool insertRouteEvent(
@@ -167,6 +169,8 @@ public:
     // Signal overlap definitions
     Q_INVOKABLE QVariantMap getSignalOverlapDefinition(const QString& signalId);
     Q_INVOKABLE QVariantList getAllSignalOverlapDefinitions();
+
+    Q_INVOKABLE bool deleteRouteAssignment(const QString& routeId, bool forceDelete = false);
 
 public slots:
     // Enhanced update method
@@ -218,6 +222,8 @@ signals:
     void resourceLockAcquired(const QString& routeId, const QString& resourceType, const QString& resourceId);
     void resourceLockReleased(const QString& routeId);
     void routeAssignmentsChanged();
+
+    void routeDeleted(const QString& routeId);
 
 private slots:
     void pollDatabase();
@@ -277,6 +283,7 @@ private:
     QVariantMap convertSignalRowToVariant(const QSqlQuery& query);
     QVariantMap convertTrackSegmentRowToVariant(const QSqlQuery& query);
     QVariantMap convertPointMachineRowToVariant(const QSqlQuery& query);
+    QVariantMap convertTrackCircuitRowToVariant(const QSqlQuery& query);
 
     // Current state helpers (for interlocking) - MOVED TO PUBLIC
 

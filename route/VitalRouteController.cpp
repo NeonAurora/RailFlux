@@ -504,8 +504,8 @@ bool VitalRouteController::checkPointMachineInterlocking(const QString& machineI
         return false;
     }
 
-    // Get current point machine position  
-    QVariantList pointMachines = m_dbManager->getPointMachinesList();
+    // Get current point machine position
+    QVariantList pointMachines = m_dbManager->getAllPointMachinesList();
     QString currentPosition;
     
     for (const QVariant& pm : pointMachines) {
