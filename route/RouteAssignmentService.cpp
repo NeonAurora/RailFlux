@@ -1250,6 +1250,18 @@ QStringList RouteAssignmentService::getEligibleDestinationSignals(
     return eligible;
 }
 
+QList<RouteAssignmentService::DestinationCandidate::RequiredPMAction>
+RouteAssignmentService::getRequiredPointMachineActions(const QStringList& path) {
+    QList<DestinationCandidate::RequiredPMAction> actions;
+
+    // This is a simplified implementation
+    // In a real system, this would analyze the path and determine required PM movements
+    // For now, return empty list - can be enhanced later
+
+    Q_UNUSED(path)
+    return actions;
+}
+
 RouteAssignmentService::DestinationCandidate
 RouteAssignmentService::evaluateDestinationReachability(
     const QString& sourceSignalId,
@@ -1286,26 +1298,31 @@ RouteAssignmentService::evaluateDestinationReachability(
         return candidate;
     }
 
-    auto pathResult = m_graphService->findOptimalPath(
+    // Call the correct GraphService method
+    auto pathResult = m_graphService->findRoute(
         startCircuit, goalCircuit,
-        direction == "UP" ? Direction::UP : Direction::DOWN
+        direction,  // String, not enum
+        QVariantMap(),  // Empty PM states for now
+        500  // 500ms timeout
         );
 
-    if (!pathResult.has_value()) {
+    if (!pathResult.value("success", false).toBool()) {
         candidate.reachability = "BLOCKED";
         candidate.blockedReason = "NO_PATH_FOUND";
         return candidate;
     }
 
-    auto path = pathResult.value();
+    auto path = pathResult.value("path").toStringList();
     candidate.pathSummary.hopCount = path.size();
-    candidate.pathSummary.estimatedWeight = m_graphService->calculatePathWeight(path);
+    candidate.pathSummary.estimatedWeight = pathResult.value("cost", 0.0).toDouble();
 
-    // Create preview of path (first few + last circuit)
+    // Create preview of path (first few + last circuit) - FIXED
     if (path.size() <= 3) {
-        candidate.pathSummary.circuitsPreview = QStringList(path.begin(), path.end());
+        candidate.pathSummary.circuitsPreview = path;
     } else {
-        candidate.pathSummary.circuitsPreview = {path[0], path[1], "...", path.back()};
+        QStringList preview;
+        preview << path[0] << path[1] << "..." << path.last();
+        candidate.pathSummary.circuitsPreview = preview;
     }
 
     // Check for clearance issues and required PM actions
@@ -1386,8 +1403,9 @@ QVariantMap RouteAssignmentService::formatScanResults(
     return result;
 }
 
-ClearanceCheckResult RouteAssignmentService::checkPathClearance(const QStringList& path) {
-    ClearanceCheckResult result;
+// ✅ CORRECT - Fully qualified name
+RouteAssignmentService::ClearanceCheckResult RouteAssignmentService::checkPathClearance(const QStringList& path) {
+    ClearanceCheckResult result;  // Inside the method, you can use the short name
 
     for (const QString& circuitId : path) {
         // Check occupancy
