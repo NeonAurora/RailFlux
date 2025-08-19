@@ -104,7 +104,6 @@ public:
     // === INTERLOCKING HELPER METHODS ===
     QString getPairedMachine(const QString& machineId);
     QString getCurrentPointPosition(const QString& machineId);
-    QPair<QString, QString> getPairedMachinePositions(const QString& machineId);
 
     // === ROUTE ASSIGNMENT METHODS ===
     Q_INVOKABLE bool insertRouteAssignment(
@@ -294,8 +293,4 @@ private:
 
     // Helper functions
     QString getCurrentSubsidiaryAspect(const QString& signalId, const QString& aspectType);
-    bool validateSubsidiarySignalOperation(const QString& signalId,
-                                           const QString& aspectType,
-                                           const QString& currentAspect,
-                                           const QString& newAspect);
 };

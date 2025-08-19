@@ -1022,7 +1022,7 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
             created_at,
             updated_at
 
-        FROM railway_control.v_point_machines_complete
+        FROM railway_control.v_point_machines_complete pm
         WHERE pm.machine_id = ?
     )");
     query.addBindValue(machineId);
@@ -2177,6 +2177,155 @@ void DatabaseManager::logError(const QString& operation, const QSqlError& error)
     qWarning() << "Database error in" << operation << ":" << error.text();
 }
 
+bool DatabaseManager::insertRouteAssignment(
+    const QString& routeId,
+    const QString& sourceSignalId,
+    const QString& destSignalId,
+    const QString& direction,
+    const QStringList& assignedCircuits,
+    const QStringList& overlapCircuits,
+    const QString& state,
+    const QStringList& lockedPointMachines,
+    int priority,
+    const QString& operatorId
+    ) {
+    if (!connected) {
+        logError("insertRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
+        return false;
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+
+    qDebug() << "🚄 SAFETY: Creating route assignment:" << routeId;
+    qDebug() << "   Route:" << sourceSignalId << "→" << destSignalId;
+    qDebug() << "   Direction:" << direction << "State:" << state;
+    qDebug() << "   Priority:" << priority << "Operator:" << operatorId;
+
+    // Validate required parameters
+    if (routeId.isEmpty()) {
+        qWarning() << "❌ Route ID cannot be empty";
+        emit operationBlocked(routeId, "Route ID required");
+        return false;
+    }
+
+    if (sourceSignalId.isEmpty() || destSignalId.isEmpty()) {
+        qWarning() << "❌ Source and destination signal IDs are required";
+        emit operationBlocked(routeId, "Signal IDs required");
+        return false;
+    }
+
+    if (sourceSignalId == destSignalId) {
+        qWarning() << "❌ Source and destination signals cannot be the same";
+        emit operationBlocked(routeId, "Source and destination must be different");
+        return false;
+    }
+
+    if (direction != "UP" && direction != "DOWN") {
+        qWarning() << "❌ Invalid direction:" << direction;
+        emit operationBlocked(routeId, "Invalid direction");
+        return false;
+    }
+
+    if (assignedCircuits.isEmpty()) {
+        qWarning() << "❌ At least one assigned circuit is required";
+        emit operationBlocked(routeId, "Assigned circuits required");
+        return false;
+    }
+
+    if ((priority < 1) || (priority > 1000)) {
+        qWarning() << "❌ Priority must be between 1 and 1000";
+        emit operationBlocked(routeId, "Invalid priority");
+        return false;
+    }
+
+    // Log route details
+    qDebug() << "🚄 Route details:";
+    qDebug() << "   Assigned circuits:" << assignedCircuits.size() << assignedCircuits;
+    qDebug() << "   Overlap circuits:" << overlapCircuits.size() << overlapCircuits;
+    qDebug() << "   Locked point machines:" << lockedPointMachines.size() << lockedPointMachines;
+
+    // Convert QStringList to PostgreSQL array format
+    QString assignedCircuitsArray = "{" + assignedCircuits.join(",") + "}";
+    QString overlapCircuitsArray = overlapCircuits.isEmpty() ? "{}" : "{" + overlapCircuits.join(",") + "}";
+    QString lockedPointMachinesArray = lockedPointMachines.isEmpty() ? "{}" : "{" + lockedPointMachines.join(",") + "}";
+
+    // Database transaction for route assignment creation
+    QSqlQuery query(db);
+
+    if (!db.transaction()) {
+        qWarning() << "❌ Failed to start transaction for route creation:" << db.lastError().text();
+        return false;
+    }
+
+    // ✅ POLICY: Call SQL function instead of direct INSERT
+    query.prepare("SELECT railway_control.insert_route_assignment(?, ?, ?, ?, ?::text[], ?::text[], ?, ?::text[], ?, ?)");
+    query.addBindValue(routeId);
+    query.addBindValue(sourceSignalId);
+    query.addBindValue(destSignalId);
+    query.addBindValue(direction);
+    query.addBindValue(assignedCircuitsArray);
+    query.addBindValue(overlapCircuitsArray);
+    query.addBindValue(state.isEmpty() ? "REQUESTED" : state);
+    query.addBindValue(lockedPointMachinesArray);
+    query.addBindValue(priority);
+    query.addBindValue(operatorId.isEmpty() ? "HMI_USER" : operatorId);
+
+    bool success = false;
+    if (query.exec() && query.next()) {
+        success = query.value(0).toBool();
+        if (success && db.commit()) {
+            // Verify route was created
+            QSqlQuery verifyQuery(db);
+            verifyQuery.prepare(R"(
+                SELECT state, created_at, priority
+                FROM railway_control.route_assignments
+                WHERE id = ?
+            )");
+            verifyQuery.addBindValue(routeId);
+
+            if (verifyQuery.exec() && verifyQuery.next()) {
+                QString verifiedState = verifyQuery.value(0).toString();
+                QString createdAt = verifyQuery.value(1).toString();
+                int verifiedPriority = verifyQuery.value(2).toInt();
+                qDebug() << "✅ SAFETY: Route assignment created";
+                qDebug() << "   ID:" << routeId;
+                qDebug() << "   State:" << verifiedState;
+                qDebug() << "   Created at:" << createdAt;
+                qDebug() << "   Priority:" << verifiedPriority;
+            }
+
+            // Emit success signals
+            emit routeAssignmentInserted(routeId);
+            emit routeAssignmentsChanged();
+
+            qDebug() << "✅ Route assignment creation completed in" << timer.elapsed() << "ms";
+            return true;
+        } else {
+            qWarning() << "❌ Route assignment creation failed:" << query.lastError().text();
+            db.rollback();
+            return false;
+        }
+    } else {
+        qWarning() << "❌ Route assignment query execution failed:" << query.lastError().text();
+        QString errorDetail = query.lastError().text();
+
+        // Enhanced error reporting for common issues
+        if (errorDetail.contains("not found") || errorDetail.contains("not a route signal")) {
+            qWarning() << "🔍 Signal validation failed - check that signals exist and are route signals";
+            emit operationBlocked(routeId, "Invalid signals");
+        } else if (errorDetail.contains("already exists")) {
+            qWarning() << "🔄 Duplicate route detected";
+            emit operationBlocked(routeId, "Route already exists");
+        } else if (errorDetail.contains("do not exist")) {
+            qWarning() << "🛤️ Circuit validation failed";
+            emit operationBlocked(routeId, "Invalid circuits");
+        }
+
+        db.rollback();
+        return false;
+    }
+}
 // ============================================================================
 // ROUTE ASSIGNMENT METHODS IMPLEMENTATION
 // ============================================================================
@@ -2923,7 +3072,7 @@ QVariantList DatabaseManager::getRouteEvents(const QString& routeId, int limitHo
                operator_id, source_component, correlation_id,
                response_time_ms, safety_critical
         FROM railway_control.route_events
-        WHERE route_id = ? 
+        WHERE route_id = ?
           AND event_timestamp >= CURRENT_TIMESTAMP - INTERVAL '%1 hours'
         ORDER BY event_timestamp DESC
     )");

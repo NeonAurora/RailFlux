@@ -315,7 +315,7 @@ CREATE TABLE railway_control.resource_locks (
     expires_at TIMESTAMP WITH TIME ZONE,
     released_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     released_by VARCHAR(100),
-    release_reason VARCHAR(100);
+    release_reason VARCHAR(100),
     is_active BOOLEAN DEFAULT TRUE,
     acquired_by TEXT NOT NULL
 );
@@ -1610,6 +1610,87 @@ BEGIN
                 'safety_critical', safety_critical_param
             ),
             sequence_num
+        );
+    END IF;
+
+    RETURN rows_affected > 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- ROUTE ASSIGNMENT CREATION FUNCTION (Simplified)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION railway_control.insert_route_assignment(
+    route_id_param UUID,
+    source_signal_id_param VARCHAR,
+    dest_signal_id_param VARCHAR,
+    direction_param VARCHAR,
+    assigned_circuits_param TEXT[],
+    overlap_circuits_param TEXT[] DEFAULT '{}',
+    state_param VARCHAR DEFAULT 'REQUESTED',
+    locked_point_machines_param TEXT[] DEFAULT '{}',
+    priority_param INTEGER DEFAULT 100,
+    operator_id_param VARCHAR DEFAULT 'system'
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    rows_affected INTEGER;
+BEGIN
+    -- Set operator context for audit logging
+    PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+    -- Insert route assignment
+    INSERT INTO railway_control.route_assignments (
+        id,
+        source_signal_id,
+        dest_signal_id,
+        direction,
+        assigned_circuits,
+        overlap_circuits,
+        state,
+        locked_point_machines,
+        priority,
+        operator_id,
+        created_at
+    ) VALUES (
+        route_id_param,
+        source_signal_id_param,
+        dest_signal_id_param,
+        direction_param,
+        assigned_circuits_param,
+        COALESCE(overlap_circuits_param, '{}'),
+        state_param,
+        COALESCE(locked_point_machines_param, '{}'),
+        priority_param,
+        operator_id_param,
+        CURRENT_TIMESTAMP
+    );
+
+    GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+    -- Log route creation event
+    IF rows_affected > 0 THEN
+        INSERT INTO railway_control.route_events (
+            route_id,
+            event_type,
+            event_data,
+            operator_id,
+            source_component,
+            safety_critical
+        ) VALUES (
+            route_id_param,
+            'ROUTE_REQUESTED',
+            jsonb_build_object(
+                'source_signal_id', source_signal_id_param,
+                'dest_signal_id', dest_signal_id_param,
+                'direction', direction_param,
+                'assigned_circuits_count', array_length(assigned_circuits_param, 1),
+                'priority', priority_param,
+                'initial_state', state_param
+            ),
+            operator_id_param,
+            'DatabaseManager',
+            TRUE
         );
     END IF;
 
