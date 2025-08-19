@@ -127,6 +127,7 @@ private:
 
     // Heuristic functions
     double calculateHeuristic(const QString& from, const QString& to) const;
+    bool isEdgeAccessible(const GraphEdge& edge, const QVariantMap& pointMachineStates) const;
     double getCircuitDistance(const QString& circuitId1, const QString& circuitId2) const;
 
     // Graph utilities
@@ -137,7 +138,6 @@ private:
     ) const;
     
     QString directionToSide(Direction direction) const;
-    Direction stringToDirection(const QString& directionStr) const;
     
     // Path reconstruction
     QStringList reconstructPath(

@@ -1156,11 +1156,56 @@ RouteAssignmentService::performDestinationScan(
     // Get eligible destination signals based on signal type compatibility
     auto eligibleSignals = getEligibleDestinationSignals(sourceSignalId, direction);
 
+    // **ADD THIS LOGGING BLOCK**
+    qDebug() << "🎯 [SCAN] getEligibleDestinationSignals() returned"
+             << eligibleSignals.size() << "signals for source:" << sourceSignalId
+             << "direction:" << direction;
+    if (eligibleSignals.isEmpty()) {
+        qDebug() << "⚠️ [SCAN] No eligible destination signals found - check is_route_signal filter";
+        return candidates; // Early return for empty list
+    }
+    for (int i = 0; i < qMin(5, eligibleSignals.size()); ++i) {
+        qDebug() << "   📍 Eligible signal" << (i+1) << ":" << eligibleSignals[i];
+    }
+    if (eligibleSignals.size() > 5) {
+        qDebug() << "   📍 ... and" << (eligibleSignals.size() - 5) << "more signals";
+    }
+
     // Evaluate each candidate
     for (const QString& destSignalId : eligibleSignals) {
+        qDebug() << ""; // Empty line for readability
+        qDebug() << "🎯 [EVAL] Starting evaluation for destination:" << destSignalId;
+
         auto candidate = evaluateDestinationReachability(sourceSignalId, destSignalId, direction);
+
+        qDebug() << "🔍 [EVAL] RESULT:" << sourceSignalId << "→" << destSignalId
+                 << "Reachability:" << candidate.reachability
+                 << "Hops:" << candidate.pathSummary.hopCount
+                 << "Weight:" << candidate.pathSummary.estimatedWeight;
+
+        // **ADD DETAILED RESULT LOGGING**
+        if (candidate.reachability == "BLOCKED") {
+            qDebug() << "❌ [EVAL] Block reason:" << candidate.blockedReason;
+            if (!candidate.conflicts.isEmpty()) {
+                qDebug() << "❌ [EVAL] Conflicts:" << candidate.conflicts.size();
+            }
+        } else if (candidate.reachability == "REACHABLE_REQUIRES_PM") {
+            qDebug() << "⚠️ [EVAL] PM actions required:" << candidate.requiredPMActions.size();
+        }
+
         candidates.append(candidate);
     }
+
+    // **ADD SUMMARY LOGGING**
+    int reachableClear = 0, reachableRequiresPM = 0, blocked = 0;
+    for (const auto& candidate : candidates) {
+        if (candidate.reachability == "REACHABLE_CLEAR") reachableClear++;
+        else if (candidate.reachability == "REACHABLE_REQUIRES_PM") reachableRequiresPM++;
+        else blocked++;
+    }
+    qDebug() << "📊 [SCAN] Summary: Clear:" << reachableClear
+             << "RequiresPM:" << reachableRequiresPM
+             << "Blocked:" << blocked;
 
     // Sort candidates: Reachable first, then by hop count, then by weight
     std::sort(candidates.begin(), candidates.end(),
@@ -1171,10 +1216,8 @@ RouteAssignmentService::performDestinationScan(
                       if (reachability == "REACHABLE_REQUIRES_PM") return 1;
                       return 2; // BLOCKED
                   };
-
                   int aPriority = getPriority(a.reachability);
                   int bPriority = getPriority(b.reachability);
-
                   if (aPriority != bPriority) return aPriority < bPriority;
                   if (a.pathSummary.hopCount != b.pathSummary.hopCount)
                       return a.pathSummary.hopCount < b.pathSummary.hopCount;
@@ -1197,7 +1240,7 @@ QStringList RouteAssignmentService::getEligibleDestinationSignals(
     auto sourceSignal = m_dbManager->getSignalById(sourceSignalId);
     if (sourceSignal.isEmpty()) return eligible;
 
-    QString sourceType = sourceSignal["signal_type"].toString();
+    QString sourceType = sourceSignal["type"].toString();
 
     // Define signal type compatibility matrix (from technical draft)
     QMap<QString, QStringList> compatibilityMatrix;
@@ -1272,20 +1315,33 @@ RouteAssignmentService::evaluateDestinationReachability(
     candidate.destSignalId = destSignalId;
     candidate.direction = direction;
 
+    QVariantMap currentPMStates;
+
+    if(m_dbManager) {
+        currentPMStates = m_dbManager->getAllPointMachineStates();
+    }
+
+    // **ADD ENTRY LOGGING**
+    qDebug() << "🔍 [REACH] Evaluating" << sourceSignalId << "→" << destSignalId;
+
     // Get signal info for display name
     auto destSignal = m_dbManager->getSignalById(destSignalId);
     if (!destSignal.isEmpty()) {
         candidate.displayName = QString("%1 (%2)")
-        .arg(destSignal["signal_name"].toString())
-            .arg(destSignal["signal_type_name"].toString());
+        .arg(destSignal["name"].toString())  // Fixed: use "name" not "signal_name"
+            .arg(destSignal["typeName"].toString());  // Fixed: use "typeName"
     }
 
     // Get start and goal circuits
     auto sourceSignal = m_dbManager->getSignalById(sourceSignalId);
-    QString startCircuit = sourceSignal["succeeded_by_circuit_id"].toString();
-    QString goalCircuit = destSignal["preceded_by_circuit_id"].toString();
+    QString startCircuit = sourceSignal["succeededByCircuitId"].toString();  // Fixed: use camelCase key
+    QString goalCircuit = destSignal["precededByCircuitId"].toString();      // Fixed: use camelCase key
+
+    // **ADD CIRCUIT LOGGING**
+    qDebug() << "🔍 [REACH] Circuits: start=" << startCircuit << "goal=" << goalCircuit;
 
     if (startCircuit.isEmpty() || goalCircuit.isEmpty()) {
+        qDebug() << "❌ [REACH] BLOCKED: Missing circuit topology";
         candidate.reachability = "BLOCKED";
         candidate.blockedReason = "INCOMPLETE_TOPOLOGY";
         return candidate;
@@ -1293,30 +1349,55 @@ RouteAssignmentService::evaluateDestinationReachability(
 
     // Use GraphService to find path and check reachability
     if (!m_graphService) {
+        qDebug() << "❌ [REACH] BLOCKED: GraphService unavailable";
         candidate.reachability = "BLOCKED";
         candidate.blockedReason = "PATHFINDING_UNAVAILABLE";
         return candidate;
     }
 
+    // **ADD PATHFINDING ATTEMPT LOGGING**
+    qDebug() << "🔍 [REACH] Calling GraphService::findRoute()";
+
     // Call the correct GraphService method
     auto pathResult = m_graphService->findRoute(
         startCircuit, goalCircuit,
         direction,  // String, not enum
-        QVariantMap(),  // Empty PM states for now
+        currentPMStates,  // Empty PM states for now
         500  // 500ms timeout
         );
 
-    if (!pathResult.value("success", false).toBool()) {
-        candidate.reachability = "BLOCKED";
-        candidate.blockedReason = "NO_PATH_FOUND";
-        return candidate;
+    // **ADD PATHFINDING RESULT LOGGING**
+    bool pathSuccess = pathResult.value("success", false).toBool();
+    qDebug() << "🔍 [REACH] PathResult: success=" << pathSuccess
+             << "keys=" << pathResult.keys();
+
+    // After successful pathfinding, check if PM movements are required
+    if (pathSuccess) {
+        auto path = pathResult.value("path").toStringList();
+
+        // Check if any PM movements are required for this path
+        QStringList requiredPMMovements = analyzeRequiredPMMovements(path, direction, currentPMStates);
+
+        if (!requiredPMMovements.isEmpty()) {
+            qDebug() << "🔄 [REACH] Path requires PM movements:" << requiredPMMovements;
+            candidate.reachability = "REACHABLE_REQUIRES_PM";
+            candidate.requiredPMActions = requiredPMMovements;
+        } else {
+            qDebug() << "✅ [REACH] Path is clear (no PM movements needed)";
+            candidate.reachability = "REACHABLE_CLEAR";
+        }
     }
 
     auto path = pathResult.value("path").toStringList();
     candidate.pathSummary.hopCount = path.size();
     candidate.pathSummary.estimatedWeight = pathResult.value("cost", 0.0).toDouble();
 
-    // Create preview of path (first few + last circuit) - FIXED
+    // **ADD PATH DETAILS LOGGING**
+    qDebug() << "✅ [REACH] Path found: hops=" << path.size()
+             << "weight=" << candidate.pathSummary.estimatedWeight
+             << "path=" << path.join(" → ");
+
+    // Create preview of path (first few + last circuit)
     if (path.size() <= 3) {
         candidate.pathSummary.circuitsPreview = path;
     } else {
@@ -1325,21 +1406,44 @@ RouteAssignmentService::evaluateDestinationReachability(
         candidate.pathSummary.circuitsPreview = preview;
     }
 
-    // Check for clearance issues and required PM actions
+    // **ADD CLEARANCE CHECK LOGGING**
+    qDebug() << "🔍 [REACH] Checking path clearance...";
     auto clearanceCheck = checkPathClearance(path);
 
     if (!clearanceCheck.isCleared) {
+        qDebug() << "❌ [REACH] BLOCKED: Clearance failed -" << clearanceCheck.blockReason;
         candidate.reachability = "BLOCKED";
         candidate.blockedReason = clearanceCheck.blockReason;
         candidate.conflicts = clearanceCheck.conflicts;
     } else if (!clearanceCheck.requiredPMActions.isEmpty()) {
+        qDebug() << "⚠️ [REACH] REACHABLE_REQUIRES_PM: PM actions needed -" << clearanceCheck.requiredPMActions.size();
         candidate.reachability = "REACHABLE_REQUIRES_PM";
         candidate.requiredPMActions = clearanceCheck.requiredPMActions;
     } else {
+        qDebug() << "✅ [REACH] REACHABLE_CLEAR: Path is clear";
         candidate.reachability = "REACHABLE_CLEAR";
     }
 
     return candidate;
+}
+
+QStringList RouteAssignmentService::analyzeRequiredPMMovements(
+    const QStringList& path,
+    const QString& direction,
+    const QVariantMap& currentPMStates) {
+
+    QStringList requiredMovements;
+
+    // Analyze each hop in the path for PM requirements
+    for (int i = 0; i < path.size() - 1; ++i) {
+        QString fromCircuit = path[i];
+        QString toCircuit = path[i + 1];
+
+        // Find the edge for this hop and check PM requirements
+        // Implementation details...
+    }
+
+    return requiredMovements;
 }
 
 QString RouteAssignmentService::determineSignalDirection(const QString& signalId) {

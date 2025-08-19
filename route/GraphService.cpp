@@ -213,62 +213,109 @@ QVariantMap GraphService::findRoute(
     const QString& direction,
     const QVariantMap& pointMachineStates,
     int timeoutMs
-) {
+    ) {
     QElapsedTimer timer;
     timer.start();
-    
+
     m_totalPathfindingCalls++;
 
+    // **ADD DETAILED ENTRY LOGGING**
+    qDebug() << "🔍 [GRAPH] findRoute() called:";
+    qDebug() << "   📍 Start:" << startCircuitId << "Goal:" << goalCircuitId;
+    qDebug() << "   📍 Direction:" << direction;
+    qDebug() << "   📍 PM States provided:" << pointMachineStates.keys()
+             << (pointMachineStates.isEmpty() ? "(EMPTY - might block conditional edges!)" : "");
+    qDebug() << "   📍 Graph loaded:" << m_isLoaded << "Circuits:" << m_circuitNodes.size() << "Edges:" << m_edges.size();
+
     if (!m_isLoaded) {
+        qDebug() << "❌ [GRAPH] Graph not loaded";
         return QVariantMap{
             {"success", false},
             {"error", "Graph not loaded"},
             {"path", QStringList()},
             {"cost", 0.0},
-            {"timeMs", 0.0}
+            {"timeMs", 0.0},
+            {"nodesExplored", 0}
         };
     }
 
     if (startCircuitId == goalCircuitId) {
+        qDebug() << "✅ [GRAPH] Same start/goal - trivial path";
         return QVariantMap{
             {"success", true},
             {"path", QStringList{startCircuitId}},
             {"cost", 0.0},
-            {"timeMs", timer.elapsed()}
+            {"timeMs", timer.elapsed()},
+            {"nodesExplored", 0}
         };
     }
 
     // Validate circuit existence
     if (!m_circuitNodes.contains(startCircuitId)) {
+        qDebug() << "❌ [GRAPH] Start circuit not found:" << startCircuitId;
+        qDebug() << "   📍 Available circuits:" << m_circuitNodes.keys().mid(0, 10); // First 10
         return QVariantMap{
             {"success", false},
             {"error", QString("Start circuit not found: %1").arg(startCircuitId)},
             {"path", QStringList()},
             {"cost", 0.0},
-            {"timeMs", timer.elapsed()}
+            {"timeMs", timer.elapsed()},
+            {"nodesExplored", 0}
         };
     }
 
     if (!m_circuitNodes.contains(goalCircuitId)) {
+        qDebug() << "❌ [GRAPH] Goal circuit not found:" << goalCircuitId;
         return QVariantMap{
             {"success", false},
             {"error", QString("Goal circuit not found: %1").arg(goalCircuitId)},
             {"path", QStringList()},
             {"cost", 0.0},
-            {"timeMs", timer.elapsed()}
+            {"timeMs", timer.elapsed()},
+            {"nodesExplored", 0}
         };
     }
 
+    // **ADD AVAILABLE EDGES LOGGING FOR START CIRCUIT**
+    qDebug() << "🔍 [GRAPH] Available edges FROM" << startCircuitId << ":";
+    int availableCount = 0;
+    for (const auto& edge : m_edges) {
+        if (edge.fromCircuitId == startCircuitId) {
+            QString pmInfo = edge.conditionPmId.isEmpty() ?
+                                 "unconditional" :
+                                 QString("PM:%1=%2").arg(edge.conditionPmId, edge.conditionPosition);
+            qDebug() << "   🔗" << edge.fromCircuitId << "→" << edge.toCircuitId
+                     << "side:" << edge.side << pmInfo << "weight:" << edge.weight;
+            availableCount++;
+        }
+    }
+    qDebug() << "📊 [GRAPH] Total available edges from" << startCircuitId << ":" << availableCount;
+
     // Perform A* pathfinding
-    Direction dir = stringToDirection(direction);
+    Direction dir = (direction.toUpper() == "DOWN") ? Direction::DOWN : Direction::UP; // **SIMPLIFIED**
+
+    qDebug() << "🔍 [GRAPH] Starting A* pathfinding...";
     PathfindingResult result = findPathAStar(startCircuitId, goalCircuitId, dir, pointMachineStates, timeoutMs);
-    
+
     double totalTimeMs = timer.elapsed();
     m_lastPathfindingTimeMs = totalTimeMs;
     m_totalPathfindingTime += totalTimeMs;
-    
+
+    // **ADD RESULT LOGGING**
+    qDebug() << "📊 [GRAPH] A* completed in" << totalTimeMs << "ms";
+    qDebug() << "📊 [GRAPH] Result: success=" << result.success
+             << "nodes explored=" << result.nodesExplored;
+
     if (result.success) {
         m_successfulPaths++;
+        qDebug() << "✅ [GRAPH] Path found:" << result.path.join(" → ");
+        qDebug() << "✅ [GRAPH] Total cost:" << result.totalCost;
+    } else {
+        qDebug() << "❌ [GRAPH] No path found. Error:" << result.error;
+        qDebug() << "❌ [GRAPH] Possible causes:";
+        qDebug() << "   - Missing PM states for conditional edges";
+        qDebug() << "   - Direction mismatch (need" << direction << "edges)";
+        qDebug() << "   - Disconnected graph topology";
     }
 
     // Log performance warnings
@@ -405,23 +452,79 @@ GraphService::PathfindingResult GraphService::findPathAStar(
 QStringList GraphService::getViableNeighbors(
     const QString& circuitId,
     Direction direction,
-    const QVariantMap& pmStates
-) const {
+    const QVariantMap& pointMachineStates
+    ) const {
     QStringList neighbors;
-    
-    if (!m_adjacencyMap.contains(circuitId)) {
-        return neighbors;
-    }
 
-    QString targetSide = directionToSide(direction);
-    
-    for (const GraphEdge* edge : m_adjacencyMap[circuitId]) {
-        if (edge->side == targetSide && edge->isViable(pmStates)) {
-            neighbors.append(edge->toCircuitId);
+    QString targetSide = (direction == Direction::UP) ? "RIGHT" : "LEFT";
+
+    for (const auto& edge : m_edges) {
+        if (edge.fromCircuitId == circuitId &&
+            edge.side == targetSide &&
+            edge.isActive) {
+
+            // **USE NEW ACCESSIBILITY CHECK**
+            if (isEdgeAccessible(edge, pointMachineStates)) {
+                neighbors.append(edge.toCircuitId);
+
+                // Log edge usage reason
+                if (!edge.conditionPmId.isEmpty()) {
+                    QVariantMap pmData = pointMachineStates[edge.conditionPmId].toMap();
+                    QString currentPos = pmData["current_position"].toString();
+                    bool isMoveable = pmData["is_moveable"].toBool();
+
+                    if (currentPos == edge.conditionPosition) {
+                        qDebug() << "✅ [GRAPH] Using edge (current PM position):"
+                                 << edge.fromCircuitId << "→" << edge.toCircuitId;
+                    } else if (isMoveable) {
+                        qDebug() << "🔄 [GRAPH] Using edge (PM will be moved):"
+                                 << edge.fromCircuitId << "→" << edge.toCircuitId
+                                 << "PM" << edge.conditionPmId << ":" << currentPos << "→" << edge.conditionPosition;
+                    }
+                }
+            }
         }
     }
 
     return neighbors;
+}
+
+// Add this helper function to GraphService class
+bool GraphService::isEdgeAccessible(const GraphEdge& edge, const QVariantMap& pointMachineStates) const {
+    // Unconditional edges are always accessible
+    if (edge.conditionPmId.isEmpty()) {
+        return true;
+    }
+
+    // Check if PM data exists
+    if (!pointMachineStates.contains(edge.conditionPmId)) {
+        qDebug() << "?? [GRAPH] Missing PM data for:" << edge.conditionPmId;
+        return false;
+    }
+
+    QVariantMap pmData = pointMachineStates[edge.conditionPmId].toMap();
+    QString currentPosition = pmData["current_position"].toString();
+    bool isMoveable = pmData["is_moveable"].toBool();
+
+    // Edge is accessible if:
+    // 1. PM is already in required position, OR
+    // 2. PM can be moved to required position
+    bool isCurrentPosition = (currentPosition == edge.conditionPosition);
+    bool canBeMoved = isMoveable;
+
+    bool accessible = isCurrentPosition || canBeMoved;
+
+    if (!accessible) {
+        qDebug() << "?? [GRAPH] Edge blocked:" << edge.fromCircuitId << "?" << edge.toCircuitId
+                 << "requires PM" << edge.conditionPmId << "=" << edge.conditionPosition
+                 << "but current=" << currentPosition << "moveable=" << canBeMoved;
+    } else if (!isCurrentPosition && canBeMoved) {
+        qDebug() << "?? [GRAPH] Edge accessible via PM movement:" << edge.fromCircuitId << "?" << edge.toCircuitId
+                 << "PM" << edge.conditionPmId << "can move from" << currentPosition
+                 << "to" << edge.conditionPosition;
+    }
+
+    return accessible;
 }
 
 double GraphService::calculateHeuristic(const QString& from, const QString& to) const {
@@ -470,19 +573,12 @@ QString GraphService::directionToSide(Direction direction) const {
     }
 }
 
-Direction GraphService::stringToDirection(const QString& directionStr) const {
-    if (directionStr.toUpper() == "DOWN") {
-        return Direction::DOWN;
-    }
-    return Direction::UP; // Default to UP
-}
-
 QStringList GraphService::getNeighbors(
     const QString& circuitId,
     const QString& direction,
     const QVariantMap& pointMachineStates
-) const {
-    Direction dir = stringToDirection(direction);
+    ) const {
+    Direction dir = (direction.toUpper() == "DOWN") ? Direction::DOWN : Direction::UP;
     return getViableNeighbors(circuitId, dir, pointMachineStates);
 }
 

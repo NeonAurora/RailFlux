@@ -3998,7 +3998,7 @@ QJsonArray DatabaseInitializer::getHomeSignalsData() {
 QJsonArray DatabaseInitializer::getStarterSignalsData() {
     return QJsonArray {
         QJsonObject{
-            {"id", "ST001"}, {"name", "Starter A2"}, {"type", "STARTER"},
+            {"id", "ST001"}, {"name", "Starter A1"}, {"type", "STARTER"},
             {"row", 103}, {"col", 217}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
@@ -4006,7 +4006,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         },
         QJsonObject{
-            {"id", "ST002"}, {"name", "Starter A1"}, {"type", "STARTER"},
+            {"id", "ST002"}, {"name", "Starter A2"}, {"type", "STARTER"},
             {"row", 83}, {"col", 220}, {"direction", "UP"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "YELLOW"}},
@@ -4014,7 +4014,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"isActive", true}, {"location", "Platform_A_Departure"}
         },
         QJsonObject{
-            {"id", "ST003"}, {"name", "Starter B2"}, {"type", "STARTER"},
+            {"id", "ST003"}, {"name", "Starter B1"}, {"type", "STARTER"},
             {"row", 115}, {"col", 152}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 3},
             {"possibleAspects", QJsonArray{"RED", "YELLOW", "GREEN"}},
@@ -4022,7 +4022,7 @@ QJsonArray DatabaseInitializer::getStarterSignalsData() {
             {"isActive", true}, {"location", "Platform_A_Main_Departure"}
         },
         QJsonObject{
-            {"id", "ST004"}, {"name", "Starter B1"}, {"type", "STARTER"},
+            {"id", "ST004"}, {"name", "Starter B2"}, {"type", "STARTER"},
             {"row", 91}, {"col", 150}, {"direction", "DOWN"},
             {"currentAspect", "RED"}, {"aspectCount", 2},
             {"possibleAspects", QJsonArray{"RED", "YELLOW"}},

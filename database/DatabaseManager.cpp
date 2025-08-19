@@ -1814,7 +1814,7 @@ QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
     signal["col"] = query.value("col").toDouble();
     signal["direction"] = query.value("direction").toString();
     signal["isActive"] = query.value("is_active").toBool();
-    signal["location"] = query.value("location_description").toString();
+    signal["location"] = query.value("location").toString();
 
     // ✅ ASPECT INFORMATION
     signal["currentAspect"] = query.value("current_aspect").toString();
@@ -2156,10 +2156,35 @@ QString DatabaseManager::getCircuitIdByTrackSegmentId(const QString& trackSegmen
 
 QVariantMap DatabaseManager::getAllPointMachineStates() {
     QVariantMap states;
-    QSqlQuery query("SELECT machine_id, current_position_id FROM railway_control.point_machines", db);
+
+    QSqlQuery query(db);
+    query.exec(R"(
+        SELECT machine_id, current_position, availability_status, is_locked
+        FROM railway_control.v_point_machines_complete
+        WHERE operating_status != 'FAILED'
+          AND operating_status != 'MAINTENANCE'
+    )");
+
     while (query.next()) {
-        states[query.value(0).toString()] = query.value(1).toString();
+        QString machineId = query.value("machine_id").toString();
+        QString positionCode = query.value("current_position").toString();
+        QString availabilityStatus = query.value("availability_status").toString();
+        bool isLocked = query.value("is_locked").toBool();
+
+        // Store both current position and availability
+        QVariantMap pmData;
+        pmData["current_position"] = positionCode;
+        pmData["availability_status"] = availabilityStatus;
+        pmData["is_moveable"] = (availabilityStatus == "AVAILABLE" && !isLocked);
+
+        states[machineId] = pmData;
+
+        qDebug() << "🔧 [PM]" << machineId << "=" << positionCode
+                 << "availability:" << availabilityStatus
+                 << "moveable:" << pmData["is_moveable"].toBool();
     }
+
+    qDebug() << "🔧 [PM] Total PM states loaded:" << states.size();
     return states;
 }
 

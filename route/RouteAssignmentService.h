@@ -294,6 +294,7 @@ private:
     // Reactive updates from database
     void handleTrackOccupancyChange(const QString& circuitId, bool isOccupied);
     void handlePointMachinePositionChange(const QString& machineId, const QString& position);
+    QStringList analyzeRequiredPMMovements(const QStringList& path, const QString& direction, const QVariantMap& currentPMStates);
 
     // Utility methods
     QString generateRequestId() const;
