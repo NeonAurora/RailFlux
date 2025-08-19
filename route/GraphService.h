@@ -61,6 +61,7 @@ public:
     int totalEdges() const { return m_edges.size(); }
     int totalCircuits() const { return m_circuitNodes.size(); }
     double lastPathfindingTimeMs() const { return m_lastPathfindingTimeMs; }
+    QVariantMap getEdgeInfo(const QString& fromCircuit, const QString& toCircuit, const QString& side) const;
 
     // Main pathfinding API
     Q_INVOKABLE QVariantMap findRoute(

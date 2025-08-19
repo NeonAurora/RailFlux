@@ -749,8 +749,11 @@ Rectangle {
     function formatPathPreview(pathSummary) {
         if (!pathSummary || !pathSummary.circuits_preview) return ""
 
+        // Handle invalid/blocked paths
+        if (pathSummary.hop_count < 0) return "No path available"
+
         var preview = pathSummary.circuits_preview.join(" → ")
-        return preview + " (" + (pathSummary.hop_count || 0) + " hops)"
+        return preview + " (" + pathSummary.hop_count + " hops)"
     }
 
     function formatPMActions(pmActions) {

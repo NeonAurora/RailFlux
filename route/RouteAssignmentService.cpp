@@ -1106,11 +1106,13 @@ QVariantMap RouteAssignmentService::scanDestinationSignals(
 
     // Validate source signal
     if (!m_dbManager) {
+        qWarning() << "❌ [SCAN] Database manager not available";
         return QVariantMap{{"error", "Database manager not available"}};
     }
 
     auto sourceSignal = m_dbManager->getSignalById(sourceSignalId);
     if (sourceSignal.isEmpty()) {
+        qWarning() << "❌ [SCAN] Source signal not found:" << sourceSignalId;
         return QVariantMap{{"error", "Source signal not found: " + sourceSignalId}};
     }
 
@@ -1118,22 +1120,47 @@ QVariantMap RouteAssignmentService::scanDestinationSignals(
     QString actualDirection = direction;
     if (direction == "AUTO") {
         actualDirection = determineSignalDirection(sourceSignalId);
+        qDebug() << "🔍 [SCAN] Auto-determined direction:" << actualDirection;
     }
 
     if (actualDirection != "UP" && actualDirection != "DOWN") {
+        qWarning() << "❌ [SCAN] Invalid direction:" << actualDirection;
         return QVariantMap{{"error", "Invalid direction: " + actualDirection}};
     }
 
     // Perform scan
+    qDebug() << "🔍 [SCAN] Starting destination scan...";
     auto candidates = performDestinationScan(sourceSignalId, actualDirection);
+
+    // Count different types before filtering
+    int totalCandidates = candidates.size();
+    int reachableClear = 0, reachableRequiresPM = 0, blocked = 0, invalid = 0;
+
+    for (const auto& candidate : candidates) {
+        if (candidate.reachability == "REACHABLE_CLEAR") reachableClear++;
+        else if (candidate.reachability == "REACHABLE_REQUIRES_PM") reachableRequiresPM++;
+        else if (candidate.reachability == "BLOCKED") blocked++;
+
+        // Count invalid paths (safety check)
+        if (candidate.pathSummary.hopCount < 0) invalid++;
+    }
+
+    qDebug() << "📊 [SCAN] Pre-filter summary: Total:" << totalCandidates
+             << "Clear:" << reachableClear << "RequiresPM:" << reachableRequiresPM
+             << "Blocked:" << blocked << "Invalid:" << invalid;
 
     // Filter out blocked candidates if requested
     if (!includeBlocked) {
+        int originalSize = candidates.size();
         candidates.erase(
             std::remove_if(candidates.begin(), candidates.end(),
-                           [](const DestinationCandidate& c) { return c.reachability == "BLOCKED"; }),
+                           [](const DestinationCandidate& c) {
+                               return c.reachability == "BLOCKED";
+                           }),
             candidates.end()
             );
+        qDebug() << "🔍 [SCAN] Filtered out" << (originalSize - candidates.size())
+                 << "blocked candidates";
     }
 
     // Format results
@@ -1142,6 +1169,17 @@ QVariantMap RouteAssignmentService::scanDestinationSignals(
     results["source_signal_id"] = sourceSignalId;
     results["direction"] = actualDirection;
     results["total_candidates"] = candidates.size();
+
+    // Add summary statistics for monitoring
+    results["summary_stats"] = QVariantMap{
+        {"reachable_clear", reachableClear},
+        {"reachable_requires_pm", reachableRequiresPM},
+        {"blocked", blocked},
+        {"invalid_paths", invalid}  // Safety monitoring
+    };
+
+    qDebug() << "✅ [SCAN] Scan completed in" << scanTimer.elapsed() << "ms"
+             << "- returning" << candidates.size() << "candidates";
 
     return results;
 }
@@ -1362,7 +1400,7 @@ RouteAssignmentService::evaluateDestinationReachability(
     auto pathResult = m_graphService->findRoute(
         startCircuit, goalCircuit,
         direction,  // String, not enum
-        currentPMStates,  // Empty PM states for now
+        currentPMStates,  // Current PM states
         500  // 500ms timeout
         );
 
@@ -1371,78 +1409,163 @@ RouteAssignmentService::evaluateDestinationReachability(
     qDebug() << "🔍 [REACH] PathResult: success=" << pathSuccess
              << "keys=" << pathResult.keys();
 
-    // After successful pathfinding, check if PM movements are required
+    // SAFETY CRITICAL: Handle pathfinding result properly
     if (pathSuccess) {
         auto path = pathResult.value("path").toStringList();
 
+        // Validate that we actually got a path
+        if (path.isEmpty()) {
+            qDebug() << "❌ [REACH] BLOCKED: Empty path despite success flag";
+            candidate.reachability = "BLOCKED";
+            candidate.blockedReason = "EMPTY_PATH_RETURNED";
+            return candidate;
+        }
+
         // Check if any PM movements are required for this path
-        QStringList requiredPMMovements = analyzeRequiredPMMovements(path, direction, currentPMStates);
+        auto requiredPMMovements = analyzeRequiredPMMovements(path, direction, currentPMStates);
 
         if (!requiredPMMovements.isEmpty()) {
-            qDebug() << "🔄 [REACH] Path requires PM movements:" << requiredPMMovements;
+            qDebug() << "🔄 [REACH] Path requires PM movements:" << requiredPMMovements.size();
             candidate.reachability = "REACHABLE_REQUIRES_PM";
             candidate.requiredPMActions = requiredPMMovements;
         } else {
             qDebug() << "✅ [REACH] Path is clear (no PM movements needed)";
             candidate.reachability = "REACHABLE_CLEAR";
         }
-    }
 
-    auto path = pathResult.value("path").toStringList();
-    candidate.pathSummary.hopCount = path.size();
-    candidate.pathSummary.estimatedWeight = pathResult.value("cost", 0.0).toDouble();
+        // Set valid path metrics
+        candidate.pathSummary.hopCount = path.size();
+        candidate.pathSummary.estimatedWeight = pathResult.value("cost", 0.0).toDouble();
 
-    // **ADD PATH DETAILS LOGGING**
-    qDebug() << "✅ [REACH] Path found: hops=" << path.size()
-             << "weight=" << candidate.pathSummary.estimatedWeight
-             << "path=" << path.join(" → ");
+        // **ADD PATH DETAILS LOGGING**
+        qDebug() << "✅ [REACH] Path found: hops=" << path.size()
+                 << "weight=" << candidate.pathSummary.estimatedWeight
+                 << "path=" << path.join(" → ");
 
-    // Create preview of path (first few + last circuit)
-    if (path.size() <= 3) {
-        candidate.pathSummary.circuitsPreview = path;
+        // Create preview of path (first few + last circuit)
+        if (path.size() <= 3) {
+            candidate.pathSummary.circuitsPreview = path;
+        } else {
+            QStringList preview;
+            preview << path[0] << path[1] << "..." << path.last();
+            candidate.pathSummary.circuitsPreview = preview;
+        }
+
+        // **ADD CLEARANCE CHECK LOGGING**
+        qDebug() << "🔍 [REACH] Checking path clearance...";
+        auto clearanceCheck = checkPathClearance(path);
+
+        if (!clearanceCheck.isCleared) {
+            qDebug() << "❌ [REACH] BLOCKED: Clearance failed -" << clearanceCheck.blockReason;
+            candidate.reachability = "BLOCKED";
+            candidate.blockedReason = clearanceCheck.blockReason;
+            candidate.conflicts = clearanceCheck.conflicts;
+        } else if (!clearanceCheck.requiredPMActions.isEmpty()) {
+            qDebug() << "⚠️ [REACH] REACHABLE_REQUIRES_PM: PM actions needed -" << clearanceCheck.requiredPMActions.size();
+            candidate.reachability = "REACHABLE_REQUIRES_PM";
+            candidate.requiredPMActions = clearanceCheck.requiredPMActions;
+        } else {
+            qDebug() << "✅ [REACH] REACHABLE_CLEAR: Path is clear";
+            candidate.reachability = "REACHABLE_CLEAR";
+        }
+
     } else {
-        QStringList preview;
-        preview << path[0] << path[1] << "..." << path.last();
-        candidate.pathSummary.circuitsPreview = preview;
-    }
+        // SAFETY: Pathfinding failed - mark as blocked immediately
+        QString pathError = pathResult.value("error", "Unknown pathfinding error").toString();
+        qDebug() << "❌ [REACH] BLOCKED: Pathfinding failed -" << pathError;
 
-    // **ADD CLEARANCE CHECK LOGGING**
-    qDebug() << "🔍 [REACH] Checking path clearance...";
-    auto clearanceCheck = checkPathClearance(path);
-
-    if (!clearanceCheck.isCleared) {
-        qDebug() << "❌ [REACH] BLOCKED: Clearance failed -" << clearanceCheck.blockReason;
         candidate.reachability = "BLOCKED";
-        candidate.blockedReason = clearanceCheck.blockReason;
-        candidate.conflicts = clearanceCheck.conflicts;
-    } else if (!clearanceCheck.requiredPMActions.isEmpty()) {
-        qDebug() << "⚠️ [REACH] REACHABLE_REQUIRES_PM: PM actions needed -" << clearanceCheck.requiredPMActions.size();
-        candidate.reachability = "REACHABLE_REQUIRES_PM";
-        candidate.requiredPMActions = clearanceCheck.requiredPMActions;
-    } else {
-        qDebug() << "✅ [REACH] REACHABLE_CLEAR: Path is clear";
-        candidate.reachability = "REACHABLE_CLEAR";
+        candidate.blockedReason = QString("NO_PATH_FOUND: %1").arg(pathError);
+
+        // Set invalid metrics to clearly indicate no valid path
+        candidate.pathSummary.hopCount = -1;  // -1 indicates invalid/no path
+        candidate.pathSummary.estimatedWeight = -1.0;  // -1 indicates invalid/no path
+        candidate.pathSummary.circuitsPreview.clear();
+
+        // Do NOT call checkPathClearance() with empty/invalid path
+        qDebug() << "❌ [REACH] Skipping clearance check - no valid path to check";
     }
 
     return candidate;
 }
 
-QStringList RouteAssignmentService::analyzeRequiredPMMovements(
+QList<RouteAssignmentService::DestinationCandidate::RequiredPMAction>
+RouteAssignmentService::analyzeRequiredPMMovements(
     const QStringList& path,
     const QString& direction,
     const QVariantMap& currentPMStates) {
 
-    QStringList requiredMovements;
+    QList<DestinationCandidate::RequiredPMAction> requiredMovements;
+
+    if (!m_graphService || path.size() < 2) {
+        return requiredMovements;
+    }
+
+    // Get the target side for the direction
+    QString targetSide = (direction.toUpper() == "DOWN") ? "LEFT" : "RIGHT";
 
     // Analyze each hop in the path for PM requirements
     for (int i = 0; i < path.size() - 1; ++i) {
         QString fromCircuit = path[i];
         QString toCircuit = path[i + 1];
 
-        // Find the edge for this hop and check PM requirements
-        // Implementation details...
+        qDebug() << "🔍 [PM_ANALYSIS] Analyzing hop:" << fromCircuit << "→" << toCircuit;
+
+        // Find the edge for this hop
+        QString requiredPM;
+        QString requiredPosition;
+        bool edgeFound = false;
+
+        // Access edges through GraphService (you may need to add a getter method)
+        // For now, let's assume we can get edge information
+        auto edgeInfo = m_graphService->getEdgeInfo(fromCircuit, toCircuit, targetSide);
+
+        if (edgeInfo.contains("condition_pm_id") && !edgeInfo["condition_pm_id"].toString().isEmpty()) {
+            requiredPM = edgeInfo["condition_pm_id"].toString();
+            requiredPosition = edgeInfo["condition_position"].toString();
+            edgeFound = true;
+
+            qDebug() << "🔍 [PM_ANALYSIS] Edge requires PM:" << requiredPM << "=" << requiredPosition;
+
+            // Check current PM state
+            if (currentPMStates.contains(requiredPM)) {
+                QVariantMap pmData = currentPMStates[requiredPM].toMap();
+                QString currentPosition = pmData["current_position"].toString();
+
+                // If current position doesn't match required position
+                if (currentPosition != requiredPosition) {
+                    DestinationCandidate::RequiredPMAction action;
+                    action.machineId = requiredPM;
+                    action.currentPosition = currentPosition;
+                    action.targetPosition = requiredPosition;
+
+                    // Check if this PM action is already in the list (avoid duplicates)
+                    bool alreadyExists = false;
+                    for (const auto& existing : requiredMovements) {
+                        if (existing.machineId == requiredPM &&
+                            existing.targetPosition == requiredPosition) {
+                            alreadyExists = true;
+                            break;
+                        }
+                    }
+
+                    if (!alreadyExists) {
+                        requiredMovements.append(action);
+                        qDebug() << "➕ [PM_ANALYSIS] Added PM movement:" << requiredPM
+                                 << currentPosition << "→" << requiredPosition;
+                    }
+                }
+            } else {
+                qWarning() << "⚠️ [PM_ANALYSIS] PM state not found for:" << requiredPM;
+            }
+        }
+
+        if (!edgeFound) {
+            qDebug() << "🔍 [PM_ANALYSIS] No PM condition for hop:" << fromCircuit << "→" << toCircuit;
+        }
     }
 
+    qDebug() << "📊 [PM_ANALYSIS] Total PM movements required:" << requiredMovements.size();
     return requiredMovements;
 }
 

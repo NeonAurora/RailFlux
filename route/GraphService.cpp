@@ -527,6 +527,26 @@ bool GraphService::isEdgeAccessible(const GraphEdge& edge, const QVariantMap& po
     return accessible;
 }
 
+QVariantMap GraphService::getEdgeInfo(const QString& fromCircuit, const QString& toCircuit, const QString& side) const {
+    QVariantMap edgeInfo;
+
+    for (const auto& edge : m_edges) {
+        if (edge.fromCircuitId == fromCircuit &&
+            edge.toCircuitId == toCircuit &&
+            edge.side == side &&
+            edge.isActive) {
+
+            edgeInfo["condition_pm_id"] = edge.conditionPmId;
+            edgeInfo["condition_position"] = edge.conditionPosition;
+            edgeInfo["weight"] = edge.weight;
+            edgeInfo["side"] = edge.side;
+            break;
+        }
+    }
+
+    return edgeInfo;
+}
+
 double GraphService::calculateHeuristic(const QString& from, const QString& to) const {
     return getCircuitDistance(from, to);
 }

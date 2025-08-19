@@ -78,9 +78,9 @@ public:
         QString blockedReason; // OCCUPIED, RESERVED, LOCKED_PM, etc.
 
         struct PathSummary {
-            int hopCount = 0;
+            int hopCount = -1;           // -1 indicates no valid path, 0+ indicates valid path
             QStringList circuitsPreview; // First few + last circuit
-            double estimatedWeight = 0.0;
+            double estimatedWeight = -1.0; // -1 indicates no valid path, 0+ indicates valid weight
         } pathSummary;
 
         struct RequiredPMAction {
@@ -294,7 +294,7 @@ private:
     // Reactive updates from database
     void handleTrackOccupancyChange(const QString& circuitId, bool isOccupied);
     void handlePointMachinePositionChange(const QString& machineId, const QString& position);
-    QStringList analyzeRequiredPMMovements(const QStringList& path, const QString& direction, const QVariantMap& currentPMStates);
+    QList<DestinationCandidate::RequiredPMAction> analyzeRequiredPMMovements(const QStringList& path, const QString& direction, const QVariantMap& currentPMStates);
 
     // Utility methods
     QString generateRequestId() const;
