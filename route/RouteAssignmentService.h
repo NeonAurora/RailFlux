@@ -309,6 +309,7 @@ private:
     bool isValidDirection(const QString& direction) const;
     bool isValidPriority(const QString& priority) const;
     bool canAcceptNewRequests() const;
+    QString resolveSignalToCircuit(const QString& signalId, bool isSource);
 
 private:
     // Service dependencies (composed services)

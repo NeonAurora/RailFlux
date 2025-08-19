@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QDebug>
+#include <QTimer>
 #include <memory>
 #include <chrono>
 
@@ -53,11 +54,11 @@ struct ValidationResult {
     QVariantMap performanceMetrics;
     QVariantMap interlockingResults;
     std::chrono::milliseconds responseTime{0};
-    
+
     // Convenience methods
     bool isVitalSafe() const { return isAllowed && safetyLevel == SafetyLevel::VITAL_SAFE; }
     bool isSafe() const { return isAllowed && safetyLevel >= SafetyLevel::SAFE; }
-    
+
     static ValidationResult allowed(const QString& reason = "Validation passed") {
         ValidationResult result;
         result.isAllowed = true;
@@ -65,7 +66,7 @@ struct ValidationResult {
         result.reason = reason;
         return result;
     }
-    
+
     static ValidationResult blocked(const QString& reason, SafetyLevel level = SafetyLevel::DANGER) {
         ValidationResult result;
         result.isAllowed = false;
@@ -95,13 +96,13 @@ struct RouteAssignment {
     QDateTime overlapReleaseDueAt;
     QString failureReason;
     QVariantMap performanceMetrics;
-    
+
     // Utility methods
     QString key() const { return id.toString(); }
-    bool isActive() const { 
-        return state == RouteState::RESERVED || 
-               state == RouteState::ACTIVE || 
-               state == RouteState::PARTIALLY_RELEASED; 
+    bool isActive() const {
+        return state == RouteState::RESERVED ||
+               state == RouteState::ACTIVE ||
+               state == RouteState::PARTIALLY_RELEASED;
     }
 };
 
@@ -119,14 +120,14 @@ public:
         ResourceLockService* resourceLockService,
         TelemetryService* telemetryService,
         QObject* parent = nullptr
-    );
+        );
     ~VitalRouteController();
 
     // Properties
     bool isOperational() const { return m_isOperational; }
     bool safetySystemHealthy() const { return m_safetySystemHealthy; }
     int activeRoutes() const;
-    double averageValidationTimeMs() const { return m_averageValidationTime; }
+    double averageValidationTimeMs() const { return m_averageValidationTimeMs; }  // ✅ FIXED: Use correct member
 
     // === SAFETY-CRITICAL OPERATIONS ===
     Q_INVOKABLE QVariantMap reserveRouteResources(const QVariantMap& routeData);
@@ -140,17 +141,17 @@ public:
         const QString& destSignalId,
         const QString& direction,
         const QString& operatorId = "system"
-    );
+        );
 
     Q_INVOKABLE bool isValidSignalProgression(
         const QString& sourceSignalType,
         const QString& destSignalType
-    ) const;
+        ) const;
 
     Q_INVOKABLE QVariantMap validateResourceAvailability(
         const QStringList& circuits,
         const QStringList& pointMachines
-    );
+        );
 
     Q_INVOKABLE QVariantMap validateAgainstInterlocking(const QVariantMap& routeData);
 
@@ -170,7 +171,7 @@ public:
         const QString& routeId,
         const QStringList& circuits,
         const QStringList& pointMachines
-    );
+        );
 
     Q_INVOKABLE bool unlockRouteResources(const QString& routeId);
     Q_INVOKABLE QVariantMap getResourceUtilization() const;
@@ -182,17 +183,21 @@ public slots:
     void onSignalAspectChanged(const QString& signalId, const QString& aspect);
     void performPeriodicSafetyCheck();
 
+    // ✅ NEW: Timer callback slots
+    void performPeriodicValidation();
+    void performHealthCheck();
+
 signals:
     void operationalStateChanged();
     void safetyStatusChanged();
     void routeCountChanged();
     void performanceChanged();
-    
+
     void routeReserved(const QString& routeId, const QString& sourceSignal, const QString& destSignal);
     void routeActivated(const QString& routeId);
     void routeReleased(const QString& routeId, const QString& reason);
     void emergencyReleasePerformed(const QString& routeId, const QString& reason);
-    
+
     void safetyViolationDetected(const QString& routeId, const QString& violationType, const QString& details);
     void safetySystemFailure(const QString& component, const QString& error);
     void resourceConflictDetected(const QString& resourceType, const QString& resourceId, const QStringList& conflictingRoutes);
@@ -209,17 +214,17 @@ private:
         const QString& destSignalId,
         const QString& direction,
         const QString& operatorId
-    );
+        );
 
     ValidationResult validateSignalProgression(
         const QString& sourceSignalId,
         const QString& destSignalId
-    ) const;
+        ) const;
 
     ValidationResult validateResourceAvailabilityInternal(
         const QStringList& circuits,
         const QStringList& pointMachines
-    );
+        );
 
     ValidationResult validateAgainstInterlockingInternal(const RouteAssignment& route);
 
@@ -279,6 +284,10 @@ private:
     ResourceLockService* m_resourceLockService;
     TelemetryService* m_telemetryService;
 
+    // ✅ NEW: Timer management
+    std::unique_ptr<QTimer> m_validationTimer;
+    std::unique_ptr<QTimer> m_healthCheckTimer;
+
     // Operational state
     bool m_isOperational = false;
     bool m_safetySystemHealthy = true;
@@ -287,15 +296,24 @@ private:
     QHash<QString, RouteAssignment> m_activeRoutes; // routeId -> route
     QHash<QString, QStringList> m_routesByCircuit; // circuitId -> routeIds using this circuit
 
+    // ✅ NEW: Time tracking
+    qint64 m_systemStartTime = 0;
+    QDateTime m_lastHealthCheck;
+
     // Performance monitoring
     QList<std::chrono::milliseconds> m_validationTimes;
-    double m_averageValidationTime = 0.0;
+    double m_averageValidationTime = 0.0;  // ✅ EXISTING: Keep original
+    double m_averageValidationTimeMs = 0.0;  // ✅ NEW: Add expected member
     QDateTime m_lastPerformanceUpdate;
 
     // Safety monitoring
     QDateTime m_lastSafetyCheck;
     QList<SafetyViolation> m_recentSafetyViolations;
     int m_consecutiveFailures = 0;
+
+    // ✅ NEW: Timer interval constants
+    static constexpr int PERIODIC_VALIDATION_INTERVAL_MS = 5000;  // 5 seconds
+    static constexpr int HEALTH_CHECK_INTERVAL_MS = 10000;       // 10 seconds
 
     // Configuration constants
     static constexpr std::chrono::milliseconds TARGET_VALIDATION_TIME{50};

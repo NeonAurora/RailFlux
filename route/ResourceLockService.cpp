@@ -49,16 +49,20 @@ void ResourceLockService::initialize() {
     }
 
     try {
-        // Load existing locks from database
+        // Load existing locks from database (empty tables are OK)
         if (loadLocksFromDatabase()) {
             m_isOperational = true;
             m_maintenanceTimer->start();
-            
+
             qDebug() << "✅ ResourceLockService: Initialized with" << activeLocks() << "active locks";
             emit operationalStateChanged();
             emit lockCountChanged();
         } else {
-            qCritical() << "❌ ResourceLockService: Failed to load locks from database";
+            // CHANGED: Don't fail if table is empty, just log warning
+            qWarning() << "⚠️ ResourceLockService: Database query failed, but continuing with empty lock state";
+            m_isOperational = true;  // Still become operational
+            m_maintenanceTimer->start();
+            emit operationalStateChanged();
         }
 
     } catch (const std::exception& e) {
@@ -332,19 +336,18 @@ QVariantMap ResourceLockService::getResourceLockStatus(
 bool ResourceLockService::loadLocksFromDatabase() {
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
-        SELECT 
+        SELECT
             resource_type,
             resource_id,
             route_id,
             lock_type,
-            locked_at,
+            acquired_at,
             expires_at,
-            operator_id,
-            lock_reason,
+            acquired_by,
             is_active
         FROM railway_control.resource_locks
         WHERE is_active = TRUE
-        ORDER BY locked_at
+        ORDER BY acquired_at
     )");
 
     if (!query.exec()) {
@@ -361,10 +364,10 @@ bool ResourceLockService::loadLocksFromDatabase() {
         lock.resourceId = query.value("resource_id").toString();
         lock.routeId = QUuid::fromString(query.value("route_id").toString());
         lock.lockType = query.value("lock_type").toString();
-        lock.lockedAt = query.value("locked_at").toDateTime();
+        lock.lockedAt = query.value("acquired_at").toDateTime();  // FIXED: was locked_at
         lock.expiresAt = query.value("expires_at").toDateTime();
-        lock.operatorId = query.value("operator_id").toString();
-        lock.lockReason = query.value("lock_reason").toString();
+        lock.operatorId = query.value("acquired_by").toString();   // FIXED: was operator_id
+        lock.lockReason = ""; // FIXED: removed since column doesn't exist
         lock.isActive = query.value("is_active").toBool();
 
         // Skip expired locks

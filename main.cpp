@@ -20,11 +20,11 @@ int main(int argc, char *argv[])
     // Register C++ types with QML
     qmlRegisterType<DatabaseManager>("RailFlux.Database", 1, 0, "DatabaseManager");
     qmlRegisterType<DatabaseInitializer>("RailFlux.Database", 1, 0, "DatabaseInitializer");
-    qmlRegisterType<InterlockingService>("RailFlux.Interlocking", 1, 0, "InterlockingService");  // NEW
+    qmlRegisterType<InterlockingService>("RailFlux.Interlocking", 1, 0, "InterlockingService");
     // ✅ CORRECT for Qt 6 Q_GADGET types
     qmlRegisterUncreatableType<ValidationResult>("RailFlux.Interlocking", 1, 0, "validationResult",
                                                  "ValidationResult is returned from C++ functions");
-    
+
     // Register Route Assignment services with QML
     qmlRegisterType<RailFlux::Route::RouteAssignmentService>("RailFlux.Route", 1, 0, "RouteAssignmentService");
     qmlRegisterType<RailFlux::Route::GraphService>("RailFlux.Route", 1, 0, "GraphService");
@@ -42,23 +42,24 @@ int main(int argc, char *argv[])
     // Create global instances
     DatabaseManager* dbManager = new DatabaseManager(&app);
     DatabaseInitializer* dbInitializer = new DatabaseInitializer(&app);
-    InterlockingService* interlockingService = new InterlockingService(dbManager, &app);  // NEW
-    
+    InterlockingService* interlockingService = new InterlockingService(dbManager, &app);
+
     // Create Route Assignment service hierarchy
     using namespace RailFlux::Route;
-    
+
     // Layer 2: Domain Services
     GraphService* graphService = new GraphService(dbManager, &app);
     ResourceLockService* resourceLockService = new ResourceLockService(dbManager, &app);
     OverlapService* overlapService = new OverlapService(dbManager, &app);
     TelemetryService* telemetryService = new TelemetryService(dbManager, &app);
-    
+
     // Layer 3: Route Management Services
     VitalRouteController* vitalRouteController = new VitalRouteController(dbManager, interlockingService, resourceLockService, telemetryService, &app);
     RouteAssignmentService* routeAssignmentService = new RouteAssignmentService(&app);
     SafetyMonitorService* safetyMonitorService = new SafetyMonitorService(dbManager, telemetryService, &app);
-    
-    // Compose services using the service composition pattern
+
+    // ✅ CRITICAL FIX: Compose services using the service composition pattern
+    qDebug() << "🔧 Composing RouteAssignmentService dependencies...";
     routeAssignmentService->setServices(
         dbManager,
         graphService,
@@ -66,13 +67,12 @@ int main(int argc, char *argv[])
         overlapService,
         telemetryService,
         vitalRouteController
-    );
+        );
 
+    // Set context properties for QML access
     engine.rootContext()->setContextProperty("globalDatabaseManager", dbManager);
     engine.rootContext()->setContextProperty("globalDatabaseInitializer", dbInitializer);
-    engine.rootContext()->setContextProperty("globalInterlockingService", interlockingService);  // NEW
-    
-    // Set Route Assignment service context properties for QML access
+    engine.rootContext()->setContextProperty("globalInterlockingService", interlockingService);
     engine.rootContext()->setContextProperty("globalRouteAssignmentService", routeAssignmentService);
     engine.rootContext()->setContextProperty("globalGraphService", graphService);
     engine.rootContext()->setContextProperty("globalResourceLockService", resourceLockService);
@@ -83,13 +83,40 @@ int main(int argc, char *argv[])
 
     dbManager->setInterlockingService(interlockingService);
 
+    // ✅ FIXED: Database connection callback with proper service initialization order
     QObject::connect(dbManager, &DatabaseManager::connectionStateChanged,
-                     [interlockingService, routeAssignmentService, telemetryService, safetyMonitorService](bool connected) {
+                     [dbManager, interlockingService, routeAssignmentService, telemetryService, safetyMonitorService, graphService, resourceLockService, overlapService, vitalRouteController](bool connected) {
                          if (connected) {
+                             qDebug() << "🔗 Database connected, initializing services...";
+
+                             // Initialize services in proper dependency order
                              interlockingService->initialize();
-                             routeAssignmentService->initialize();
                              telemetryService->initialize();
                              safetyMonitorService->initialize();
+
+                             // ✅ MOVED: RouteAssignmentService initialization AFTER database connection
+                             qDebug() << "🔧 Initializing RouteAssignmentService...";
+                             routeAssignmentService->initialize();
+
+                             // Verify operational state
+                             if (!routeAssignmentService->isOperational()) {
+                                 qCritical() << "🚨 CRITICAL: RouteAssignmentService failed to initialize!";
+
+                                 // Debugging: Check individual service health
+                                 qDebug() << "🔍 Service Health Check:";
+                                 qDebug() << "   DatabaseManager connected:" << (dbManager && dbManager->isConnected());
+                                 qDebug() << "   GraphService loaded:" << (graphService && graphService->isLoaded());
+                                 qDebug() << "   ResourceLockService operational:" << (resourceLockService && resourceLockService->isOperational());
+                                 qDebug() << "   OverlapService operational:" << (overlapService && overlapService->isOperational());
+                                 qDebug() << "   TelemetryService operational:" << (telemetryService && telemetryService->isOperational());
+                                 qDebug() << "   VitalController operational:" << (vitalRouteController && vitalRouteController->isOperational());
+
+                                 qCritical() << "🚨 System will continue but route assignment will not be available";
+                             } else {
+                                 qDebug() << "✅ RouteAssignmentService initialized successfully";
+                             }
+                         } else {
+                             qWarning() << "⚠️ Database disconnected, services may become non-operational";
                          }
                      });
 
@@ -109,112 +136,112 @@ int main(int argc, char *argv[])
     // ============================================================================
     // ROUTE ASSIGNMENT SERVICE SIGNAL/SLOT CONNECTIONS
     // ============================================================================
-    
+
     // A. Route Service to Telemetry connections
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeRequested,
                      telemetryService, [telemetryService](const QString& requestId, const QString& sourceSignal, const QString& destSignal) {
-        telemetryService->recordRouteEvent(requestId, "ROUTE_REQUESTED", QVariantMap{
-            {"sourceSignal", sourceSignal},
-            {"destSignal", destSignal}
-        });
-    });
+                         telemetryService->recordRouteEvent(requestId, "ROUTE_REQUESTED", QVariantMap{
+                                                                                              {"sourceSignal", sourceSignal},
+                                                                                              {"destSignal", destSignal}
+                                                                                          });
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeAssigned,
                      telemetryService, [telemetryService](const QString& routeId, const QString& sourceSignal, const QString& destSignal, const QStringList& path) {
-        telemetryService->recordRouteEvent(routeId, "ROUTE_ASSIGNED", QVariantMap{
-            {"sourceSignal", sourceSignal},
-            {"destSignal", destSignal},
-            {"pathLength", path.size()},
-            {"path", path}
-        });
-    });
+                         telemetryService->recordRouteEvent(routeId, "ROUTE_ASSIGNED", QVariantMap{
+                                                                                           {"sourceSignal", sourceSignal},
+                                                                                           {"destSignal", destSignal},
+                                                                                           {"pathLength", path.size()},
+                                                                                           {"path", path}
+                                                                                       });
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeActivated,
                      telemetryService, [telemetryService](const QString& routeId) {
-        telemetryService->recordRouteEvent(routeId, "ROUTE_ACTIVATED", QVariantMap{});
-    });
+                         telemetryService->recordRouteEvent(routeId, "ROUTE_ACTIVATED", QVariantMap{});
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeReleased,
                      telemetryService, [telemetryService](const QString& routeId, const QString& reason) {
-        telemetryService->recordRouteEvent(routeId, "ROUTE_RELEASED", QVariantMap{
-            {"reason", reason}
-        });
-    });
+                         telemetryService->recordRouteEvent(routeId, "ROUTE_RELEASED", QVariantMap{
+                                                                                           {"reason", reason}
+                                                                                       });
+                     });
 
     // B. Route Service to Safety Monitor connections
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeFailed,
                      safetyMonitorService, [safetyMonitorService](const QString& routeId, const QString& reason) {
-        safetyMonitorService->recordSafetyViolation(routeId, reason, "WARNING");
-    });
+                         safetyMonitorService->recordSafetyViolation(routeId, reason, "WARNING");
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::emergencyActivated,
                      safetyMonitorService, [safetyMonitorService](const QString& reason) {
-        safetyMonitorService->recordEmergencyEvent("EMERGENCY_MODE_ACTIVATED", reason);
-    });
+                         safetyMonitorService->recordEmergencyEvent("EMERGENCY_MODE_ACTIVATED", reason);
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::systemOverloaded,
                      safetyMonitorService, [safetyMonitorService](int pendingRequests, int maxConcurrent) {
-        safetyMonitorService->recordPerformanceWarning("SYSTEM_OVERLOAD", QVariantMap{
-            {"pendingRequests", pendingRequests},
-            {"maxConcurrent", maxConcurrent}
-        });
-    });
+                         safetyMonitorService->recordPerformanceWarning("SYSTEM_OVERLOAD", QVariantMap{
+                                                                                               {"pendingRequests", pendingRequests},
+                                                                                               {"maxConcurrent", maxConcurrent}
+                                                                                           });
+                     });
 
     // C. Database to Route Service (Track Circuit Changes) - reactive updates
     QObject::connect(dbManager, &DatabaseManager::trackCircuitUpdated,
                      routeAssignmentService, [routeAssignmentService, dbManager](const QString& circuitId) {
-        // Get occupancy state from database and call the slot
-        auto circuit = dbManager->getTrackCircuitById(circuitId);
-        bool isOccupied = circuit.value("is_occupied", false).toBool();
-        routeAssignmentService->onTrackCircuitOccupancyChanged(circuitId, isOccupied);
-    });
-    
+                         // Get occupancy state from database and call the slot
+                         auto circuit = dbManager->getTrackCircuitById(circuitId);
+                         bool isOccupied = circuit.value("is_occupied", false).toBool();
+                         routeAssignmentService->onTrackCircuitOccupancyChanged(circuitId, isOccupied);
+                     });
+
     QObject::connect(dbManager, &DatabaseManager::pointMachineUpdated,
                      routeAssignmentService, [routeAssignmentService, dbManager](const QString& machineId) {
-        QString position = dbManager->getCurrentPointPosition(machineId);
-        // Route service would handle point machine position changes if needed
-    });
+                         QString position = dbManager->getCurrentPointPosition(machineId);
+                         // Route service would handle point machine position changes if needed
+                     });
 
     // D. Emergency Shutdown Connection - safety critical
     QObject::connect(safetyMonitorService, &SafetyMonitorService::emergencyShutdownRequired,
                      [routeAssignmentService](const QString& reason) {
-        qCritical() << "🚨 EMERGENCY SHUTDOWN TRIGGERED:" << reason;
-        routeAssignmentService->emergencyReleaseAllRoutes("EMERGENCY_SHUTDOWN: " + reason);
-    });
+                         qCritical() << "🚨 EMERGENCY SHUTDOWN TRIGGERED:" << reason;
+                         routeAssignmentService->emergencyReleaseAllRoutes("EMERGENCY_SHUTDOWN: " + reason);
+                     });
 
     // E. Route state changes propagation to database
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeAssigned,
                      dbManager, [dbManager](const QString& routeId, const QString& sourceSignal, const QString& destSignal, const QStringList& path) {
-        dbManager->insertRouteEvent(routeId, "ROUTE_ASSIGNED", QVariantMap{
-            {"sourceSignal", sourceSignal},
-            {"destSignal", destSignal},
-            {"path", path}
-        }, "ROUTE_SYSTEM", "RouteAssignmentService");
-    });
+                         dbManager->insertRouteEvent(routeId, "ROUTE_ASSIGNED", QVariantMap{
+                                                                                    {"sourceSignal", sourceSignal},
+                                                                                    {"destSignal", destSignal},
+                                                                                    {"path", path}
+                                                                                }, "ROUTE_SYSTEM", "RouteAssignmentService");
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeActivated,
                      dbManager, [dbManager](const QString& routeId) {
-        dbManager->updateRouteActivation(routeId);
-        dbManager->insertRouteEvent(routeId, "ROUTE_ACTIVATED", QVariantMap{}, "ROUTE_SYSTEM");
-    });
+                         dbManager->updateRouteActivation(routeId);
+                         dbManager->insertRouteEvent(routeId, "ROUTE_ACTIVATED", QVariantMap{}, "ROUTE_SYSTEM");
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeReleased,
                      dbManager, [dbManager](const QString& routeId, const QString& reason) {
-        dbManager->updateRouteRelease(routeId);
-        dbManager->insertRouteEvent(routeId, "ROUTE_RELEASED", QVariantMap{{"reason", reason}}, "ROUTE_SYSTEM");
-    });
+                         dbManager->updateRouteRelease(routeId);
+                         dbManager->insertRouteEvent(routeId, "ROUTE_RELEASED", QVariantMap{{"reason", reason}}, "ROUTE_SYSTEM");
+                     });
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeFailed,
                      dbManager, [dbManager](const QString& routeId, const QString& reason) {
-        dbManager->updateRouteFailure(routeId, reason);
-        dbManager->insertRouteEvent(routeId, "ROUTE_FAILED", QVariantMap{{"reason", reason}}, "ROUTE_SYSTEM");
-    });
+                         dbManager->updateRouteFailure(routeId, reason);
+                         dbManager->insertRouteEvent(routeId, "ROUTE_FAILED", QVariantMap{{"reason", reason}}, "ROUTE_SYSTEM");
+                     });
 
     // F. Performance monitoring connections
     QObject::connect(routeAssignmentService, &RouteAssignmentService::performanceWarning,
                      [](const QString& metric, double value, double threshold) {
-        qWarning() << "⚠️ Route Performance Warning:" << metric << "=" << value << "(threshold:" << threshold << ")";
-    });
+                         qWarning() << "⚠️ Route Performance Warning:" << metric << "=" << value << "(threshold:" << threshold << ")";
+                     });
 
     // ✅ ADD: Cleanup on application exit
     QObject::connect(&app, &QCoreApplication::aboutToQuit, [dbManager]() {
@@ -232,12 +259,14 @@ int main(int argc, char *argv[])
 
     engine.loadFromModule("RailFlux", "Main");
 
-    // Start database connection and polling
+    // ✅ Start database connection and polling - services will initialize via callback
+    qDebug() << "🔗 Connecting to database...";
     if (dbManager->connectToDatabase()) {
+        qDebug() << "✅ Database connection established";
         dbManager->startPolling();
         dbManager->enableRealTimeUpdates();  // ✅ Enable LISTEN/NOTIFY
     } else {
-        qWarning() << "Failed to connect to database";
+        qWarning() << "❌ Failed to connect to database - some features may not be available";
     }
 
     return app.exec();

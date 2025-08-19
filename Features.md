@@ -2466,7 +2466,7 @@ ApplicationWindow {
                     LineSeries {
                         id: validationTimeSeries
                         name: "Validation"
-                        color: "#38a
+                        color: "#38a"
                         LineSeries {
                         id: validationTimeSeries
                         name: "Validation"

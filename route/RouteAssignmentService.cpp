@@ -477,17 +477,61 @@ ProcessingResult RouteAssignmentService::performPathfinding(const RouteRequest& 
         return result;
     }
 
-    // Get point machine states for conditional pathfinding
-    QVariantMap pointMachineStates; // Would be populated from current PM positions
+    // ✅ CORRECTED: Get the right circuits for pathfinding
+    QString startCircuitId = resolveSignalToCircuit(request.sourceSignalId, true);   // succeededByCircuitId
+    QString goalCircuitId = resolveSignalToCircuit(request.destSignalId, false);     // precededByCircuitId
 
-    // Perform pathfinding
+    if (startCircuitId.isEmpty()) {
+        result.error = QString("Source signal %1 has no succeededByCircuitId").arg(request.sourceSignalId);
+        return result;
+    }
+
+    if (goalCircuitId.isEmpty()) {
+        result.error = QString("Destination signal %1 has no precededByCircuitId").arg(request.destSignalId);
+        return result;
+    }
+
+    qDebug() << "🗺️ Pathfinding resolution:";
+    qDebug() << "   Source signal" << request.sourceSignalId << "→ start circuit" << startCircuitId;
+    qDebug() << "   Dest signal" << request.destSignalId << "→ goal circuit" << goalCircuitId;
+
+    // ✅ Use DatabaseManager's getAllPointMachineStates directly
+    QVariantMap allPmStates = m_dbManager->getAllPointMachineStates();
+
+    // ✅ DEBUG: Log the raw PM data structure
+    qDebug() << "🔧 [SEND] Raw PM data from DatabaseManager:";
+    for (auto it = allPmStates.begin(); it != allPmStates.end(); ++it) {
+        QString machineId = it.key();
+        QVariantMap pmData = it.value().toMap();
+        qDebug() << "   PM" << machineId << "raw data fields:" << pmData.keys();
+        qDebug() << "     currentPosition:" << pmData.value("currentPosition", "NOT_FOUND").toString();
+        qDebug() << "     position:" << pmData.value("position", "NOT_FOUND").toString();
+    }
+
+    // ✅ FIXED: Convert to simple format that GraphService expects (machineId -> position)
+    QVariantMap pointMachineStates;
+    for (auto it = allPmStates.begin(); it != allPmStates.end(); ++it) {
+        QString machineId = it.key();
+        QVariantMap pmData = it.value().toMap();
+        // ✅ CORRECTED: Use the correct field name from convertPointMachineRowToVariant
+        QString position = pmData.value("currentPosition", "NORMAL").toString();  // or pmData.value("position", "NORMAL").toString()
+        pointMachineStates[machineId] = position;
+    }
+
+    // ✅ DEBUG: Log what we're sending to GraphService
+    qDebug() << "🔧 [SEND] PM States being sent to GraphService:";
+    for (auto it = pointMachineStates.begin(); it != pointMachineStates.end(); ++it) {
+        qDebug() << "   PM" << it.key() << "=" << it.value().toString();
+    }
+
+    // Perform pathfinding with correct parameters
     QVariantMap pathResult = m_graphService->findRoute(
-        QString(), // startCircuitId - would be resolved from source signal
-        QString(), // goalCircuitId - would be resolved from dest signal
+        startCircuitId,
+        goalCircuitId,
         request.direction,
         pointMachineStates,
         static_cast<int>(PATHFINDING_TIMEOUT_MS)
-    );
+        );
 
     if (!pathResult["success"].toBool()) {
         result.error = QString("Pathfinding failed: %1").arg(pathResult["error"].toString());
@@ -499,9 +543,46 @@ ProcessingResult RouteAssignmentService::performPathfinding(const RouteRequest& 
     result.performanceBreakdown["pathfinding_nodes_explored"] = pathResult["nodesExplored"];
     result.performanceBreakdown["pathfinding_cost"] = pathResult["cost"];
 
+    qDebug() << "✅ Pathfinding completed:" << startCircuitId << "→" << goalCircuitId;
+    qDebug() << "   Path:" << result.path;
+
     return result;
 }
 
+QString RouteAssignmentService::resolveSignalToCircuit(const QString& signalId, bool isSource) {
+    if (!m_dbManager) {
+        qWarning() << "❌ [resolveSignal] DatabaseManager not available";
+        return QString();
+    }
+
+    QVariantMap signalData = m_dbManager->getSignalById(signalId);
+    if (signalData.isEmpty()) {
+        qWarning() << "❌ [resolveSignal] Signal not found:" << signalId;
+        return QString();
+    }
+
+    QString circuitId;
+    if (isSource) {
+        // For source signal: get the circuit that comes AFTER it (where train goes next)
+        circuitId = signalData.value("succeededByCircuitId", "").toString();
+        if (!circuitId.isEmpty()) {
+            qDebug() << "✅ [resolveSignal] Source signal" << signalId << "succeeded by circuit:" << circuitId;
+        }
+    } else {
+        // For destination signal: get the circuit that comes BEFORE it (where train comes from)
+        circuitId = signalData.value("precededByCircuitId", "").toString();
+        if (!circuitId.isEmpty()) {
+            qDebug() << "✅ [resolveSignal] Dest signal" << signalId << "preceded by circuit:" << circuitId;
+        }
+    }
+
+    if (circuitId.isEmpty()) {
+        qWarning() << "❌ [resolveSignal] No" << (isSource ? "succeededByCircuitId" : "precededByCircuitId")
+                   << "found for signal:" << signalId;
+    }
+
+    return circuitId;
+}
 ProcessingResult RouteAssignmentService::calculateOverlap(
     const RouteRequest& request,
     const QStringList& path

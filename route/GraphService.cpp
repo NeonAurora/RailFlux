@@ -225,6 +225,12 @@ QVariantMap GraphService::findRoute(
     qDebug() << "   📍 Direction:" << direction;
     qDebug() << "   📍 PM States provided:" << pointMachineStates.keys()
              << (pointMachineStates.isEmpty() ? "(EMPTY - might block conditional edges!)" : "");
+    // ✅ DEBUG: Log what GraphService actually received
+    qDebug() << "🔧 [RECEIVE] PM States received by GraphService:";
+    for (auto it = pointMachineStates.begin(); it != pointMachineStates.end(); ++it) {
+        qDebug() << "   PM" << it.key() << "=" << it.value().toString() << "(type:" << it.value().typeName() << ")";
+    }
+
     qDebug() << "   📍 Graph loaded:" << m_isLoaded << "Circuits:" << m_circuitNodes.size() << "Edges:" << m_edges.size();
 
     if (!m_isLoaded) {
