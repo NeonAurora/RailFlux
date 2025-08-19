@@ -225,10 +225,24 @@ QVariantMap GraphService::findRoute(
     qDebug() << "   📍 Direction:" << direction;
     qDebug() << "   📍 PM States provided:" << pointMachineStates.keys()
              << (pointMachineStates.isEmpty() ? "(EMPTY - might block conditional edges!)" : "");
-    // ✅ DEBUG: Log what GraphService actually received
+
+    // ✅ FIXED: Properly log the PM States structure
     qDebug() << "🔧 [RECEIVE] PM States received by GraphService:";
     for (auto it = pointMachineStates.begin(); it != pointMachineStates.end(); ++it) {
-        qDebug() << "   PM" << it.key() << "=" << it.value().toString() << "(type:" << it.value().typeName() << ")";
+        QString machineId = it.key();
+        QVariant pmVariant = it.value();
+
+        qDebug() << "   PM" << machineId << "(type:" << pmVariant.typeName() << ")";
+
+        if (pmVariant.canConvert<QVariantMap>()) {
+            QVariantMap pmData = pmVariant.toMap();
+            qDebug() << "     Fields:" << pmData.keys();
+            qDebug() << "     current_position:" << pmData.value("current_position", "MISSING").toString();
+            qDebug() << "     availability_status:" << pmData.value("availability_status", "MISSING").toString();
+            qDebug() << "     is_moveable:" << pmData.value("is_moveable", false).toBool();
+        } else {
+            qDebug() << "     Raw value:" << pmVariant.toString();
+        }
     }
 
     qDebug() << "   📍 Graph loaded:" << m_isLoaded << "Circuits:" << m_circuitNodes.size() << "Edges:" << m_edges.size();

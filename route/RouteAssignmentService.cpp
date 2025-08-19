@@ -477,7 +477,7 @@ ProcessingResult RouteAssignmentService::performPathfinding(const RouteRequest& 
         return result;
     }
 
-    // ✅ CORRECTED: Get the right circuits for pathfinding
+    // ? Get the right circuits for pathfinding (same as before)
     QString startCircuitId = resolveSignalToCircuit(request.sourceSignalId, true);   // succeededByCircuitId
     QString goalCircuitId = resolveSignalToCircuit(request.destSignalId, false);     // precededByCircuitId
 
@@ -491,47 +491,34 @@ ProcessingResult RouteAssignmentService::performPathfinding(const RouteRequest& 
         return result;
     }
 
-    qDebug() << "🗺️ Pathfinding resolution:";
-    qDebug() << "   Source signal" << request.sourceSignalId << "→ start circuit" << startCircuitId;
-    qDebug() << "   Dest signal" << request.destSignalId << "→ goal circuit" << goalCircuitId;
+    qDebug() << "??? Pathfinding resolution:";
+    qDebug() << "   Source signal" << request.sourceSignalId << "? start circuit" << startCircuitId;
+    qDebug() << "   Dest signal" << request.destSignalId << "? goal circuit" << goalCircuitId;
 
-    // ✅ Use DatabaseManager's getAllPointMachineStates directly
-    QVariantMap allPmStates = m_dbManager->getAllPointMachineStates();
+    // ? FIXED: Use the same simple pattern as evaluateDestinationReachability
+    QVariantMap currentPMStates;
+    if (m_dbManager) {
+        currentPMStates = m_dbManager->getAllPointMachineStates();
+    }
 
-    // ✅ DEBUG: Log the raw PM data structure
-    qDebug() << "🔧 [SEND] Raw PM data from DatabaseManager:";
-    for (auto it = allPmStates.begin(); it != allPmStates.end(); ++it) {
+    // ?? DEBUG: Log what we're getting from DatabaseManager
+    qDebug() << "?? [SEND] PM States from DatabaseManager:";
+    for (auto it = currentPMStates.begin(); it != currentPMStates.end(); ++it) {
         QString machineId = it.key();
         QVariantMap pmData = it.value().toMap();
-        qDebug() << "   PM" << machineId << "raw data fields:" << pmData.keys();
-        qDebug() << "     currentPosition:" << pmData.value("currentPosition", "NOT_FOUND").toString();
-        qDebug() << "     position:" << pmData.value("position", "NOT_FOUND").toString();
+        qDebug() << "   PM" << machineId << "fields:" << pmData.keys();
+        qDebug() << "     current_position:" << pmData.value("current_position", "MISSING").toString();
+        qDebug() << "     is_moveable:" << pmData.value("is_moveable", false).toBool();
     }
 
-    // ✅ FIXED: Convert to simple format that GraphService expects (machineId -> position)
-    QVariantMap pointMachineStates;
-    for (auto it = allPmStates.begin(); it != allPmStates.end(); ++it) {
-        QString machineId = it.key();
-        QVariantMap pmData = it.value().toMap();
-        // ✅ CORRECTED: Use the correct field name from convertPointMachineRowToVariant
-        QString position = pmData.value("currentPosition", "NORMAL").toString();  // or pmData.value("position", "NORMAL").toString()
-        pointMachineStates[machineId] = position;
-    }
-
-    // ✅ DEBUG: Log what we're sending to GraphService
-    qDebug() << "🔧 [SEND] PM States being sent to GraphService:";
-    for (auto it = pointMachineStates.begin(); it != pointMachineStates.end(); ++it) {
-        qDebug() << "   PM" << it.key() << "=" << it.value().toString();
-    }
-
-    // Perform pathfinding with correct parameters
+    // ? Call GraphService directly with the PM states (same as evaluateDestinationReachability)
     QVariantMap pathResult = m_graphService->findRoute(
         startCircuitId,
         goalCircuitId,
         request.direction,
-        pointMachineStates,
+        currentPMStates,        // Pass directly - no transformation needed
         static_cast<int>(PATHFINDING_TIMEOUT_MS)
-        );
+    );
 
     if (!pathResult["success"].toBool()) {
         result.error = QString("Pathfinding failed: %1").arg(pathResult["error"].toString());
@@ -543,7 +530,7 @@ ProcessingResult RouteAssignmentService::performPathfinding(const RouteRequest& 
     result.performanceBreakdown["pathfinding_nodes_explored"] = pathResult["nodesExplored"];
     result.performanceBreakdown["pathfinding_cost"] = pathResult["cost"];
 
-    qDebug() << "✅ Pathfinding completed:" << startCircuitId << "→" << goalCircuitId;
+    qDebug() << "? Pathfinding completed:" << startCircuitId << "?" << goalCircuitId;
     qDebug() << "   Path:" << result.path;
 
     return result;
@@ -583,18 +570,30 @@ QString RouteAssignmentService::resolveSignalToCircuit(const QString& signalId, 
 
     return circuitId;
 }
+
 ProcessingResult RouteAssignmentService::calculateOverlap(
     const RouteRequest& request,
     const QStringList& path
-) {
+    ) {
     ProcessingResult result;
+
+    // 🔧 DEBUG: Add entry logging for overlap calculation
+    qDebug() << "🔍 [OVERLAP] Starting overlap calculation:";
+    qDebug() << "   📍 Source Signal:" << request.sourceSignalId;
+    qDebug() << "   📍 Dest Signal:" << request.destSignalId;
+    qDebug() << "   📍 Direction:" << request.direction;
+    qDebug() << "   📍 Path:" << path;
+    qDebug() << "   📍 Train Data keys:" << request.trainData.keys();
 
     Q_UNUSED(path)
 
     if (!m_overlapService) {
+        qDebug() << "❌ [OVERLAP] OverlapService not available";
         result.error = "OverlapService not available";
         return result;
     }
+
+    qDebug() << "🔍 [OVERLAP] Calling OverlapService::calculateOverlap()";
 
     // Calculate overlap for destination signal
     QVariantMap overlapResult = m_overlapService->calculateOverlap(
@@ -602,10 +601,33 @@ ProcessingResult RouteAssignmentService::calculateOverlap(
         request.destSignalId,
         request.direction,
         request.trainData
-    );
+        );
+
+    // 🔧 DEBUG: Log what we got back from OverlapService
+    qDebug() << "🔧 [OVERLAP] OverlapService result:";
+    qDebug() << "   📍 Success:" << overlapResult["success"].toBool();
+    qDebug() << "   📍 Result keys:" << overlapResult.keys();
+
+    if (overlapResult.contains("error")) {
+        qDebug() << "   ❌ Error:" << overlapResult["error"].toString();
+    }
+
+    if (overlapResult.contains("overlapCircuits")) {
+        qDebug() << "   📍 Overlap circuits:" << overlapResult["overlapCircuits"].toStringList();
+    }
+
+    if (overlapResult.contains("holdSeconds")) {
+        qDebug() << "   📍 Hold seconds:" << overlapResult["holdSeconds"].toDouble();
+    }
+
+    if (overlapResult.contains("method")) {
+        qDebug() << "   📍 Method:" << overlapResult["method"].toString();
+    }
 
     if (!overlapResult["success"].toBool()) {
-        result.error = QString("Overlap calculation failed: %1").arg(overlapResult["error"].toString());
+        QString errorMsg = QString("Overlap calculation failed: %1").arg(overlapResult["error"].toString());
+        qDebug() << "❌ [OVERLAP]" << errorMsg;
+        result.error = errorMsg;
         return result;
     }
 
@@ -613,6 +635,11 @@ ProcessingResult RouteAssignmentService::calculateOverlap(
     result.overlapCircuits = overlapResult["overlapCircuits"].toStringList();
     result.performanceBreakdown["overlap_hold_seconds"] = overlapResult["holdSeconds"];
     result.performanceBreakdown["overlap_method"] = overlapResult["method"];
+
+    qDebug() << "✅ [OVERLAP] Overlap calculation completed successfully:";
+    qDebug() << "   📍 Overlap circuits:" << result.overlapCircuits;
+    qDebug() << "   📍 Hold seconds:" << result.performanceBreakdown["overlap_hold_seconds"];
+    qDebug() << "   📍 Method:" << result.performanceBreakdown["overlap_method"];
 
     return result;
 }

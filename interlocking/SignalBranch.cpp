@@ -534,24 +534,25 @@ SignalBranch::ProtectedTrackSegmentsValidation SignalBranch::validateProtectedTr
 QStringList SignalBranch::getProtectedTrackCircuitsFromSignalData(const QString& signalId) {
     auto signalData = m_dbManager->getSignalById(signalId);
     if (signalData.isEmpty()) {
-        qWarning() << "?? Signal data not found for:" << signalId;
+        qWarning() << "❌ Signal data not found for:" << signalId;
         return QStringList();
     }
 
-    // ? UPDATED: Parse PostgreSQL TEXT[] array from protected_track_circuits field
+    // ✅ FIXED: The data is already parsed as QStringList in convertSignalRowToVariant()
     QVariant protectedTrackCircuitsVar = signalData["protectedTrackCircuits"];
-    if (!protectedTrackCircuitsVar.isValid()) {
-        return QStringList();
+
+    // 🔧 DEBUG: Log what we actually got
+    qDebug() << "🔧 [SIGNAL] Protected circuits variant type:" << protectedTrackCircuitsVar.typeName()
+             << "value:" << protectedTrackCircuitsVar;
+
+    if (protectedTrackCircuitsVar.canConvert<QStringList>()) {
+        QStringList result = protectedTrackCircuitsVar.toStringList();
+        qDebug() << "✅ [SIGNAL] Extracted protected circuits:" << result;
+        return result;
     }
 
-    QString protectedTrackCircuitsStr = protectedTrackCircuitsVar.toString();
-    if (protectedTrackCircuitsStr.isEmpty() || protectedTrackCircuitsStr == "{}") {
-        return QStringList();
-    }
-
-    // ? Parse PostgreSQL array format: {circuit1,circuit2,circuit3}
-    protectedTrackCircuitsStr = protectedTrackCircuitsStr.mid(1, protectedTrackCircuitsStr.length() - 2); // Remove { }
-    return protectedTrackCircuitsStr.split(",", Qt::SkipEmptyParts);
+    qDebug() << "❌ [SIGNAL] Could not convert to QStringList";
+    return QStringList();
 }
 
 // ? UPDATED: Use DatabaseManager API instead of direct SQL
