@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <memory>
 #include <chrono>
+#include "../interlocking/AspectPropagationService.h"
 
 // Forward declarations
 #include "SafetyMonitorService.h"
@@ -129,6 +130,7 @@ public:
     
     // === ASPECT PROPAGATION INTEGRATION ===
     void setAspectPropagationService(RailFlux::Interlocking::AspectPropagationService* aspectService);
+    ValidationResult validateAgainstInterlockingWithIntelligentAspects(const RouteAssignment& route);
     bool hasIntelligentAspectPropagation() const { return m_aspectPropagationService != nullptr; }
     ~VitalRouteController();
 

@@ -349,19 +349,29 @@ void AspectPropagationService::expandControlNetwork(
 
 ControlNode AspectPropagationService::loadSignalControlData(const QString& signalId)
 {
+    // 🚨 PREVENT EXCESSIVE DATABASE QUERIES
+    static QSet<QString> currentlyLoading;
+    if (currentlyLoading.contains(signalId)) {
+        qWarning() << "⚠️ Circular loading detected for signal" << signalId;
+        return ControlNode(); // Return empty node to break cycles
+    }
+    currentlyLoading.insert(signalId);
+
     // Check cache first
     if (m_signalDataCache.contains(signalId)) {
         QDateTime now = QDateTime::currentDateTime();
         if (m_lastCacheUpdate.secsTo(now) < CACHE_VALIDITY_SECONDS) {
+            currentlyLoading.remove(signalId);
             return m_signalDataCache[signalId];
         }
     }
 
     ControlNode node;
-    
+
     // Get signal information from database
     QVariantMap signalData = m_dbManager->getSignalById(signalId);
     if (signalData.isEmpty()) {
+        currentlyLoading.remove(signalId);
         return node; // Return empty node
     }
 
@@ -369,21 +379,21 @@ ControlNode AspectPropagationService::loadSignalControlData(const QString& signa
     node.signalId = signalId;
     node.signalType = signalData["type"].toString();
     node.possibleAspects = signalData["possibleAspects"].toStringList();
-    node.locationRow = signalData["row"].toDouble();
-    node.locationCol = signalData["col"].toDouble();
-    
-    // Get control relationships
+
+    // Get control relationships using corrected methods
     node.controlledBy = getControllingSignals(signalId);
     node.controls = getControlledSignals(signalId);
     node.isIndependent = isSignalIndependent(signalId);
-    
+
     // Default control mode
-    node.controlMode = "AND"; // All controllers must permit the aspect
-    
+    node.controlMode = "OR"; // Change to OR to match your rulebook
+
     // Cache the result
     m_signalDataCache[signalId] = node;
     m_lastCacheUpdate = QDateTime::currentDateTime();
-    
+
+    currentlyLoading.remove(signalId);
+
     return node;
 }
 
@@ -396,28 +406,18 @@ QStringList AspectPropagationService::getControllingSignals(const QString& signa
     }
 
     QStringList controllingSignals;
-    
+
     if (m_ruleEngine) {
-        // Try to get from interlocking rule engine if it has this method
-        // For now, implement basic logic based on signal types and positions
-        
-        QVariantMap signalData = m_dbManager->getSignalById(signalId);
-        QString signalType = signalData["type"].toString();
-        
-        // Basic control hierarchy logic
-        if (signalType == "HOME") {
-            // Home signals are typically controlled by Starter signals
-            controllingSignals = findSignalsByType("STARTER");
-        } else if (signalType == "STARTER") {
-            // Starter signals are typically controlled by Advanced Starter signals
-            controllingSignals = findSignalsByType("ADVANCED_STARTER");
-        }
-        // OUTER and ADVANCED_STARTER signals are typically independent
+        // 🎯 USE INTERLOCKING RULE ENGINE DIRECTLY
+        controllingSignals = m_ruleEngine->getControllingSignals(signalId);
+        qDebug() << "   🔗 [RULE_ENGINE] Controlling signals for" << signalId << ":" << controllingSignals;
+    } else {
+        qWarning() << "⚠️ InterlockingRuleEngine not available for" << signalId;
     }
-    
+
     // Cache the result
     m_controlRelationshipCache[cacheKey] = controllingSignals;
-    
+
     return controllingSignals;
 }
 
@@ -430,25 +430,18 @@ QStringList AspectPropagationService::getControlledSignals(const QString& signal
     }
 
     QStringList controlledSignals;
-    
+
     if (m_ruleEngine) {
-        QVariantMap signalData = m_dbManager->getSignalById(signalId);
-        QString signalType = signalData["type"].toString();
-        
-        // Basic control hierarchy logic (reverse of controlling)
-        if (signalType == "ADVANCED_STARTER") {
-            // Advanced Starter signals typically control Starter signals
-            controlledSignals = findSignalsByType("STARTER");
-        } else if (signalType == "STARTER") {
-            // Starter signals typically control Home signals
-            controlledSignals = findSignalsByType("HOME");
-        }
-        // HOME and OUTER signals typically don't control other signals
+        // 🎯 USE INTERLOCKING RULE ENGINE DIRECTLY
+        controlledSignals = m_ruleEngine->getControlledSignals(signalId);
+        qDebug() << "   🔗 [RULE_ENGINE] Controlled signals for" << signalId << ":" << controlledSignals;
+    } else {
+        qWarning() << "⚠️ InterlockingRuleEngine not available for" << signalId;
     }
-    
+
     // Cache the result
     m_controlRelationshipCache[cacheKey] = controlledSignals;
-    
+
     return controlledSignals;
 }
 
@@ -471,12 +464,10 @@ QStringList AspectPropagationService::findSignalsByType(const QString& signalTyp
 
 bool AspectPropagationService::isSignalIndependent(const QString& signalId)
 {
-    QVariantMap signalData = m_dbManager->getSignalById(signalId);
-    QString signalType = signalData["type"].toString();
-    
-    // Independent signals can set their aspect without considering other signals
-    // Typically OUTER and ADVANCED_STARTER signals are independent
-    return signalType == "OUTER" || signalType == "ADVANCED_STARTER";
+    if (m_ruleEngine) {
+        return m_ruleEngine->isSignalIndependent(signalId);
+    }
+    return false;
 }
 
 QVector<ControlEdge> AspectPropagationService::loadControlEdges(const QString& signalId)
@@ -1262,7 +1253,7 @@ QVariantMap AspectPropagationService::analyzeDependencyOrder(const QVariantMap& 
             nodeInfo["signalId"] = node.signalId;
             nodeInfo["signalType"] = node.signalType;
             nodeInfo["isIndependent"] = node.isIndependent;
-            nodeInfo["dependencyCount"] = node.controllingSignals.size();
+            nodeInfo["dependencyCount"] = node.controlledBy.size();
 
             processOrder.append(nodeInfo);
 
@@ -1449,60 +1440,4 @@ QVariantMap AspectPropagationService::simulateAspectPropagation(
             {"processingTimeMs", timer.elapsed()}
         };
     }
-}
-
-// === HELPER METHOD FOR INTERNAL VALIDATION ===
-QVariantMap AspectPropagationService::validatePropagationRequestInternal(
-    const QString& sourceSignalId,
-    const QString& destinationSignalId) {
-
-    // Basic validation checks
-    if (sourceSignalId.isEmpty() || destinationSignalId.isEmpty()) {
-        return QVariantMap{
-            {"success", false},
-            {"error", "Signal IDs cannot be empty"},
-            {"errorCode", "EMPTY_SIGNAL_ID"}
-        };
-    }
-
-    if (sourceSignalId == destinationSignalId) {
-        return QVariantMap{
-            {"success", false},
-            {"error", "Source and destination cannot be the same"},
-            {"errorCode", "SAME_SIGNAL"}
-        };
-    }
-
-    // Verify signals exist in database
-    if (!m_dbManager) {
-        return QVariantMap{
-            {"success", false},
-            {"error", "Database manager not available"},
-            {"errorCode", "NO_DATABASE"}
-        };
-    }
-
-    QVariantMap sourceSignal = m_dbManager->getSignalById(sourceSignalId);
-    QVariantMap destSignal = m_dbManager->getSignalById(destinationSignalId);
-
-    if (sourceSignal.isEmpty()) {
-        return QVariantMap{
-            {"success", false},
-            {"error", QString("Source signal not found: %1").arg(sourceSignalId)},
-            {"errorCode", "SOURCE_NOT_FOUND"}
-        };
-    }
-
-    if (destSignal.isEmpty()) {
-        return QVariantMap{
-            {"success", false},
-            {"error", QString("Destination signal not found: %1").arg(destinationSignalId)},
-            {"errorCode", "DEST_NOT_FOUND"}
-        };
-    }
-
-    return QVariantMap{
-        {"success", true},
-        {"message", "Propagation request validation passed"}
-    };
 }

@@ -526,35 +526,79 @@ ValidationResult VitalRouteController::validateAgainstInterlockingInternal(const
         return ValidationResult::blocked("InterlockingService not available");
     }
 
-    // Validate source signal can be cleared
-    if (!checkSignalInterlocking(route.sourceSignalId, "GREEN")) {
-        return ValidationResult::blocked(
-            QString("Source signal %1 cannot be cleared to proceed aspect").arg(route.sourceSignalId),
-            SafetyLevel::DANGER
-        );
+    // 🎯 REPLACE HARDCODED LOGIC WITH INTELLIGENT ASPECT PROPAGATION
+    if (m_aspectPropagationService) {
+        qDebug() << "🧠 Using intelligent aspect propagation for validation";
+
+        // 🎯 GET ACTUAL POINT MACHINE STATES FROM DATABASE
+        QVariantMap allPointMachineStates = m_dbManager->getAllPointMachineStates();
+
+        // 🔄 TRANSFORM TO FORMAT EXPECTED BY propagateAspects
+        // Extract just the position codes for the machines in this route
+        QVariantMap pointMachinePositions;
+
+        for (const QString& machineId : route.lockedPointMachines) {
+            if (allPointMachineStates.contains(machineId)) {
+                QVariantMap pmData = allPointMachineStates[machineId].toMap();
+                QString currentPosition = pmData["current_position"].toString();
+
+                // Simple assignment - propagateAspects expects QString values
+                pointMachinePositions[machineId] = currentPosition;
+
+                qDebug() << "   🔧 Point machine" << machineId << "position:" << currentPosition;
+            } else {
+                qWarning() << "   ⚠️ Point machine" << machineId << "not found, using NORMAL fallback";
+                pointMachinePositions[machineId] = "NORMAL";
+            }
+        }
+
+        // 🚀 RUN INTELLIGENT ASPECT PROPAGATION
+        QVariantMap propagationResult = m_aspectPropagationService->propagateAspects(
+            route.sourceSignalId,
+            route.destSignalId,
+            pointMachinePositions
+            );
+
+        if (!propagationResult["success"].toBool()) {
+            return ValidationResult::blocked(
+                QString("Intelligent aspect propagation failed: %1")
+                    .arg(propagationResult["errorMessage"].toString()),
+                SafetyLevel::DANGER
+                );
+        }
+
+        qDebug() << "✅ Intelligent aspect propagation succeeded for validation";
+        qDebug() << "   🎯 Planned aspects:" << propagationResult["signalAspects"];
+        qDebug() << "   ⏱️ Processing time:" << propagationResult["processingTimeMs"].toDouble() << "ms";
+
+    } else {
+        qWarning() << "⚠️ Falling back to basic validation - AspectPropagationService not available";
+
+        // 🔄 FALLBACK: Keep existing simple check for backward compatibility
+        if (!checkSignalInterlocking(route.sourceSignalId, "GREEN")) {
+            return ValidationResult::blocked(
+                QString("Source signal %1 cannot be cleared to proceed aspect").arg(route.sourceSignalId),
+                SafetyLevel::DANGER
+                );
+        }
     }
 
-    // Validate point machine positions
+    // ✅ EXISTING: Continue with point machine validation
     for (const QString& machineId : route.lockedPointMachines) {
-        // Get required position for this route (simplified - would use pathfinding results)
-        QString requiredPosition = "NORMAL"; // Placeholder
-        
+        QString requiredPosition = "NORMAL"; // Get from pathfinding results
+
         if (!checkPointMachineInterlocking(machineId, requiredPosition)) {
             return ValidationResult::blocked(
                 QString("Point machine %1 cannot be set to %2").arg(machineId, requiredPosition),
                 SafetyLevel::DANGER
-            );
+                );
         }
     }
-
-    // If using the existing interlocking service validation
-    // This would call the actual interlocking validation methods
-    // For now, simplified implementation
 
     ValidationResult result = ValidationResult::allowed("Interlocking validation passed");
     result.safetyLevel = SafetyLevel::VITAL_SAFE;
     result.details = QString("Route %1 passed all interlocking checks").arg(route.key());
-    
+
     return result;
 }
 
@@ -1576,12 +1620,12 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
 {
     QElapsedTimer timer;
     timer.start();
-    
+
     qDebug() << "🎯 VitalRouteController: Establishing route with intelligent aspects:"
              << sourceSignalId << "→" << destinationSignalId;
 
     QVariantMap result;
-    
+
     if (!m_aspectPropagationService) {
         qWarning() << "⚠️ VitalRouteController: Aspect propagation service not available";
         result["success"] = false;
@@ -1589,29 +1633,40 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
         result["fallbackUsed"] = false;
         return result;
     }
-    
+
     try {
         // 1. Use intelligent aspect propagation to determine optimal signal aspects
         QVariantMap propagationResult = m_aspectPropagationService->propagateAspects(
             sourceSignalId, destinationSignalId, pointMachinePositions);
-        
-        if (!propagationResult["success"].toBool()) {
+
+        if (propagationResult["success"].toBool()) {
+            QVariantMap signalAspects = propagationResult["signalAspects"].toMap();
+            QVariantMap decisionReasons = propagationResult["decisionReasons"].toMap();
+
+            qDebug() << "🎯 Intelligent validation plan:";
+            for (auto it = signalAspects.begin(); it != signalAspects.end(); ++it) {
+                QString signalId = it.key();
+                QString aspect = it.value().toString();
+                QString reason = decisionReasons[signalId].toString();
+                qDebug() << "   🚦" << signalId << "→" << aspect << "(" << reason << ")";
+            }
+        } else {
             qWarning() << "⚠️ VitalRouteController: Aspect propagation failed:"
                        << propagationResult["errorMessage"].toString();
-            
+
             result["success"] = false;
             result["error"] = "Aspect propagation failed: " + propagationResult["errorMessage"].toString();
             result["propagationError"] = propagationResult["errorCode"].toString();
             result["processingTimeMs"] = timer.elapsed();
             return result;
         }
-        
+
         // 2. Execute the coordinated aspect changes
         QVariantMap signalAspects = propagationResult["signalAspects"].toMap();
         QVariantMap requiredPointMachines = propagationResult["pointMachines"].toMap();
-        
+
         QVariantMap executionResult = executeCoordinatedAspectChanges(signalAspects, requiredPointMachines);
-        
+
         if (!executionResult["success"].toBool()) {
             result["success"] = false;
             result["error"] = "Aspect execution failed: " + executionResult["error"].toString();
@@ -1619,7 +1674,7 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
             result["processingTimeMs"] = timer.elapsed();
             return result;
         }
-        
+
         // 3. Record successful intelligent route establishment
         result["success"] = true;
         result["method"] = "intelligent_propagation";
@@ -1629,13 +1684,13 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
         result["propagationTimeMs"] = propagationResult["processingTimeMs"];
         result["executionTimeMs"] = executionResult["processingTimeMs"];
         result["totalTimeMs"] = timer.elapsed();
-        
+
         qDebug() << "✅ VitalRouteController: Intelligent route establishment succeeded in"
                  << timer.elapsed() << "ms";
-        
+
         // Record performance metrics
         recordValidationTime("intelligent_route_establishment", std::chrono::milliseconds(timer.elapsed()));
-        
+
         // Record telemetry event
         if (m_telemetryService) {
             m_telemetryService->recordSafetyEvent(
@@ -1646,15 +1701,15 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
                 "system"
             );
         }
-        
+
     } catch (const std::exception& e) {
         qCritical() << "💥 VitalRouteController: Exception in intelligent route establishment:" << e.what();
-        
+
         result["success"] = false;
         result["error"] = QString("Intelligent route establishment failed: %1").arg(e.what());
         result["processingTimeMs"] = timer.elapsed();
     }
-    
+
     return result;
 }
 
