@@ -1,6 +1,1 @@
-We were trying to implement a RouteAssignment functionality in our application and we made some progress. 
-Read the claude.md file, contextInDepth.md file to understand the project context and progress so far.
-Then you need to read the Features.md file to understand the implementation we wanted for routeAssignment. The file is large. so divide it into sections then read it.
-Then you look for the implementation in our app.
-generate a comprehensive guide on what was implemented and what needs to be implemented that is still remaining. 
-Finally save that guide in the tempBuffer.txt file.
+Now implement all the instructions mentioned at tempBuffer.txt file. Note that tempBuffer.txt is only orchestrator. Detailed implementation for each steps can be found in the Features.md file. Thoroughly implement all functions and features required to complete the missing steps mentioned in the tempBuffer.txt file.
