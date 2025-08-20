@@ -64,6 +64,8 @@ qt_add_qml_module(appRailFlux
         interlocking/SignalRule.cpp
         interlocking/InterlockingRuleEngine.h
         interlocking/InterlockingRuleEngine.cpp
+        interlocking/AspectPropagationService.h
+        interlocking/AspectPropagationService.cpp
         route/GraphService.h
         route/GraphService.cpp
         route/ResourceLockService.h

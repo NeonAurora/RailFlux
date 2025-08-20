@@ -1,1 +1,3 @@
-Now implement all the instructions mentioned at tempBuffer.txt file. Note that tempBuffer.txt is only orchestrator. Detailed implementation for each steps can be found in the Features.md file. Thoroughly implement all functions and features required to complete the missing steps mentioned in the tempBuffer.txt file.
+Got bunch of errors in the app when trying to build.
+The errors are listed in the tempBuffer.txt file.
+Please fix them. If you need context to implement any function refer to Features.md file to understand the requirements and implementation of the problematic function.

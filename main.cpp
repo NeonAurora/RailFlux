@@ -12,6 +12,8 @@
 #include "route/TelemetryService.h"
 #include "route/VitalRouteController.h"
 #include "route/SafetyMonitorService.h"
+#include "interlocking/AspectPropagationService.h"
+#include "interlocking/InterlockingRuleEngine.h"
 
 int main(int argc, char *argv[])
 {
@@ -33,6 +35,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<RailFlux::Route::TelemetryService>("RailFlux.Route", 1, 0, "TelemetryService");
     qmlRegisterType<RailFlux::Route::VitalRouteController>("RailFlux.Route", 1, 0, "VitalRouteController");
     qmlRegisterType<RailFlux::Route::SafetyMonitorService>("RailFlux.Route", 1, 0, "SafetyMonitorService");
+    qmlRegisterType<RailFlux::Interlocking::AspectPropagationService>("RailFlux.Interlocking", 1, 0, "AspectPropagationService");
 
     app.setWindowIcon(QIcon(":/resources/icons/railway-icon.ico"));
     qDebug() << "Icon exists??" << QFile(":/icons/railway-icon.ico").exists();
@@ -43,6 +46,11 @@ int main(int argc, char *argv[])
     DatabaseManager* dbManager = new DatabaseManager(&app);
     DatabaseInitializer* dbInitializer = new DatabaseInitializer(&app);
     InterlockingService* interlockingService = new InterlockingService(dbManager, &app);
+    
+    // Create InterlockingRuleEngine and AspectPropagationService
+    InterlockingRuleEngine* ruleEngine = new InterlockingRuleEngine(dbManager, &app);
+    RailFlux::Interlocking::AspectPropagationService* aspectPropagationService = 
+        new RailFlux::Interlocking::AspectPropagationService(dbManager, ruleEngine, &app);
 
     // Create Route Assignment service hierarchy
     using namespace RailFlux::Route;
@@ -68,6 +76,10 @@ int main(int argc, char *argv[])
         telemetryService,
         vitalRouteController
         );
+    
+    // ✅ NEW: Connect AspectPropagationService to VitalRouteController
+    qDebug() << "🎯 Connecting AspectPropagationService to VitalRouteController...";
+    vitalRouteController->setAspectPropagationService(aspectPropagationService);
 
     // Set context properties for QML access
     engine.rootContext()->setContextProperty("globalDatabaseManager", dbManager);
@@ -80,12 +92,13 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("globalTelemetryService", telemetryService);
     engine.rootContext()->setContextProperty("globalVitalRouteController", vitalRouteController);
     engine.rootContext()->setContextProperty("globalSafetyMonitorService", safetyMonitorService);
+    engine.rootContext()->setContextProperty("globalAspectPropagationService", aspectPropagationService);
 
     dbManager->setInterlockingService(interlockingService);
 
     // ✅ FIXED: Database connection callback with proper service initialization order
     QObject::connect(dbManager, &DatabaseManager::connectionStateChanged,
-                     [dbManager, interlockingService, routeAssignmentService, telemetryService, safetyMonitorService, graphService, resourceLockService, overlapService, vitalRouteController](bool connected) {
+                     [dbManager, interlockingService, routeAssignmentService, telemetryService, safetyMonitorService, graphService, resourceLockService, overlapService, vitalRouteController, aspectPropagationService](bool connected) {
                          if (connected) {
                              qDebug() << "🔗 Database connected, initializing services...";
 
@@ -93,6 +106,10 @@ int main(int argc, char *argv[])
                              interlockingService->initialize();
                              telemetryService->initialize();
                              safetyMonitorService->initialize();
+                             
+                             // ✅ NEW: Initialize AspectPropagationService
+                             qDebug() << "🎯 Initializing AspectPropagationService...";
+                             aspectPropagationService->initialize();
 
                              // ✅ MOVED: RouteAssignmentService initialization AFTER database connection
                              qDebug() << "🔧 Initializing RouteAssignmentService...";

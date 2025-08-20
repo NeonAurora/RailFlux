@@ -18,6 +18,11 @@
 class DatabaseManager;
 class InterlockingService;
 
+// Forward declaration for AspectPropagationService
+namespace RailFlux::Interlocking {
+    class AspectPropagationService;
+}
+
 namespace RailFlux::Route {
 
 // Forward declarations of Layer 2 services
@@ -121,6 +126,10 @@ public:
         TelemetryService* telemetryService,
         QObject* parent = nullptr
         );
+    
+    // === ASPECT PROPAGATION INTEGRATION ===
+    void setAspectPropagationService(RailFlux::Interlocking::AspectPropagationService* aspectService);
+    bool hasIntelligentAspectPropagation() const { return m_aspectPropagationService != nullptr; }
     ~VitalRouteController();
 
     // Properties
@@ -134,6 +143,19 @@ public:
     Q_INVOKABLE QVariantMap releaseRouteResources(const QString& routeId);
     Q_INVOKABLE QVariantMap emergencyRelease(const QString& routeId, const QString& reason);
     Q_INVOKABLE QVariantMap emergencyReleaseAll(const QString& reason);
+    
+    // === INTELLIGENT ASPECT ESTABLISHMENT ===
+    Q_INVOKABLE QVariantMap establishRouteWithIntelligentAspects(
+        const QString& sourceSignalId,
+        const QString& destinationSignalId,
+        const QStringList& routePath,
+        const QVariantMap& pointMachinePositions = QVariantMap()
+    );
+    
+    Q_INVOKABLE QVariantMap executeCoordinatedAspectChanges(
+        const QVariantMap& signalAspects,
+        const QVariantMap& pointMachinePositions = QVariantMap()
+    );
 
     // === VALIDATION METHODS ===
     Q_INVOKABLE QVariantMap validateRouteRequest(
@@ -283,6 +305,7 @@ private:
     InterlockingService* m_interlockingService;
     ResourceLockService* m_resourceLockService;
     TelemetryService* m_telemetryService;
+    RailFlux::Interlocking::AspectPropagationService* m_aspectPropagationService = nullptr;
 
     // ✅ NEW: Timer management
     std::unique_ptr<QTimer> m_validationTimer;
