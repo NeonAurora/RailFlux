@@ -170,6 +170,11 @@ private:
         const QVariantMap& options = QVariantMap()
     );
 
+    QVariantMap validatePropagationRequestInternal(
+        const QString& sourceSignalId,
+        const QString& destinationSignalId
+        );
+
     // === GRAPH CONSTRUCTION ===
     QVariantMap buildControlGraphInternal(const QString& sourceSignalId);
     void expandControlNetwork(

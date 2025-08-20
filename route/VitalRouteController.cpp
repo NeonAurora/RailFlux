@@ -1682,17 +1682,17 @@ QVariantMap VitalRouteController::executeCoordinatedAspectChanges(
             qDebug() << "   🔧 Setting point machine" << machineId << "to" << requiredPosition;
             
             if (m_interlockingService) {
-                RailFlux::Route::ValidationResult pmResult = m_interlockingService->validatePointMachineOperation(
+                auto pmResult = m_interlockingService->validatePointMachineOperation(
                     machineId, "UNKNOWN", requiredPosition, "ROUTE_SYSTEM");
                 
-                if (pmResult.isAllowed) {
+                if (pmResult.isAllowed()) {
                     // TODO: Execute actual point machine change via DatabaseManager
                     // For now, assume success
                     successfulPointMachines.append(machineId);
                     qDebug() << "     ✅ Point machine" << machineId << "set successfully";
                 } else {
                     failedPointMachines.append(machineId);
-                    qWarning() << "     ❌ Point machine" << machineId << "failed:" << pmResult.reason;
+                    qWarning() << "     ❌ Point machine" << machineId << "failed:" << pmResult.getReason();
                 }
             }
         }
@@ -1705,17 +1705,17 @@ QVariantMap VitalRouteController::executeCoordinatedAspectChanges(
             qDebug() << "   🚦 Setting signal" << signalId << "to" << requiredAspect;
             
             if (m_interlockingService) {
-                RailFlux::Route::ValidationResult signalResult = m_interlockingService->validateMainSignalOperation(
+                auto signalResult = m_interlockingService->validateMainSignalOperation(
                     signalId, "UNKNOWN", requiredAspect, "ROUTE_SYSTEM");
                 
-                if (signalResult.isAllowed) {
+                if (signalResult.isAllowed()) {
                     // TODO: Execute actual signal aspect change via DatabaseManager
                     // For now, assume success
                     successfulSignals.append(signalId);
                     qDebug() << "     ✅ Signal" << signalId << "set to" << requiredAspect;
                 } else {
                     failedSignals.append(signalId);
-                    qWarning() << "     ❌ Signal" << signalId << "failed:" << signalResult.reason;
+                    qWarning() << "     ❌ Signal" << signalId << "failed:" << signalResult.getReason();
                 }
             }
         }

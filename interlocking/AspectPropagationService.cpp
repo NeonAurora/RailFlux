@@ -1240,3 +1240,269 @@ void AspectPropagationService::onInterlockingRulesChanged()
     
     qDebug() << "🔄 [ASPECT_PROPAGATION] Interlocking rules changed - cache cleared";
 }
+
+// === MISSING Q_INVOKABLE METHOD IMPLEMENTATIONS ===
+
+QVariantMap AspectPropagationService::analyzeDependencyOrder(const QVariantMap& prunedGraph) {
+    QElapsedTimer timer;
+    timer.start();
+
+    try {
+        QVector<ControlNode> orderedNodes = createDependencyOrder(prunedGraph);
+
+        QVariantMap result;
+        result["success"] = true;
+        result["processingTimeMs"] = timer.elapsed();
+
+        QVariantList processOrder;
+        QVariantList independentSignals;
+
+        for (const auto& node : orderedNodes) {
+            QVariantMap nodeInfo;
+            nodeInfo["signalId"] = node.signalId;
+            nodeInfo["signalType"] = node.signalType;
+            nodeInfo["isIndependent"] = node.isIndependent;
+            nodeInfo["dependencyCount"] = node.controllingSignals.size();
+
+            processOrder.append(nodeInfo);
+
+            if (node.isIndependent) {
+                independentSignals.append(node.signalId);
+            }
+        }
+
+        result["processOrder"] = processOrder;
+        result["independentSignals"] = independentSignals;
+        result["totalSignals"] = orderedNodes.size();
+
+        return result;
+
+    } catch (const std::exception& e) {
+        return QVariantMap{
+            {"success", false},
+            {"error", QString("Dependency analysis failed: %1").arg(e.what())},
+            {"processingTimeMs", timer.elapsed()}
+        };
+    }
+}
+
+QVariantMap AspectPropagationService::validatePropagationRequest(
+    const QString& sourceSignalId,
+    const QString& destinationSignalId) {
+
+    QElapsedTimer timer;
+    timer.start();
+
+    // Use internal validation method
+    QVariantMap result = validatePropagationRequestInternal(sourceSignalId, destinationSignalId);
+    result["processingTimeMs"] = timer.elapsed();
+
+    return result;
+}
+
+bool AspectPropagationService::setDestinationConstraint(
+    const QString& signalType,
+    const QString& requiredAspect) {
+
+    if (signalType.isEmpty() || requiredAspect.isEmpty()) {
+        qWarning() << "❌ Invalid destination constraint parameters";
+        return false;
+    }
+
+    m_destinationConstraints[signalType] = requiredAspect;
+    qDebug() << "✅ Destination constraint set:" << signalType << "→" << requiredAspect;
+
+    return true;
+}
+
+bool AspectPropagationService::setPriorityAspects(
+    const QString& signalType,
+    const QStringList& priorities) {
+
+    if (signalType.isEmpty() || priorities.isEmpty()) {
+        qWarning() << "❌ Invalid priority aspects parameters";
+        return false;
+    }
+
+    m_aspectPriorities[signalType] = priorities;
+    qDebug() << "✅ Priority aspects set:" << signalType << "→" << priorities;
+
+    return true;
+}
+
+QVariantMap AspectPropagationService::getConfiguration() const {
+    QVariantMap config;
+
+    // Destination constraints
+    QVariantMap constraints;
+    for (auto it = m_destinationConstraints.begin(); it != m_destinationConstraints.end(); ++it) {
+        constraints[it.key()] = it.value();
+    }
+    config["destinationConstraints"] = constraints;
+
+    // Aspect priorities
+    QVariantMap priorities;
+    for (auto it = m_aspectPriorities.begin(); it != m_aspectPriorities.end(); ++it) {
+        priorities[it.key()] = it.value();
+    }
+    config["aspectPriorities"] = priorities;
+
+    // Performance settings
+    config["targetProcessingTimeMs"] = TARGET_PROCESSING_TIME_MS;
+    config["isOperational"] = m_isOperational;
+
+    return config;
+}
+
+QVariantMap AspectPropagationService::getPerformanceMetrics() const {
+    QVariantMap metrics;
+
+    metrics["averageProcessingTimeMs"] = m_averageProcessingTimeMs;
+    metrics["totalPropagations"] = m_totalPropagations;
+    metrics["successfulPropagations"] = m_successfulPropagations;
+    metrics["successRate"] = successRate();
+    metrics["targetProcessingTimeMs"] = TARGET_PROCESSING_TIME_MS;
+    metrics["isPerformanceAcceptable"] = m_averageProcessingTimeMs <= TARGET_PROCESSING_TIME_MS;
+
+    return metrics;
+}
+
+QVariantMap AspectPropagationService::getStatistics() const {
+    QVariantMap stats = getPerformanceMetrics();
+
+    stats["isOperational"] = m_isOperational;
+    stats["systemUptime"] = QDateTime::currentDateTime().toSecsSinceEpoch();
+
+    return stats;
+}
+
+QVariantList AspectPropagationService::getRecentPropagations(int limit) const {
+    Q_UNUSED(limit) // Not implemented - would need propagation history storage
+
+    // Return empty list for now - safety-critical systems should not crash
+    QVariantList emptyList;
+    return emptyList;
+}
+
+QVariantMap AspectPropagationService::testControlGraphConstruction(const QString& sourceSignalId) {
+    if (!m_isOperational) {
+        return QVariantMap{
+            {"success", false},
+            {"error", "Service not operational"}
+        };
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+
+    try {
+        QVariantMap graph = buildControlGraphInternal(sourceSignalId);
+
+        QVariantMap result;
+        result["success"] = true;
+        result["sourceSignalId"] = sourceSignalId;
+        result["nodeCount"] = graph["nodes"].toMap().size();
+        result["edgeCount"] = graph["edges"].toList().size();
+        result["processingTimeMs"] = timer.elapsed();
+        result["graph"] = graph;
+
+        return result;
+
+    } catch (const std::exception& e) {
+        return QVariantMap{
+            {"success", false},
+            {"error", QString("Graph construction test failed: %1").arg(e.what())},
+            {"processingTimeMs", timer.elapsed()}
+        };
+    }
+}
+
+QVariantMap AspectPropagationService::simulateAspectPropagation(
+    const QString& sourceSignalId,
+    const QString& destinationSignalId,
+    bool dryRun) {
+
+    Q_UNUSED(dryRun) // Simulation is always dry-run
+
+    if (!m_isOperational) {
+        return QVariantMap{
+            {"success", false},
+            {"error", "Service not operational"}
+        };
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+
+    try {
+        // Perform full propagation without modifying database
+        AspectPropagationResult result = propagateAspectsInternal(
+            sourceSignalId, destinationSignalId, QVariantMap(), QVariantMap());
+
+        // Convert to QVariantMap for Q_INVOKABLE return
+        return aspectPropagationResultToVariantMap(result);
+
+    } catch (const std::exception& e) {
+        return QVariantMap{
+            {"success", false},
+            {"error", QString("Simulation failed: %1").arg(e.what())},
+            {"processingTimeMs", timer.elapsed()}
+        };
+    }
+}
+
+// === HELPER METHOD FOR INTERNAL VALIDATION ===
+QVariantMap AspectPropagationService::validatePropagationRequestInternal(
+    const QString& sourceSignalId,
+    const QString& destinationSignalId) {
+
+    // Basic validation checks
+    if (sourceSignalId.isEmpty() || destinationSignalId.isEmpty()) {
+        return QVariantMap{
+            {"success", false},
+            {"error", "Signal IDs cannot be empty"},
+            {"errorCode", "EMPTY_SIGNAL_ID"}
+        };
+    }
+
+    if (sourceSignalId == destinationSignalId) {
+        return QVariantMap{
+            {"success", false},
+            {"error", "Source and destination cannot be the same"},
+            {"errorCode", "SAME_SIGNAL"}
+        };
+    }
+
+    // Verify signals exist in database
+    if (!m_dbManager) {
+        return QVariantMap{
+            {"success", false},
+            {"error", "Database manager not available"},
+            {"errorCode", "NO_DATABASE"}
+        };
+    }
+
+    QVariantMap sourceSignal = m_dbManager->getSignalById(sourceSignalId);
+    QVariantMap destSignal = m_dbManager->getSignalById(destinationSignalId);
+
+    if (sourceSignal.isEmpty()) {
+        return QVariantMap{
+            {"success", false},
+            {"error", QString("Source signal not found: %1").arg(sourceSignalId)},
+            {"errorCode", "SOURCE_NOT_FOUND"}
+        };
+    }
+
+    if (destSignal.isEmpty()) {
+        return QVariantMap{
+            {"success", false},
+            {"error", QString("Destination signal not found: %1").arg(destinationSignalId)},
+            {"errorCode", "DEST_NOT_FOUND"}
+        };
+    }
+
+    return QVariantMap{
+        {"success", true},
+        {"message", "Propagation request validation passed"}
+    };
+}
