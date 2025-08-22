@@ -556,7 +556,7 @@ ProcessingResult RouteAssignmentService::reserveResources(
     const RouteRequest& request,
     const QStringList& path,
     const QStringList& overlap
-) {
+    ) {
     ProcessingResult result;
 
     if (!m_vitalController) {
@@ -573,7 +573,9 @@ ProcessingResult RouteAssignmentService::reserveResources(
     routeData["assignedCircuits"] = path;
     routeData["overlapCircuits"] = overlap;
     routeData["operatorId"] = request.requestedBy;
-    routeData["priority"] = request.priority;
+
+    // ✅ FIXED: Convert string priority to integer (1-1000 range)
+    routeData["priority"] = convertPriorityToInt(request.priority);
 
     // Use VitalRouteController for safety-critical resource reservation
     QVariantMap reservationResult = m_vitalController->reserveRouteResources(routeData);
@@ -594,7 +596,7 @@ ProcessingResult RouteAssignmentService::finalizeRoute(
     const RouteRequest& request,
     const QStringList& path,
     const QStringList& overlap
-) {
+    ) {
     ProcessingResult result;
 
     // Persist route assignment to database
@@ -1567,6 +1569,23 @@ bool RouteAssignmentService::isPointMachineSettable(const QString& machineId) {
     bool isLocked = pmData["is_locked"].toBool();
 
     return (status == "CONNECTED" || status == "NORMAL") && !isLocked;
+}
+
+int RouteAssignmentService::convertPriorityToInt(const QString& priorityStr) const {
+    // ✅ SAFETY: Convert string priorities to valid database range (1-1000)
+    if (priorityStr == "EMERGENCY") {
+        return 1000;        // Highest priority
+    } else if (priorityStr == "HIGH") {
+        return 600;         // High priority
+    } else if (priorityStr == "NORMAL") {
+        return 100;         // Normal priority (default)
+    } else if (priorityStr == "LOW") {
+        return 50;          // Low priority (but still > 1)
+    } else {
+        qWarning() << "RouteAssignmentService: Unknown priority string:" << priorityStr
+                   << "- using default priority 100";
+        return 100;         // Safe default
+    }
 }
 
 } // namespace RailFlux::Route

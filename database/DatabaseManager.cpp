@@ -2222,69 +2222,38 @@ bool DatabaseManager::insertRouteAssignment(
     QElapsedTimer timer;
     timer.start();
 
-    qDebug() << "🚄 SAFETY: Creating route assignment:" << routeId;
-    qDebug() << "   Route:" << sourceSignalId << "→" << destSignalId;
+    qDebug() << "?? SAFETY: Creating route assignment:" << routeId;
+    qDebug() << "   Route:" << sourceSignalId << "?" << destSignalId;
     qDebug() << "   Direction:" << direction << "State:" << state;
     qDebug() << "   Priority:" << priority << "Operator:" << operatorId;
-
-    // Validate required parameters
-    if (routeId.isEmpty()) {
-        qWarning() << "❌ Route ID cannot be empty";
-        emit operationBlocked(routeId, "Route ID required");
-        return false;
-    }
-
-    if (sourceSignalId.isEmpty() || destSignalId.isEmpty()) {
-        qWarning() << "❌ Source and destination signal IDs are required";
-        emit operationBlocked(routeId, "Signal IDs required");
-        return false;
-    }
-
-    if (sourceSignalId == destSignalId) {
-        qWarning() << "❌ Source and destination signals cannot be the same";
-        emit operationBlocked(routeId, "Source and destination must be different");
-        return false;
-    }
-
-    if (direction != "UP" && direction != "DOWN") {
-        qWarning() << "❌ Invalid direction:" << direction;
-        emit operationBlocked(routeId, "Invalid direction");
-        return false;
-    }
-
-    if (assignedCircuits.isEmpty()) {
-        qWarning() << "❌ At least one assigned circuit is required";
-        emit operationBlocked(routeId, "Assigned circuits required");
-        return false;
-    }
-
-    if ((priority < 1) || (priority > 1000)) {
-        qWarning() << "❌ Priority must be between 1 and 1000";
-        emit operationBlocked(routeId, "Invalid priority");
-        return false;
-    }
-
-    // Log route details
-    qDebug() << "🚄 Route details:";
+    qDebug() << "?? Route details:";
     qDebug() << "   Assigned circuits:" << assignedCircuits.size() << assignedCircuits;
     qDebug() << "   Overlap circuits:" << overlapCircuits.size() << overlapCircuits;
     qDebug() << "   Locked point machines:" << lockedPointMachines.size() << lockedPointMachines;
 
-    // Convert QStringList to PostgreSQL array format
-    QString assignedCircuitsArray = "{" + assignedCircuits.join(",") + "}";
-    QString overlapCircuitsArray = overlapCircuits.isEmpty() ? "{}" : "{" + overlapCircuits.join(",") + "}";
-    QString lockedPointMachinesArray = lockedPointMachines.isEmpty() ? "{}" : "{" + lockedPointMachines.join(",") + "}";
-
-    // Database transaction for route assignment creation
-    QSqlQuery query(db);
-
-    if (!db.transaction()) {
-        qWarning() << "❌ Failed to start transaction for route creation:" << db.lastError().text();
+    // Validate priority range
+    if ((priority < 1) || (priority > 1000)) {
+        qWarning() << "? Priority must be between 1 and 1000";
+        emit operationBlocked(routeId, "Invalid priority");
         return false;
     }
 
-    // ✅ POLICY: Call SQL function instead of direct INSERT
-    query.prepare("SELECT railway_control.insert_route_assignment(?, ?, ?, ?, ?::text[], ?::text[], ?, ?::text[], ?, ?)");
+    // Start database transaction
+    if (!db.transaction()) {
+        qWarning() << "? Failed to start transaction for route assignment:" << db.lastError().text();
+        return false;
+    }
+
+    QSqlQuery query(db);
+
+    // ? FIXED: Use proper PostgreSQL array syntax without casting
+    query.prepare("SELECT railway_control.insert_route_assignment($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
+
+    // ? FIXED: Format arrays properly for PostgreSQL
+    QString assignedCircuitsArray = "ARRAY[" + formatStringListForSQL(assignedCircuits) + "]";
+    QString overlapCircuitsArray = "ARRAY[" + formatStringListForSQL(overlapCircuits) + "]";
+    QString lockedPointMachinesArray = "ARRAY[" + formatStringListForSQL(lockedPointMachines) + "]";
+
     query.addBindValue(routeId);
     query.addBindValue(sourceSignalId);
     query.addBindValue(destSignalId);
@@ -2313,7 +2282,7 @@ bool DatabaseManager::insertRouteAssignment(
                 QString verifiedState = verifyQuery.value(0).toString();
                 QString createdAt = verifyQuery.value(1).toString();
                 int verifiedPriority = verifyQuery.value(2).toInt();
-                qDebug() << "✅ SAFETY: Route assignment created";
+                qDebug() << "? SAFETY: Route assignment created";
                 qDebug() << "   ID:" << routeId;
                 qDebug() << "   State:" << verifiedState;
                 qDebug() << "   Created at:" << createdAt;
@@ -2324,29 +2293,15 @@ bool DatabaseManager::insertRouteAssignment(
             emit routeAssignmentInserted(routeId);
             emit routeAssignmentsChanged();
 
-            qDebug() << "✅ Route assignment creation completed in" << timer.elapsed() << "ms";
+            qDebug() << "? Route assignment creation completed in" << timer.elapsed() << "ms";
             return true;
         } else {
-            qWarning() << "❌ Route assignment creation failed:" << query.lastError().text();
+            qWarning() << "? Route assignment creation failed:" << query.lastError().text();
             db.rollback();
             return false;
         }
     } else {
-        qWarning() << "❌ Route assignment query execution failed:" << query.lastError().text();
-        QString errorDetail = query.lastError().text();
-
-        // Enhanced error reporting for common issues
-        if (errorDetail.contains("not found") || errorDetail.contains("not a route signal")) {
-            qWarning() << "🔍 Signal validation failed - check that signals exist and are route signals";
-            emit operationBlocked(routeId, "Invalid signals");
-        } else if (errorDetail.contains("already exists")) {
-            qWarning() << "🔄 Duplicate route detected";
-            emit operationBlocked(routeId, "Route already exists");
-        } else if (errorDetail.contains("do not exist")) {
-            qWarning() << "🛤️ Circuit validation failed";
-            emit operationBlocked(routeId, "Invalid circuits");
-        }
-
+        qWarning() << "? Route assignment query execution failed:" << query.lastError().text();
         db.rollback();
         return false;
     }
@@ -3595,4 +3550,20 @@ QVariantList DatabaseManager::getAllSignalOverlapDefinitions() {
     }
 
     return overlaps;
+}
+
+QString DatabaseManager::formatStringListForSQL(const QStringList& list) const {
+    if (list.isEmpty()) {
+        return "";  // Empty array
+    }
+
+    QStringList quotedItems;
+    for (const QString& item : list) {
+        // ✅ SAFETY: Escape single quotes and wrap each item in quotes
+        QString escaped = item;
+        escaped.replace("'", "''");  // Escape single quotes
+        quotedItems.append("'" + escaped + "'");
+    }
+
+    return quotedItems.join(",");
 }

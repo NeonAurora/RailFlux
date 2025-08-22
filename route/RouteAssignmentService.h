@@ -311,6 +311,8 @@ private:
     bool canAcceptNewRequests() const;
     QString resolveSignalToCircuit(const QString& signalId, bool isSource);
 
+    int convertPriorityToInt(const QString& priorityStr) const;
+
 private:
     // Service dependencies (composed services)
     DatabaseManager* m_dbManager = nullptr;

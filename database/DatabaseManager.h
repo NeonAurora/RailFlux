@@ -293,4 +293,5 @@ private:
 
     // Helper functions
     QString getCurrentSubsidiaryAspect(const QString& signalId, const QString& aspectType);
+    QString formatStringListForSQL(const QStringList& list) const;
 };
