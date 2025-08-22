@@ -93,6 +93,12 @@ public:
     );
     ~AspectPropagationService();
 
+    enum class SignalRole {
+        DESTINATION,           // The final signal in the route
+        SOURCE_INTERMEDIATE,   // Source signal or signals between source and destination
+        CONTROLLER_ABOVE_DEST  // Signals that control the destination (upstream controllers)
+    };
+
     // Properties
     bool isOperational() const { return m_isOperational; }
     double averageProcessingTimeMs() const { return m_averageProcessingTimeMs; }
@@ -252,6 +258,30 @@ private:
         const QString& destinationSignalId
     );
 
+    SignalRole classifySignalRole(
+        const QString& signalId,
+        const QString& sourceSignalId,
+        const QString& destinationSignalId,
+        const QVector<ControlNode>& orderedNodes
+        ) const;
+
+    bool isControllerAboveDestination(
+        const QString& signalId,
+        const QString& destinationSignalId,
+        const QVector<ControlNode>& orderedNodes
+        ) const;
+
+    QStringList getAspectPrioritiesForRole(
+        SignalRole role,
+        const QString& signalType
+        ) const;
+
+    QString selectDestinationAspect(
+        const QString& signalType,
+        const QStringList& allowedAspects,
+        const QVariantMap& options = QVariantMap()
+        ) const;
+
     // === DATA LOADING AND INTEGRATION ===
     ControlNode loadSignalControlData(const QString& signalId);
     QVector<ControlEdge> loadControlEdges(const QString& signalId);
@@ -278,6 +308,12 @@ private:
     void loadDefaultConfiguration();
     void applyDestinationConstraints(const QString& signalType, QString& selectedAspect, bool isDestination);
     QStringList getAspectPriorities(const QString& signalType) const;
+    QString selectBestAspectByRole(
+        const ControlNode& node,
+        const QStringList& allowedAspects,
+        SignalRole role,
+        const QVariantMap& options) const;
+    QString getRoleDescription(SignalRole role) const;
 
 private:
     // Service dependencies

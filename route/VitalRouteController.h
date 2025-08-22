@@ -300,6 +300,7 @@ private:
     bool isValidSourceSignalType(const QString& signalType) const;
     bool isValidDestSignalType(const QString& signalType) const;
     bool isValidProgressionSequence(const QString& sourceType, const QString& destType) const;
+    bool isAdvancedStarterDestination(const QString& signalId) const;
 
 private:
     // Service dependencies

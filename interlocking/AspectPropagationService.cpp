@@ -878,6 +878,15 @@ QVariantMap AspectPropagationService::selectOptimalAspects(
     QElapsedTimer timer;
     timer.start();
 
+    // Get source signal ID from the first processed node
+    QString sourceSignalId;
+    for (const auto& node : orderedNodes) {
+        if (node.isIndependent || node.controlledBy.isEmpty()) {
+            sourceSignalId = node.signalId;
+            break;
+        }
+    }
+
     QHash<QString, ControlNode> processedNodes;
     QVariantMap selectedAspects;
     QVariantMap requiredPointMachines;
@@ -889,18 +898,26 @@ QVariantMap AspectPropagationService::selectOptimalAspects(
         for (ControlNode node : orderedNodes) {
             processOrder.append(node.signalId);
 
+            // ENHANCED: Classify signal role for intelligent aspect selection
+            SignalRole signalRole = classifySignalRole(
+                node.signalId, sourceSignalId, destinationSignalId, orderedNodes);
+
             if (node.isIndependent) {
-                // Independent signals can choose their aspect freely
-                QString selectedAspect = selectBestAspect(
-                    node, node.possibleAspects, destinationSignalId,
-                    node.signalId == destinationSignalId, options);
+                // Independent signals - apply role-specific logic
+                QString selectedAspect = selectBestAspectByRole(
+                    node, node.possibleAspects, signalRole, options);
 
                 node.selectedAspect = selectedAspect;
                 selectedAspects[node.signalId] = selectedAspect;
 
+                QString roleDescription = getRoleDescription(signalRole);
                 decisionReasons[node.signalId] = QString(
-                                                     "Independent signal - selected %1 (highest priority available)")
-                                                     .arg(selectedAspect);
+                                                     "Independent signal (%1) - selected %2 using %3 priority")
+                                                     .arg(roleDescription, selectedAspect,
+                                                          signalRole == SignalRole::CONTROLLER_ABOVE_DEST ? "minimal safe" : "highest permissive");
+
+                qDebug() << "🔧 [ASPECT_SELECTION]" << node.signalId
+                         << "(" << roleDescription << ") → " << selectedAspect;
 
             } else {
                 // Controlled signals must respect their controllers
@@ -919,16 +936,20 @@ QVariantMap AspectPropagationService::selectOptimalAspects(
                     return errorResult;
                 }
 
-                QString selectedAspect = selectBestAspect(
-                    node, allowedByControllers, destinationSignalId,
-                    node.signalId == destinationSignalId, options);
+                QString selectedAspect = selectBestAspectByRole(
+                    node, allowedByControllers, signalRole, options);
 
                 node.selectedAspect = selectedAspect;
                 selectedAspects[node.signalId] = selectedAspect;
 
+                QString roleDescription = getRoleDescription(signalRole);
                 decisionReasons[node.signalId] = QString(
-                                                     "Controlled signal - selected %1 from allowed aspects: %2")
-                                                     .arg(selectedAspect, allowedByControllers.join(","));
+                                                     "Controlled signal (%1) - selected %2 from allowed: %3")
+                                                     .arg(roleDescription, selectedAspect, allowedByControllers.join(","));
+
+                qDebug() << "✅ [ASPECT_SELECTION]" << node.signalId
+                         << "(" << roleDescription << ") → " << selectedAspect
+                         << "from allowed:" << allowedByControllers;
             }
 
             // Validate the selection against all constraints
@@ -949,6 +970,8 @@ QVariantMap AspectPropagationService::selectOptimalAspects(
             processedNodes[node.signalId] = node;
         }
 
+        qDebug() << "🎯 [ASPECT_SELECTION] Enhanced aspect propagation completed successfully!";
+
         QVariantMap result;
         result["success"] = true;
         result["aspects"] = selectedAspects;
@@ -958,7 +981,6 @@ QVariantMap AspectPropagationService::selectOptimalAspects(
         result["processingTimeMs"] = timer.elapsed();
 
         recordProcessingTime("aspect_selection", timer.elapsed());
-
         return result;
 
     } catch (const std::exception& e) {
@@ -1331,5 +1353,153 @@ QVariantMap AspectPropagationService::simulateAspectPropagation(
             {"error", QString("Simulation failed: %1").arg(e.what())},
             {"processingTimeMs", timer.elapsed()}
         };
+    }
+}
+
+AspectPropagationService::SignalRole AspectPropagationService::classifySignalRole(
+    const QString& signalId,
+    const QString& sourceSignalId,
+    const QString& destinationSignalId,
+    const QVector<ControlNode>& orderedNodes) const
+{
+    // 1. Check if this is the destination signal
+    if (signalId == destinationSignalId) {
+        return SignalRole::DESTINATION;
+    }
+
+    // 2. Check if this signal controls the destination (controller above destination)
+    if (isControllerAboveDestination(signalId, destinationSignalId, orderedNodes)) {
+        return SignalRole::CONTROLLER_ABOVE_DEST;
+    }
+
+    // 3. Everything else is source/intermediate (signals between source and destination)
+    return SignalRole::SOURCE_INTERMEDIATE;
+}
+
+
+bool AspectPropagationService::isControllerAboveDestination(
+    const QString& signalId,
+    const QString& destinationSignalId,
+    const QVector<ControlNode>& orderedNodes) const
+{
+    // Find the destination node
+    const ControlNode* destNode = nullptr;
+    for (const auto& node : orderedNodes) {
+        if (node.signalId == destinationSignalId) {
+            destNode = &node;
+            break;
+        }
+    }
+
+    if (!destNode) {
+        return false;
+    }
+
+    // Check if signalId is in the destination's controlledBy list
+    return destNode->controlledBy.contains(signalId);
+}
+
+QStringList AspectPropagationService::getAspectPrioritiesForRole(
+    SignalRole role,
+    const QString& signalType) const
+{
+    switch (role) {
+    case SignalRole::DESTINATION:
+        // Destinations use standard priorities but logic handled separately
+        return m_aspectPriorities.value(signalType, QStringList{"GREEN", "YELLOW", "RED"});
+
+    case SignalRole::SOURCE_INTERMEDIATE:
+        // Source and intermediate signals: highest permissive first (operational efficiency)
+        return QStringList{"GREEN", "YELLOW", "RED"};
+
+    case SignalRole::CONTROLLER_ABOVE_DEST:
+        // Controller signals above destination: minimal safe first (safety constraint)
+        return QStringList{"RED", "YELLOW", "GREEN"};
+
+    default:
+        return QStringList{"GREEN", "YELLOW", "RED"};
+    }
+}
+
+QString AspectPropagationService::selectDestinationAspect(
+    const QString& signalType,
+    const QStringList& allowedAspects,
+    const QVariantMap& options) const
+{
+    // Check for explicit destination aspect override
+    if (options.contains("desired_destination_aspect")) {
+        QString desiredAspect = options["desired_destination_aspect"].toString();
+        if (allowedAspects.contains(desiredAspect)) {
+            qDebug() << "🎯 [DESTINATION] Using explicit override:" << desiredAspect;
+            return desiredAspect;
+        } else {
+            qWarning() << "⚠️ [DESTINATION] Desired aspect" << desiredAspect
+                       << "not in allowed list:" << allowedAspects;
+        }
+    }
+
+    // Apply type-based defaults
+    if (signalType == "ADVANCED_STARTER") {
+        // Advanced starters can proceed if track clear
+        if (allowedAspects.contains("GREEN")) {
+            qDebug() << "🟢 [DESTINATION] Advanced Starter proceeding: GREEN";
+            return "GREEN";
+        }
+    }
+
+    // Default: destination should be RED (stopping point)
+    if (allowedAspects.contains("RED")) {
+        qDebug() << "🛑 [DESTINATION] Standard stopping point: RED";
+        return "RED";
+    }
+
+    // Safety fallback
+    return allowedAspects.isEmpty() ? "RED" : allowedAspects.first();
+}
+
+QString AspectPropagationService::selectBestAspectByRole(
+    const ControlNode& node,
+    const QStringList& allowedAspects,
+    SignalRole role,
+    const QVariantMap& options) const
+{
+    // Handle destination signals specially
+    if (role == SignalRole::DESTINATION) {
+        return selectDestinationAspect(node.signalType, allowedAspects, options);
+    }
+
+    // Get role-specific priorities
+    QStringList priorities = getAspectPrioritiesForRole(role, node.signalType);
+
+    // Select first available aspect according to role priorities
+    for (const QString& priorityAspect : priorities) {
+        if (allowedAspects.contains(priorityAspect)) {
+            QString roleDesc = (role == SignalRole::CONTROLLER_ABOVE_DEST) ? "minimal safe" : "highest permissive";
+            qDebug() << "   🎯 Selected" << roleDesc << "aspect:" << priorityAspect
+                     << "for" << node.signalType;
+            return priorityAspect;
+        }
+    }
+
+    // Safety fallback
+    if (!allowedAspects.isEmpty()) {
+        return allowedAspects.first();
+    }
+
+    qCritical() << "[AspectPropagationService > selectBestAspectByRole] No aspects available for" << node.signalId;
+    return "RED"; // Safety fallback
+}
+
+QString AspectPropagationService::getRoleDescription(SignalRole role) const
+{
+    switch (role) {
+    case SignalRole::DESTINATION:
+        return "DESTINATION";
+    case SignalRole::SOURCE_INTERMEDIATE:
+        return "SOURCE/INTERMEDIATE";
+    case SignalRole::CONTROLLER_ABOVE_DEST:
+        return "CONTROLLER_ABOVE_DEST";
+    default:
+        return "UNKNOWN";
     }
 }

@@ -1680,9 +1680,19 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
     }
 
     try {
+        // ENHANCED: Prepare aspect propagation options
+        QVariantMap propagationOptions;
+
+        // Add future support for dynamic destination aspects
+        // This can be parameterized based on route type, operator preferences, etc.
+        if (isAdvancedStarterDestination(destinationSignalId)) {
+            propagationOptions["desired_destination_aspect"] = "GREEN"; // Allow proceed for through routes
+        } else {
+            propagationOptions["desired_destination_aspect"] = "RED";   // Standard stopping point
+        }
         // 1. Use intelligent aspect propagation to determine optimal signal aspects
-        QVariantMap propagationResult = m_aspectPropagationService->propagateAspects(
-            sourceSignalId, destinationSignalId, pointMachinePositions);
+        QVariantMap propagationResult = m_aspectPropagationService->propagateAspectsAdvanced(
+            sourceSignalId, destinationSignalId, pointMachinePositions, propagationOptions);
 
         if (propagationResult["success"].toBool()) {
             QVariantMap signalAspects = propagationResult["signalAspects"].toMap();
@@ -1850,6 +1860,15 @@ QVariantMap VitalRouteController::executeCoordinatedAspectChanges(
     }
     
     return result;
+}
+
+// NEW: Helper method to determine if destination is an Advanced Starter
+bool VitalRouteController::isAdvancedStarterDestination(const QString& signalId) const
+{
+    if (!m_dbManager) return false;
+
+    QVariantMap signalData = m_dbManager->getSignalById(signalId);
+    return signalData["signal_type"].toString() == "ADVANCED_STARTER";
 }
 
 } // namespace RailFlux::Route
