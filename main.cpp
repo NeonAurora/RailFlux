@@ -46,11 +46,11 @@ int main(int argc, char *argv[])
     DatabaseManager* dbManager = new DatabaseManager(&app);
     DatabaseInitializer* dbInitializer = new DatabaseInitializer(&app);
     InterlockingService* interlockingService = new InterlockingService(dbManager, &app);
-    
-    // Create InterlockingRuleEngine and AspectPropagationService
-    InterlockingRuleEngine* ruleEngine = new InterlockingRuleEngine(dbManager, &app);
-    RailFlux::Interlocking::AspectPropagationService* aspectPropagationService = 
-        new RailFlux::Interlocking::AspectPropagationService(dbManager, ruleEngine, &app);
+
+    // ✅ FIX: Get the rule engine from InterlockingService (which already has rules loaded)
+    // Instead of creating a new one
+    RailFlux::Interlocking::AspectPropagationService* aspectPropagationService =
+        new RailFlux::Interlocking::AspectPropagationService(dbManager, interlockingService->getRuleEngine(), &app);
 
     // Create Route Assignment service hierarchy
     using namespace RailFlux::Route;

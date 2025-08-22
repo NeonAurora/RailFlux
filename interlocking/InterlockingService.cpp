@@ -1,4 +1,5 @@
 #include "InterlockingService.h"
+#include "InterlockingRuleEngine.h"
 #include "SignalBranch.h"
 #include "TrackCircuitBranch.h"
 #include "PointMachineBranch.h"
@@ -32,6 +33,15 @@ QVariantMap ValidationResult::toVariantMap() const {
     map["affectedEntities"] = m_affectedEntities;
     map["evaluationTime"] = m_evaluationTime;
     return map;
+}
+
+InterlockingRuleEngine* InterlockingService::getRuleEngine() const {
+    // Since InterlockingService uses SignalBranch which has the rule engine
+    // We need to expose it. Looking at the code structure, add this:
+    if (m_signalBranch) {
+        return m_signalBranch->getRuleEngine(); // You might need to add this to SignalBranch too
+    }
+    return nullptr;
 }
 
 // ============================================================================

@@ -11,6 +11,7 @@ class DatabaseManager;
 class SignalBranch;
 class TrackCircuitBranch;
 class PointMachineBranch;
+class InterlockingRuleEngine;
 
 class ValidationResult {
     Q_GADGET
@@ -54,6 +55,7 @@ public:
 
     // QML integration
     Q_INVOKABLE QVariantMap toVariantMap() const;
+    InterlockingRuleEngine* getRuleEngine() const;
 };
 
 class InterlockingService : public QObject {

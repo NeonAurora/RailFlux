@@ -52,6 +52,8 @@ bool InterlockingRuleEngine::doesSignalMatchCompositeAspect(const QString& signa
 }
 
 bool InterlockingRuleEngine::loadRulesFromResource(const QString& resourcePath) {
+    qDebug() << "🔄 [loadRules] Loading interlocking rules from:" << resourcePath;
+
     QFile file(resourcePath);
     if (!file.open(QIODevice::ReadOnly)) {
         qCritical() << "🚨 [loadRules] Cannot open interlocking rules file:" << resourcePath;
@@ -69,7 +71,25 @@ bool InterlockingRuleEngine::loadRulesFromResource(const QString& resourcePath) 
     QJsonObject rootObject = doc.object();
     QJsonObject rulesObject = rootObject["signal_interlocking_rules"].toObject();
 
-    return parseJsonRules(rulesObject);
+    bool result = parseJsonRules(rulesObject);
+
+    qDebug() << "✅ [loadRules] Rules loaded successfully:" << result;
+    qDebug() << "✅ [loadRules] Total signals loaded:" << m_signalRules.size();
+    qDebug() << "✅ [loadRules] Signal IDs:" << m_signalRules.keys();
+
+    // Specific check for HM001
+    if (m_signalRules.contains("HM001")) {
+        const SignalInfo& hm001Info = m_signalRules["HM001"];
+        qDebug() << "✅ [loadRules] HM001 details:";
+        qDebug() << "    Type:" << hm001Info.signalType;
+        qDebug() << "    Independent:" << hm001Info.isIndependent;
+        qDebug() << "    ControlledBy:" << hm001Info.controlledBy;
+        qDebug() << "    Rules count:" << hm001Info.rules.size();
+    } else {
+        qDebug() << "❌ [loadRules] HM001 not found in loaded rules!";
+    }
+
+    return result;
 }
 
 ValidationResult InterlockingRuleEngine::validateControllingSignals(const QString& signalId, const QString& requestedAspect) {
@@ -208,25 +228,44 @@ QString InterlockingRuleEngine::getCurrentSignalAspect(const QString& signalId) 
 }
 
 QStringList InterlockingRuleEngine::getControlledSignals(const QString& signalId) const {
+    qDebug() << "🔍 [getControlledSignals] Looking for signal:" << signalId;
+
     QStringList controlled;
     auto signalInfoIt = m_signalRules.find(signalId);
     if (signalInfoIt != m_signalRules.end()) {
         const SignalInfo& signalInfo = signalInfoIt.value();
+        qDebug() << "🔍 [getControlledSignals] Found signal, rules count:" << signalInfo.rules.size();
+
         for (const SignalRule& rule : signalInfo.rules) {
+            qDebug() << "🔍 [getControlledSignals] Processing rule when_aspect:" << rule.getWhenAspect();
+
             for (const SignalRule::AllowedSignal& allowedSignal : rule.getAllowedSignals()) {
+                qDebug() << "🔍 [getControlledSignals] Found allowed signal:" << allowedSignal.signalId;
                 if (!controlled.contains(allowedSignal.signalId)) {
                     controlled.append(allowedSignal.signalId);
                 }
             }
         }
+        qDebug() << "🔍 [getControlledSignals] Final controlled list:" << controlled;
+    } else {
+        qDebug() << "❌ [getControlledSignals] Signal not found in rules:" << signalId;
     }
     return controlled;
 }
 
 QStringList InterlockingRuleEngine::getControllingSignals(const QString& signalId) const {
+    qDebug() << "🔍 [getControllingSignals] Looking for signal:" << signalId;
+    qDebug() << "🔍 [getControllingSignals] Total signals in rules:" << m_signalRules.size();
+    qDebug() << "🔍 [getControllingSignals] Available signal IDs:" << m_signalRules.keys();
+
     auto signalInfoIt = m_signalRules.find(signalId);
     if (signalInfoIt != m_signalRules.end()) {
-        return signalInfoIt.value().controlledBy;
+        const SignalInfo& info = signalInfoIt.value();
+        qDebug() << "🔍 [getControllingSignals] Found signal, controlledBy size:" << info.controlledBy.size();
+        qDebug() << "🔍 [getControllingSignals] controlledBy contents:" << info.controlledBy;
+        return info.controlledBy;
+    } else {
+        qDebug() << "❌ [getControllingSignals] Signal not found in rules:" << signalId;
     }
     return QStringList();
 }
