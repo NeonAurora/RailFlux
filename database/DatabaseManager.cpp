@@ -2246,7 +2246,6 @@ bool DatabaseManager::insertRouteAssignment(
 
     // ✅ FIXED: Use proper casting for array parameters
     QString queryString = "SELECT railway_control.insert_route_assignment(?, ?, ?, ?, ?::text[], ?::text[], ?, ?::text[], ?, ?)";
-    qDebug() << "   [INSERTING] Query string:" << queryString;
 
     query.prepare(queryString);
 

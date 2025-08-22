@@ -69,6 +69,17 @@ Rectangle {
             return "N/A"
         }
     }
+
+    function getCircuitCount(circuits) {
+        if (!circuits) return 0
+        if (typeof circuits === 'string') {
+            return circuits.split(',').filter(c => c.trim() !== '').length
+        }
+        if (Array.isArray(circuits)) {
+            return circuits.length
+        }
+        return 0
+    }
     
     // === MAIN CONTENT ===
     Row {
@@ -145,7 +156,7 @@ Rectangle {
                 }
                 
                 Text {
-                    text: "📍 " + (route ? route.assignedCircuits.split(',').length + " circuits" : "0 circuits")
+                    text: "📍 " + (route ? getCircuitCount(route.assignedCircuits) + " circuits" : "0 circuits")
                     color: "#a0aec0"
                     font.pixelSize: 9
                 }

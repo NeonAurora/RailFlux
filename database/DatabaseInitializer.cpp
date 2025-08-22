@@ -656,6 +656,7 @@ bool DatabaseInitializer::createRouteAssignmentTables() {
             event_data JSONB NOT NULL,
             triggered_by TEXT NOT NULL,
             occurred_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            operator_id VARCHAR(100),
             sequence_number BIGSERIAL
         ))",
 
@@ -694,6 +695,7 @@ bool DatabaseInitializer::createAuditTables() {
             entity_type VARCHAR(50) NOT NULL, -- SIGNAL, POINT_MACHINE, TRACK_SEGMENT, TRACK_CIRCUIT
             entity_id VARCHAR(50) NOT NULL,
             entity_name VARCHAR(100),
+            event_details JSONB,
 
             -- Change details
             old_values JSONB,
@@ -1788,17 +1790,13 @@ bool DatabaseInitializer::createFunctions() {
         -- Insert route event for audit trail
         IF rows_affected > 0 THEN
             INSERT INTO railway_control.route_events (
-                route_id, event_type, event_data, operator_id, source_component
+                route_id, event_type, event_data, triggered_by, occurred_at
             ) VALUES (
                 route_id_param,
                 'ROUTE_STATE_CHANGED',
-                jsonb_build_object(
-                    'previous_state', current_state_val,
-                    'new_state', new_state_param,
-                    'failure_reason', failure_reason_param
-                ),
+                event_data_param,
                 operator_id_param,
-                'DatabaseManager'
+                CURRENT_TIMESTAMP
             );
         END IF;
 

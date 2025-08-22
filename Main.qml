@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls.Basic
 import RailFlux.Database
 import RailFlux.Route
 import "layouts" as Layouts

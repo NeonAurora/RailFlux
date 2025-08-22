@@ -71,7 +71,6 @@ CREATE TABLE railway_config.point_positions (
 -- ============================================================================
 
 -- Track circuits with route assignment enhancements
--- Simplified track_circuits table
 CREATE TABLE railway_control.track_circuits (
     id SERIAL PRIMARY KEY,
     circuit_id VARCHAR(20) NOT NULL UNIQUE, -- e.g., "W22T", "A42", "6T"
@@ -335,6 +334,7 @@ CREATE TABLE railway_control.route_events (
     event_data JSONB NOT NULL,
     triggered_by TEXT NOT NULL,
     occurred_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    operator_id VARCHAR(100),
     sequence_number BIGSERIAL
 );
 
@@ -365,6 +365,7 @@ CREATE TABLE railway_audit.event_log (
     entity_type VARCHAR(50) NOT NULL, -- SIGNAL, POINT_MACHINE, TRACK_SEGMENT, TRACK_CIRCUIT
     entity_id VARCHAR(50) NOT NULL,
     entity_name VARCHAR(100),
+    event_details JSONB;
 
     -- Change details
     old_values JSONB,
@@ -1010,7 +1011,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
 -- Notification functions
 CREATE OR REPLACE FUNCTION railway_control.notify_route_changes()
 RETURNS TRIGGER AS $$
@@ -1154,6 +1154,7 @@ BEGIN
         payload := payload || json_build_object(
             'circuit_id', COALESCE(NEW.circuit_id, OLD.circuit_id),
             'is_occupied', COALESCE(NEW.is_occupied, false),
+            'circuit_type', COALESCE(NEW.circuit_type, OLD.circuit_type)
         );
     ELSIF TG_TABLE_NAME = 'signals' THEN
         payload := payload || json_build_object(
@@ -1259,6 +1260,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
 -- ============================================================================
 -- ROUTE STATE UPDATE FUNCTION
 -- ============================================================================
@@ -1323,23 +1325,20 @@ BEGIN
     -- Insert route event for audit trail
     IF rows_affected > 0 THEN
         INSERT INTO railway_control.route_events (
-            route_id, event_type, event_data, operator_id, source_component
+            route_id, event_type, event_data, triggered_by, occurred_at
         ) VALUES (
             route_id_param,
             'ROUTE_STATE_CHANGED',
-            jsonb_build_object(
-                'previous_state', current_state_val,
-                'new_state', new_state_param,
-                'failure_reason', failure_reason_param
-            ),
+            event_data_param,
             operator_id_param,
-            'DatabaseManager'
+            CURRENT_TIMESTAMP
         );
     END IF;
 
     RETURN rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql;
+
 
 
 CREATE OR REPLACE FUNCTION railway_control.update_route_performance_metrics(
@@ -1495,6 +1494,297 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION railway_control.release_resource_locks(
+    route_id_param UUID,
+    operator_id_param VARCHAR DEFAULT 'system',
+    release_reason VARCHAR DEFAULT 'ROUTE_COMPLETION'
+)
+RETURNS INTEGER AS $$
+DECLARE
+    route_record RECORD;
+    lock_record RECORD;
+    locks_released INTEGER := 0;
+    released_locks JSONB := '[]';
+    lock_details JSONB;
+BEGIN
+    -- Set operator context for audit logging
+    PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+    -- Validate route exists and get current state
+    SELECT id, source_signal_id, dest_signal_id, state, direction
+    INTO route_record
+    FROM railway_control.route_assignments
+    WHERE id = route_id_param;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Route not found: %', route_id_param;
+    END IF;
+
+    -- Log what locks are about to be released
+    FOR lock_record IN
+        SELECT id, resource_type, resource_id, lock_type, acquired_at, acquired_by
+        FROM railway_control.resource_locks
+        WHERE route_id = route_id_param AND is_active = TRUE
+    LOOP
+        -- Build details for each lock being released
+        lock_details := jsonb_build_object(
+            'lock_id', lock_record.id,
+            'resource_type', lock_record.resource_type,
+            'resource_id', lock_record.resource_id,
+            'lock_type', lock_record.lock_type,
+            'acquired_at', lock_record.acquired_at,
+            'acquired_by', lock_record.acquired_by,
+            'released_at', CURRENT_TIMESTAMP,
+            'lock_duration_seconds', EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lock_record.acquired_at))
+        );
+
+        released_locks := released_locks || lock_details;
+        locks_released := locks_released + 1;
+    END LOOP;
+
+    -- Mark locks as inactive (better for audit than DELETE)
+    UPDATE railway_control.resource_locks
+    SET
+        is_active = FALSE,
+        released_at = CURRENT_TIMESTAMP,
+        released_by = operator_id_param,
+        release_reason = release_reason
+    WHERE route_id = route_id_param AND is_active = TRUE;
+
+    -- Log lock release event if any locks were released
+    IF locks_released > 0 THEN
+        INSERT INTO railway_control.route_events (
+            route_id,
+            event_type,
+            event_data,
+            operator_id,
+            source_component,
+            safety_critical
+        ) VALUES (
+            route_id_param,
+            'RESOURCE_LOCKS_RELEASED',
+            jsonb_build_object(
+                'locks_released_count', locks_released,
+                'released_locks', released_locks,
+                'release_reason', release_reason,
+                'route_state', route_record.state
+            ),
+            operator_id_param,
+            'DatabaseManager',
+            TRUE  -- Resource lock release is safety-critical
+        );
+
+        -- Additional audit logging for safety-critical operations
+        INSERT INTO railway_audit.event_log (
+            event_type,
+            entity_type,
+            entity_id,
+            entity_name,
+            old_values,
+            operator_id,
+            operation_source,
+            safety_critical,
+            event_details
+        ) VALUES (
+            'BULK_UPDATE',
+            'resource_locks',
+            route_id_param::TEXT,
+            CONCAT('Route Locks: ', route_record.source_signal_id, ' -> ', route_record.dest_signal_id),
+            jsonb_build_object(
+                'locks_released', released_locks,
+                'total_count', locks_released
+            ),
+            operator_id_param,
+            'DatabaseManager',
+            TRUE,
+            jsonb_build_object(
+                'operation', 'RELEASE_ALL_ROUTE_LOCKS',
+                'release_reason', release_reason,
+                'route_state', route_record.state,
+                'locks_released_count', locks_released
+            )
+        );
+    END IF;
+
+    RETURN locks_released;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================================================
+-- RESOURCE LOCK ACQUISITION FUNCTION
+-- ============================================================================
+CREATE OR REPLACE FUNCTION railway_control.acquire_resource_lock(
+    resource_type_param VARCHAR,
+    resource_id_param VARCHAR,
+    route_id_param UUID,
+    lock_type_param VARCHAR DEFAULT 'ROUTE',  -- ✅ FIXED: Changed default from 'EXCLUSIVE' to 'ROUTE'
+    operator_id_param VARCHAR DEFAULT 'system',
+    expires_at_param TIMESTAMP WITH TIME ZONE DEFAULT NULL
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    rows_affected INTEGER;
+    route_exists BOOLEAN;
+    resource_exists BOOLEAN;
+    conflicting_locks INTEGER;
+    lock_id UUID;
+BEGIN
+    -- Set operator context for audit logging
+    PERFORM set_config('railway.operator_id', operator_id_param, true);
+
+    -- Validate resource type
+    IF resource_type_param NOT IN ('TRACK_CIRCUIT', 'POINT_MACHINE', 'SIGNAL') THEN
+        RAISE EXCEPTION 'Invalid resource type: %. Must be TRACK_CIRCUIT, POINT_MACHINE, or SIGNAL', resource_type_param;
+    END IF;
+
+    -- ✅ FIXED: Validate lock type to match database schema
+    IF lock_type_param NOT IN ('ROUTE', 'OVERLAP', 'EMERGENCY', 'MAINTENANCE') THEN
+        RAISE EXCEPTION 'Invalid lock type: %. Must be ROUTE, OVERLAP, EMERGENCY, or MAINTENANCE', lock_type_param;
+    END IF;
+
+    -- Validate route exists
+    SELECT EXISTS(
+        SELECT 1 FROM railway_control.route_assignments
+        WHERE id = route_id_param
+    ) INTO route_exists;
+
+    IF NOT route_exists THEN
+        RAISE EXCEPTION 'Route not found: %', route_id_param;
+    END IF;
+
+    -- Validate resource exists based on type
+    CASE resource_type_param
+        WHEN 'TRACK_CIRCUIT' THEN
+            SELECT EXISTS(
+                SELECT 1 FROM railway_control.track_circuits
+                WHERE circuit_id = resource_id_param AND is_active = TRUE
+            ) INTO resource_exists;
+        WHEN 'POINT_MACHINE' THEN
+            SELECT EXISTS(
+                SELECT 1 FROM railway_control.point_machines
+                WHERE machine_id = resource_id_param
+            ) INTO resource_exists;
+        WHEN 'SIGNAL' THEN
+            SELECT EXISTS(
+                SELECT 1 FROM railway_control.signals
+                WHERE signal_id = resource_id_param AND is_active = TRUE
+            ) INTO resource_exists;
+    END CASE;
+
+    IF NOT resource_exists THEN
+        RAISE EXCEPTION 'Resource not found or inactive: % %', resource_type_param, resource_id_param;
+    END IF;
+
+    -- ✅ FIXED: Update conflict detection logic for new lock types
+    SELECT COUNT(*) INTO conflicting_locks
+    FROM railway_control.resource_locks
+    WHERE resource_type = resource_type_param
+    AND resource_id = resource_id_param
+    AND is_active = TRUE
+    AND (
+        -- ROUTE locks conflict with any other ROUTE lock (exclusive for routes)
+        (lock_type = 'ROUTE' AND lock_type_param = 'ROUTE')
+        -- EMERGENCY locks override everything
+        OR lock_type = 'EMERGENCY'
+        OR lock_type_param = 'EMERGENCY'
+        -- MAINTENANCE locks conflict with ROUTE locks
+        OR (lock_type = 'MAINTENANCE' AND lock_type_param = 'ROUTE')
+        OR (lock_type = 'ROUTE' AND lock_type_param = 'MAINTENANCE')
+    );
+
+    IF conflicting_locks > 0 THEN
+        RAISE EXCEPTION 'Resource % % is already locked with conflicting lock type', resource_type_param, resource_id_param;
+    END IF;
+
+    -- Generate lock ID
+    lock_id := gen_random_uuid();
+
+    -- Insert resource lock
+    INSERT INTO railway_control.resource_locks (
+        id,
+        resource_type,
+        resource_id,
+        route_id,
+        lock_type,
+        acquired_at,
+        acquired_by,
+        expires_at,
+        is_active
+    ) VALUES (
+        lock_id,
+        resource_type_param,
+        resource_id_param,
+        route_id_param,
+        lock_type_param,
+        CURRENT_TIMESTAMP,
+        operator_id_param,
+        expires_at_param,
+        TRUE
+    );
+
+    GET DIAGNOSTICS rows_affected = ROW_COUNT;
+
+    -- ✅ FIXED: Log lock acquisition using correct column names
+    IF rows_affected > 0 THEN
+        INSERT INTO railway_control.route_events (
+            route_id,
+            event_type,
+            event_data,
+            triggered_by,        -- ✅ FIXED: Use correct column name
+            occurred_at          -- ✅ FIXED: Use correct column name
+        ) VALUES (
+            route_id_param,
+            'RESOURCE_LOCKED',
+            jsonb_build_object(
+                'lock_id', lock_id,
+                'resource_type', resource_type_param,
+                'resource_id', resource_id_param,
+                'lock_type', lock_type_param,
+                'expires_at', expires_at_param,
+                'operator', operator_id_param,
+                'source', 'DatabaseManager',
+                'safety_critical', TRUE
+            ),
+            operator_id_param,   -- Maps to triggered_by
+            CURRENT_TIMESTAMP    -- Maps to occurred_at
+        );
+
+        -- Additional audit logging for safety-critical operations
+        INSERT INTO railway_audit.event_log (
+            event_type,
+            entity_type,
+            entity_id,
+            entity_name,
+            new_values,
+            operator_id,
+            operation_source,
+            safety_critical,
+            event_details
+        ) VALUES (
+            'INSERT',
+            'resource_locks',
+            lock_id::TEXT,
+            CONCAT(resource_type_param, ': ', resource_id_param),
+            jsonb_build_object(
+                'id', lock_id,
+                'resource_type', resource_type_param,
+                'resource_id', resource_id_param,
+                'route_id', route_id_param,
+                'lock_type', lock_type_param
+            ),
+            operator_id_param,
+            'DatabaseManager',
+            TRUE,
+            jsonb_build_object(
+                'lock_acquisition_time', CURRENT_TIMESTAMP,
+                'conflicting_locks_checked', conflicting_locks
+            )
+        );
+    END IF;
+
+    RETURN rows_affected > 0;
+END;
+$$ LANGUAGE plpgsql;
 
 -- ============================================================================
 -- ROUTE EVENT LOGGING FUNCTION
@@ -1624,299 +1914,6 @@ BEGIN
     RETURN rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql;
-
--- ============================================================================
--- RESOURCE LOCK ACQUISITION FUNCTION
--- ============================================================================
-CREATE OR REPLACE FUNCTION railway_control.acquire_resource_lock(
-    resource_type_param VARCHAR,
-    resource_id_param VARCHAR,
-    route_id_param UUID,
-    lock_type_param VARCHAR DEFAULT 'ROUTE',  -- ✅ FIXED: Changed default to 'ROUTE'
-    operator_id_param VARCHAR DEFAULT 'system',
-    expires_at_param TIMESTAMP WITH TIME ZONE DEFAULT NULL
-)
-RETURNS BOOLEAN AS $$
-DECLARE
-    rows_affected INTEGER;
-    route_exists BOOLEAN;
-    resource_exists BOOLEAN;
-    conflicting_locks INTEGER;
-    lock_id UUID;
-BEGIN
-    -- Set operator context for audit logging
-    PERFORM set_config('railway.operator_id', operator_id_param, true);
-
-    -- Validate resource type
-    IF resource_type_param NOT IN ('TRACK_CIRCUIT', 'POINT_MACHINE', 'SIGNAL') THEN
-        RAISE EXCEPTION 'Invalid resource type: %. Must be TRACK_CIRCUIT, POINT_MACHINE, or SIGNAL', resource_type_param;
-    END IF;
-
-    -- ✅ FIXED: Validate lock type to match database schema
-    IF lock_type_param NOT IN ('ROUTE', 'OVERLAP', 'EMERGENCY', 'MAINTENANCE') THEN
-        RAISE EXCEPTION 'Invalid lock type: %. Must be ROUTE, OVERLAP, EMERGENCY, or MAINTENANCE', lock_type_param;
-    END IF;
-
-    -- Validate route exists
-    SELECT EXISTS(
-        SELECT 1 FROM railway_control.route_assignments
-        WHERE id = route_id_param
-    ) INTO route_exists;
-
-    IF NOT route_exists THEN
-        RAISE EXCEPTION 'Route not found: %', route_id_param;
-    END IF;
-
-    -- Validate resource exists based on type
-    CASE resource_type_param
-        WHEN 'TRACK_CIRCUIT' THEN
-            SELECT EXISTS(
-                SELECT 1 FROM railway_control.track_circuits
-                WHERE circuit_id = resource_id_param AND is_active = TRUE
-            ) INTO resource_exists;
-        WHEN 'POINT_MACHINE' THEN
-            SELECT EXISTS(
-                SELECT 1 FROM railway_control.point_machines
-                WHERE machine_id = resource_id_param
-            ) INTO resource_exists;
-        WHEN 'SIGNAL' THEN
-            SELECT EXISTS(
-                SELECT 1 FROM railway_control.signals
-                WHERE signal_id = resource_id_param AND is_active = TRUE
-            ) INTO resource_exists;
-    END CASE;
-
-    IF NOT resource_exists THEN
-        RAISE EXCEPTION 'Resource not found or inactive: % %', resource_type_param, resource_id_param;
-    END IF;
-
-    -- ✅ FIXED: Update conflict detection logic for new lock types
-    SELECT COUNT(*) INTO conflicting_locks
-    FROM railway_control.resource_locks
-    WHERE resource_type = resource_type_param
-    AND resource_id = resource_id_param
-    AND is_active = TRUE
-    AND (
-        -- ROUTE locks conflict with any other ROUTE lock
-        (lock_type = 'ROUTE' AND lock_type_param = 'ROUTE')
-        -- EMERGENCY locks override everything
-        OR lock_type = 'EMERGENCY'
-        OR lock_type_param = 'EMERGENCY'
-        -- MAINTENANCE locks conflict with ROUTE locks
-        OR (lock_type = 'MAINTENANCE' AND lock_type_param = 'ROUTE')
-        OR (lock_type = 'ROUTE' AND lock_type_param = 'MAINTENANCE')
-    );
-
-    IF conflicting_locks > 0 THEN
-        RAISE EXCEPTION 'Resource % % is already locked with conflicting lock type', resource_type_param, resource_id_param;
-    END IF;
-
-    -- Generate lock ID
-    lock_id := gen_random_uuid();
-
-    -- Insert resource lock
-    INSERT INTO railway_control.resource_locks (
-        id,
-        resource_type,
-        resource_id,
-        route_id,
-        lock_type,
-        acquired_at,
-        acquired_by,
-        expires_at,
-        is_active
-    ) VALUES (
-        lock_id,
-        resource_type_param,
-        resource_id_param,
-        route_id_param,
-        lock_type_param,
-        CURRENT_TIMESTAMP,
-        operator_id_param,
-        expires_at_param,
-        TRUE
-    );
-
-    GET DIAGNOSTICS rows_affected = ROW_COUNT;
-
-    -- ✅ FIXED: Log lock acquisition using correct column names
-    IF rows_affected > 0 THEN
-        INSERT INTO railway_control.route_events (
-            route_id,
-            event_type,
-            event_data,
-            triggered_by,        -- ✅ FIXED: Use correct column name
-            occurred_at          -- ✅ FIXED: Use correct column name
-        ) VALUES (
-            route_id_param,
-            'RESOURCE_LOCKED',
-            jsonb_build_object(
-                'lock_id', lock_id,
-                'resource_type', resource_type_param,
-                'resource_id', resource_id_param,
-                'lock_type', lock_type_param,
-                'expires_at', expires_at_param,
-                'operator', operator_id_param,
-                'source', 'DatabaseManager',
-                'safety_critical', TRUE
-            ),
-            operator_id_param,   -- Maps to triggered_by
-            CURRENT_TIMESTAMP    -- Maps to occurred_at
-        );
-
-        -- Additional audit logging for safety-critical operations
-        INSERT INTO railway_audit.event_log (
-            event_type,
-            entity_type,
-            entity_id,
-            entity_name,
-            new_values,
-            operator_id,
-            operation_source,
-            safety_critical,
-            event_details
-        ) VALUES (
-            'INSERT',
-            'resource_locks',
-            lock_id::TEXT,
-            CONCAT(resource_type_param, ': ', resource_id_param),
-            jsonb_build_object(
-                'id', lock_id,
-                'resource_type', resource_type_param,
-                'resource_id', resource_id_param,
-                'route_id', route_id_param,
-                'lock_type', lock_type_param
-            ),
-            operator_id_param,
-            'DatabaseManager',
-            TRUE,
-            jsonb_build_object(
-                'lock_acquisition_time', CURRENT_TIMESTAMP,
-                'conflicting_locks_checked', conflicting_locks
-            )
-        );
-    END IF;
-
-    RETURN rows_affected > 0;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION railway_control.release_resource_locks(
-    route_id_param UUID,
-    operator_id_param VARCHAR DEFAULT 'system',
-    release_reason VARCHAR DEFAULT 'ROUTE_COMPLETION'
-)
-RETURNS INTEGER AS $$
-DECLARE
-    route_record RECORD;
-    lock_record RECORD;
-    locks_released INTEGER := 0;
-    released_locks JSONB := '[]';
-    lock_details JSONB;
-BEGIN
-    -- Set operator context for audit logging
-    PERFORM set_config('railway.operator_id', operator_id_param, true);
-
-    -- Validate route exists and get current state
-    SELECT id, source_signal_id, dest_signal_id, state, direction
-    INTO route_record
-    FROM railway_control.route_assignments
-    WHERE id = route_id_param;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Route not found: %', route_id_param;
-    END IF;
-
-    -- Log what locks are about to be released
-    FOR lock_record IN
-        SELECT id, resource_type, resource_id, lock_type, acquired_at, acquired_by
-        FROM railway_control.resource_locks
-        WHERE route_id = route_id_param AND is_active = TRUE
-    LOOP
-        -- Build details for each lock being released
-        lock_details := jsonb_build_object(
-            'lock_id', lock_record.id,
-            'resource_type', lock_record.resource_type,
-            'resource_id', lock_record.resource_id,
-            'lock_type', lock_record.lock_type,
-            'acquired_at', lock_record.acquired_at,
-            'acquired_by', lock_record.acquired_by,
-            'released_at', CURRENT_TIMESTAMP,
-            'lock_duration_seconds', EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - lock_record.acquired_at))
-        );
-
-        released_locks := released_locks || lock_details;
-        locks_released := locks_released + 1;
-    END LOOP;
-
-    -- Mark locks as inactive (better for audit than DELETE)
-    UPDATE railway_control.resource_locks
-    SET
-        is_active = FALSE,
-        released_at = CURRENT_TIMESTAMP,
-        released_by = operator_id_param,
-        release_reason = release_reason
-    WHERE route_id = route_id_param AND is_active = TRUE;
-
-    -- Log lock release event if any locks were released
-    IF locks_released > 0 THEN
-        INSERT INTO railway_control.route_events (
-            route_id,
-            event_type,
-            event_data,
-            operator_id,
-            source_component,
-            safety_critical
-        ) VALUES (
-            route_id_param,
-            'RESOURCE_LOCKS_RELEASED',
-            jsonb_build_object(
-                'locks_released_count', locks_released,
-                'released_locks', released_locks,
-                'release_reason', release_reason,
-                'route_state', route_record.state
-            ),
-            operator_id_param,
-            'DatabaseManager',
-            TRUE  -- Resource lock release is safety-critical
-        );
-
-        -- Additional audit logging for safety-critical operations
-        INSERT INTO railway_audit.event_log (
-            event_type,
-            entity_type,
-            entity_id,
-            entity_name,
-            old_values,
-            operator_id,
-            operation_source,
-            safety_critical,
-            event_details
-        ) VALUES (
-            'BULK_UPDATE',
-            'resource_locks',
-            route_id_param::TEXT,
-            CONCAT('Route Locks: ', route_record.source_signal_id, ' -> ', route_record.dest_signal_id),
-            jsonb_build_object(
-                'locks_released', released_locks,
-                'total_count', locks_released
-            ),
-            operator_id_param,
-            'DatabaseManager',
-            TRUE,
-            jsonb_build_object(
-                'operation', 'RELEASE_ALL_ROUTE_LOCKS',
-                'release_reason', release_reason,
-                'route_state', route_record.state,
-                'locks_released_count', locks_released
-            )
-        );
-    END IF;
-
-    RETURN locks_released;
-END;
-$$ LANGUAGE plpgsql;
-
 -- ============================================================================
 -- HELPER FUNCTION: VALIDATE STATE TRANSITIONS
 -- ============================================================================

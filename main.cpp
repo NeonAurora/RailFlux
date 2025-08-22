@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
 
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeAssigned,
                      telemetryService, [telemetryService](const QString& routeId, const QString& sourceSignal, const QString& destSignal, const QStringList& path) {
-                         telemetryService->recordRouteEvent(routeId, "ROUTE_ASSIGNED", QVariantMap{
+                         telemetryService->recordRouteEvent(routeId, "ROUTE_RESERVED", QVariantMap{
                                                                                            {"sourceSignal", sourceSignal},
                                                                                            {"destSignal", destSignal},
                                                                                            {"pathLength", path.size()},
@@ -229,7 +229,7 @@ int main(int argc, char *argv[])
     // E. Route state changes propagation to database
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeAssigned,
                      dbManager, [dbManager](const QString& routeId, const QString& sourceSignal, const QString& destSignal, const QStringList& path) {
-                         dbManager->insertRouteEvent(routeId, "ROUTE_ASSIGNED", QVariantMap{
+                         dbManager->insertRouteEvent(routeId, "ROUTE_RESERVED", QVariantMap{
                                                                                     {"sourceSignal", sourceSignal},
                                                                                     {"destSignal", destSignal},
                                                                                     {"path", path}
