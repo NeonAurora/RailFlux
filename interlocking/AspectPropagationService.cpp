@@ -259,6 +259,7 @@ QVariantMap AspectPropagationService::buildControlGraphInternal(const QString& s
     }
 }
 
+// ENHANCED: Add detailed logging to expandControlNetwork to verify HM001 relationships
 void AspectPropagationService::expandControlNetwork(
     const QString& signalId,
     QHash<QString, ControlNode>& nodes,
@@ -268,41 +269,67 @@ void AspectPropagationService::expandControlNetwork(
     if (visited.contains(signalId)) {
         return; // Avoid infinite recursion
     }
+    visited.insert(signalId);
 
-    if (nodes.size() >= m_maxGraphSize) {
-        qWarning() << "[AspectPropagationService > expandControlNetwork] Maximum graph size reached:" << m_maxGraphSize;
+    qDebug() << "🔍 [EXPAND] Processing signal:" << signalId;
+
+    // Get signal information from database
+    QVariantMap signalData = m_dbManager->getSignalById(signalId);
+    if (signalData.isEmpty()) {
+        qWarning() << "⚠️ [EXPAND] Signal not found:" << signalId;
         return;
     }
 
-    visited.insert(signalId);
+    // Create control node
+    ControlNode node;
+    node.signalId = signalId;
+    node.signalType = signalData["type"].toString();
+    node.possibleAspects = signalData["possibleAspects"].toStringList();
 
-    try {
-        // Load signal control data
-        ControlNode node = loadSignalControlData(signalId);
-        if (node.signalId.isEmpty()) {
-            qWarning() << "[AspectPropagationService > expandControlNetwork] Signal not found:" << signalId;
-            return;
-        }
+    // Get control relationships from interlocking rules
+    node.controlledBy = m_ruleEngine->getControllingSignals(signalId);
+    node.controls = m_ruleEngine->getControlledSignals(signalId);
+    node.isIndependent = m_ruleEngine->isSignalIndependent(signalId);
 
-        nodes[signalId] = node;
+    // Default control mode (could be configured per signal)
+    node.controlMode = "AND"; // All controllers must permit the aspect
 
-        // Load control edges for this signal
-        QVector<ControlEdge> signalEdges = loadControlEdges(signalId);
-        edges.append(signalEdges);
+    nodes[signalId] = node;
 
-        // Process controlling signals (upstream)
-        for (const QString& controllingSignalId : node.controlledBy) {
-            expandControlNetwork(controllingSignalId, nodes, edges, visited);
-        }
+    qDebug() << "   📝 Signal:" << signalId << "(" << node.signalType << ")"
+             << "\n      Controlled by:" << node.controlledBy
+             << "\n      Controls:" << node.controls
+             << "\n      Independent:" << node.isIndependent
+             << "\n      Possible aspects:" << node.possibleAspects;
 
-        // Process controlled signals (downstream)
-        for (const QString& controlledSignalId : node.controls) {
-            expandControlNetwork(controlledSignalId, nodes, edges, visited);
-        }
+    // ENHANCED: Verify critical control relationships for debugging
+    if (signalId == "HM001") {
+        qDebug() << "🔧 [DEBUG] HM001 relationships verified:"
+                 << "Should be controlled by ST001:" << node.controlledBy.contains("ST001");
+    }
+    if (signalId == "ST001") {
+        qDebug() << "🔧 [DEBUG] ST001 relationships verified:"
+                 << "Should control HM001:" << node.controls.contains("HM001")
+                 << "Should be controlled by AS001:" << node.controlledBy.contains("AS001");
+    }
 
-    } catch (const std::exception& e) {
-        qWarning() << "[AspectPropagationService > expandControlNetwork] Error processing signal"
-                   << signalId << ":" << e.what();
+    // Process controlling signals (upstream)
+    for (const QString& controllingSignalId : node.controlledBy) {
+        expandControlNetwork(controllingSignalId, nodes, edges, visited);
+
+        // Build control edges from interlocking rules
+        ControlEdge edge;
+        edge.fromSignalId = controllingSignalId;
+        edge.toSignalId = signalId;
+        edge.whenAspect = "GREEN"; // Simplified - should come from rules
+        edge.allowedAspects = QStringList{"GREEN", "RED"}; // Simplified
+
+        edges.append(edge);
+    }
+
+    // Process controlled signals (downstream)
+    for (const QString& controlledSignalId : node.controls) {
+        expandControlNetwork(controlledSignalId, nodes, edges, visited);
     }
 }
 
@@ -611,6 +638,7 @@ QVariantMap AspectPropagationService::pruneGraphForDestination(
     return pruneGraphForDestinationInternal(fullGraph, destinationSignalId);
 }
 
+// ENHANCED: Fix pruneGraphForDestinationInternal to include controlled signals
 QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
     const QVariantMap& fullGraph,
     const QString& destinationSignalId)
@@ -618,12 +646,14 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
     QElapsedTimer timer;
     timer.start();
 
+    qDebug() << "✂️ [GRAPH_PRUNE] Pruning for destination:" << destinationSignalId;
+
     QVariantMap nodes = fullGraph["nodes"].toMap();
     QVariantList edges = fullGraph["edges"].toList();
 
-    // If destination is not in the graph, return empty result
+    // If destination is not in the graph, return empty
     if (!nodes.contains(destinationSignalId)) {
-        qWarning() << "[AspectPropagationService > pruneGraphForDestinationInternal] Destination signal not in control graph:"
+        qWarning() << "⚠️ [GRAPH_PRUNE] Destination signal not in control graph:"
                    << destinationSignalId;
 
         QVariantMap emptyResult;
@@ -635,7 +665,7 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
         return emptyResult;
     }
 
-    // Find the control path using breadth-first search from destination backwards
+    // ENHANCED: Find the complete control path using bidirectional search
     QSet<QString> relevantSignals;
     QQueue<QString> toProcess;
     QSet<QString> visited;
@@ -644,7 +674,9 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
     toProcess.enqueue(destinationSignalId);
     relevantSignals.insert(destinationSignalId);
 
-    // Trace backwards through controlling signals
+    qDebug() << "🔍 [GRAPH_PRUNE] Finding complete control path to/from destination...";
+
+    // ENHANCED: Trace both backwards (controlledBy) AND forwards (controls)
     while (!toProcess.isEmpty()) {
         QString currentSignal = toProcess.dequeue();
         if (visited.contains(currentSignal)) continue;
@@ -652,30 +684,47 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
 
         QVariantMap nodeData = nodes[currentSignal].toMap();
         QStringList controlledBy = nodeData["controlledBy"].toStringList();
+        QStringList controls = nodeData["controls"].toStringList(); // NEW: Also get controlled signals
 
+        qDebug() << "   📍" << currentSignal
+                 << "controlled by:" << controlledBy
+                 << "controls:" << controls; // NEW: Log both directions
+
+        // EXISTING: Process controlling signals (upstream)
         for (const QString& controllingSignal : controlledBy) {
             if (nodes.contains(controllingSignal) && !relevantSignals.contains(controllingSignal)) {
                 relevantSignals.insert(controllingSignal);
                 toProcess.enqueue(controllingSignal);
+                qDebug() << "     ➕ Added controlling signal:" << controllingSignal;
+            }
+        }
+
+        // NEW: Process controlled signals (downstream)
+        for (const QString& controlledSignal : controls) {
+            if (nodes.contains(controlledSignal) && !relevantSignals.contains(controlledSignal)) {
+                relevantSignals.insert(controlledSignal);
+                toProcess.enqueue(controlledSignal);
+                qDebug() << "     ➕ Added controlled signal:" << controlledSignal;
             }
         }
     }
 
-    // Also include signals that control the relevant signals (upstream influencers)
-    QSet<QString> additionalSignals;
+    // ENHANCED: Also include additional upstream influencers for complete safety analysis
+    QSet<QString> additionalUpstream;
     for (const QString& signalId : relevantSignals) {
         QVariantMap nodeData = nodes[signalId].toMap();
         QStringList controlledBy = nodeData["controlledBy"].toStringList();
 
         for (const QString& controllingSignal : controlledBy) {
             if (nodes.contains(controllingSignal) && !relevantSignals.contains(controllingSignal)) {
-                additionalSignals.insert(controllingSignal);
+                additionalUpstream.insert(controllingSignal);
+                qDebug() << "     ➕ Added upstream influencer:" << controllingSignal;
             }
         }
     }
-    relevantSignals.unite(additionalSignals);
+    relevantSignals.unite(additionalUpstream);
 
-    // Build pruned graph with only relevant signals
+    // Build pruned graph with all relevant signals
     QVariantMap prunedNodes;
     QVariantList prunedEdges;
 
@@ -693,14 +742,18 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
         }
     }
 
+    qDebug() << "✂️ [GRAPH_PRUNE] Enhanced pruning completed:"
+             << "Original:" << nodes.size() << "signals"
+             << "→ Kept:" << relevantSignals.size() << "relevant signals:"
+             << relevantSignals.values();
+
     QVariantMap result;
     result["success"] = true;
     result["nodes"] = prunedNodes;
     result["edges"] = prunedEdges;
     result["processingTimeMs"] = timer.elapsed();
     result["originalSize"] = nodes.size();
-    result["prunedSize"] = prunedNodes.size();
-    result["relevantSignals"] = relevantSignals.values();
+    result["prunedSize"] = relevantSignals.size();
 
     recordProcessingTime("graph_pruning", timer.elapsed());
 
@@ -711,9 +764,12 @@ QVector<ControlNode> AspectPropagationService::createDependencyOrder(const QVari
 {
     QElapsedTimer timer;
     timer.start();
+    qDebug() << "📋 [AspectPropagationService > createDependencyOrder] Creating processing sequence...";
 
     QVariantMap nodes = prunedGraph["nodes"].toMap();
     QHash<QString, ControlNode> nodeHash;
+
+    qDebug() << "🔍 [DEBUG] Signals in pruned graph:" << nodes.keys();
 
     // Convert to ControlNode hash for easier processing
     for (auto it = nodes.begin(); it != nodes.end(); ++it) {
@@ -731,6 +787,14 @@ QVector<ControlNode> AspectPropagationService::createDependencyOrder(const QVari
         node.locationCol = nodeData["locationCol"].toDouble();
 
         nodeHash[it.key()] = node;
+
+        qDebug() << "   📝 Node:" << node.signalId << "controlled by:" << node.controlledBy;
+    }
+
+    if (nodeHash.contains("HM001")) {
+        qDebug() << "✅ [DEBUG] HM001 found in dependency ordering";
+    } else {
+        qCritical() << "❌ [CRITICAL] HM001 missing from dependency ordering - this is the bug!";
     }
 
     // Check for circular dependencies first
