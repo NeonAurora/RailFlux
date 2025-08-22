@@ -105,6 +105,7 @@ QVariantMap AspectPropagationService::propagateAspectsAdvanced(
     return aspectPropagationResultToVariantMap(result);
 }
 
+// ENHANCED: Update propagateAspectsInternal to use RIPPLE algorithm with source context
 AspectPropagationResult AspectPropagationService::propagateAspectsInternal(
     const QString& sourceSignalId,
     const QString& destinationSignalId,
@@ -124,7 +125,6 @@ AspectPropagationResult AspectPropagationService::propagateAspectsInternal(
             result.errorMessage = validation["error"].toString();
             result.errorCode = validation["errorCode"].toString();
             result.processingTimeMs = timer.elapsed();
-            qWarning() << "[AspectPropagationService > propagateAspectsInternal] Validation failed:" << result.errorMessage;
             return result;
         }
 
@@ -133,10 +133,16 @@ AspectPropagationResult AspectPropagationService::propagateAspectsInternal(
         result.graphSize = fullGraph["nodes"].toMap().size();
         emit graphConstructed(result.graphSize, fullGraph["edges"].toList().size());
 
-        // 3. Prune graph to focus on source→destination control path
-        QVariantMap prunedGraph = pruneGraphForDestinationInternal(fullGraph, destinationSignalId);
+        // 3. ENHANCED: Use RIPPLE algorithm for precise route-based pruning
+        QVariantMap prunedGraph = pruneGraphForRouteInternal(fullGraph, sourceSignalId, destinationSignalId);
         result.prunedGraphSize = prunedGraph["nodes"].toMap().size();
         emit graphPruned(result.graphSize, result.prunedGraphSize);
+
+        // Log RIPPLE results
+        qDebug() << "🎯 [RIPPLE] Results summary:";
+        qDebug() << "   🚀 Source expansion:" << prunedGraph["sourceExpansion"].toStringList();
+        qDebug() << "   🎯 Destination expansion:" << prunedGraph["destinationExpansion"].toStringList();
+        qDebug() << "   ❌ Excluded signals:" << prunedGraph["excludedSignals"].toStringList();
 
         // 4. Create dependency-ordered processing sequence
         QVector<ControlNode> orderedNodes = createDependencyOrder(prunedGraph);
@@ -159,46 +165,25 @@ AspectPropagationResult AspectPropagationService::propagateAspectsInternal(
         result.decisionReasons = aspectSelections["reasons"].toMap();
         result.processedSignals = aspectSelections["processOrder"].toStringList();
 
-        // Extract pruned signals for analysis
-        QStringList allSignalsList = fullGraph["nodes"].toMap().keys();
-        QStringList relevantSignalsList = prunedGraph["nodes"].toMap().keys();
-
-        QSet<QString> allSignals(allSignalsList.begin(), allSignalsList.end());
-        QSet<QString> relevantSignals(relevantSignalsList.begin(), relevantSignalsList.end());
-
-        QSet<QString> prunedSignalsSet = allSignals - relevantSignals;
-        result.prunedSignals = QStringList(prunedSignalsSet.begin(), prunedSignalsSet.end());
+        // Store RIPPLE results for analysis
+        result.prunedSignals = prunedGraph["excludedSignals"].toStringList();
 
         m_successfulPropagations++;
 
     } catch (const std::exception& e) {
         result.success = false;
-        result.errorMessage = QString("Propagation algorithm error: %1").arg(e.what());
-        result.errorCode = "ALGORITHM_ERROR";
-        qCritical() << "[AspectPropagationService > propagateAspectsInternal] Exception:" << e.what();
+        result.errorMessage = QString("RIPPLE propagation error: %1").arg(e.what());
+        result.errorCode = "RIPPLE_ERROR";
+        qCritical() << "[AspectPropagationService > propagateAspectsInternal] RIPPLE Exception:" << e.what();
     }
 
     result.processingTimeMs = timer.elapsed();
-
-    // Record performance metrics
-    recordProcessingTime("full_propagation", result.processingTimeMs);
-    recordPropagationResult(result);
-
-    // Performance monitoring
-    if (result.processingTimeMs > TARGET_PROCESSING_TIME_MS) {
-        qWarning() << "[AspectPropagationService > propagateAspectsInternal] Slow processing:"
-                   << result.processingTimeMs << "ms";
-        emit performanceWarning("propagation", result.processingTimeMs, TARGET_PROCESSING_TIME_MS);
-    }
+    recordProcessingTime("ripple_full_propagation", result.processingTimeMs);
 
     emit propagationCompleted(sourceSignalId, destinationSignalId, result.success);
-
-    if (!result.success) {
-        emit aspectPropagationFailed(sourceSignalId, destinationSignalId, result.errorMessage);
-    }
-
     return result;
 }
+
 
 QVariantMap AspectPropagationService::buildControlGraph(const QString& sourceSignalId)
 {
@@ -301,17 +286,6 @@ void AspectPropagationService::expandControlNetwork(
              << "\n      Controls:" << node.controls
              << "\n      Independent:" << node.isIndependent
              << "\n      Possible aspects:" << node.possibleAspects;
-
-    // ENHANCED: Verify critical control relationships for debugging
-    if (signalId == "HM001") {
-        qDebug() << "🔧 [DEBUG] HM001 relationships verified:"
-                 << "Should be controlled by ST001:" << node.controlledBy.contains("ST001");
-    }
-    if (signalId == "ST001") {
-        qDebug() << "🔧 [DEBUG] ST001 relationships verified:"
-                 << "Should control HM001:" << node.controls.contains("HM001")
-                 << "Should be controlled by AS001:" << node.controlledBy.contains("AS001");
-    }
 
     // Process controlling signals (upstream)
     for (const QString& controllingSignalId : node.controlledBy) {
@@ -638,7 +612,16 @@ QVariantMap AspectPropagationService::pruneGraphForDestination(
     return pruneGraphForDestinationInternal(fullGraph, destinationSignalId);
 }
 
+QVariantMap AspectPropagationService::pruneGraphForRoute(
+    const QVariantMap& fullGraph,
+    const QString& sourceSignalId,
+    const QString& destinationSignalId)
+{
+    return pruneGraphForRouteInternal(fullGraph, sourceSignalId, destinationSignalId);
+}
+
 // ENHANCED: Fix pruneGraphForDestinationInternal to include controlled signals
+// ENHANCED: Implement RIPPLE Algorithm for precise control graph pruning
 QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
     const QVariantMap& fullGraph,
     const QString& destinationSignalId)
@@ -646,15 +629,15 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
     QElapsedTimer timer;
     timer.start();
 
-    qDebug() << "✂️ [GRAPH_PRUNE] Pruning for destination:" << destinationSignalId;
+    qDebug() << "✂️ [RIPPLE] Starting RIPPLE algorithm for route pruning";
+    qDebug() << "   🎯 Destination:" << destinationSignalId;
 
     QVariantMap nodes = fullGraph["nodes"].toMap();
     QVariantList edges = fullGraph["edges"].toList();
 
-    // If destination is not in the graph, return empty
+    // Validate destination exists
     if (!nodes.contains(destinationSignalId)) {
-        qWarning() << "⚠️ [GRAPH_PRUNE] Destination signal not in control graph:"
-                   << destinationSignalId;
+        qWarning() << "⚠️ [RIPPLE] Destination signal not found:" << destinationSignalId;
 
         QVariantMap emptyResult;
         emptyResult["success"] = false;
@@ -665,66 +648,173 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
         return emptyResult;
     }
 
-    // ENHANCED: Find the complete control path using bidirectional search
-    QSet<QString> relevantSignals;
-    QQueue<QString> toProcess;
-    QSet<QString> visited;
+    // RIPPLE Step 1: Find the source signal from the graph
+    // (The source is the signal that's not controlled by any other signal in our context)
+    QString sourceSignalId;
 
-    // Start with destination signal
-    toProcess.enqueue(destinationSignalId);
-    relevantSignals.insert(destinationSignalId);
+    // For route assignment, we need to identify the source signal
+    // This is typically the signal that has the least controllers or is at the "start" of the route
+    // For now, we'll use a heuristic: find signals that could be sources
+    QStringList potentialSources;
+    for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+        QVariantMap nodeData = it.value().toMap();
+        QStringList controlledBy = nodeData["controlledBy"].toStringList();
+        QString signalType = nodeData["signalType"].toString();
 
-    qDebug() << "🔍 [GRAPH_PRUNE] Finding complete control path to/from destination...";
+        // Heuristic: HOME signals are typically sources in route assignments
+        if (signalType == "HOME" || signalType == "OUTER") {
+            potentialSources.append(it.key());
+        }
+    }
 
-    // ENHANCED: Trace both backwards (controlledBy) AND forwards (controls)
-    while (!toProcess.isEmpty()) {
-        QString currentSignal = toProcess.dequeue();
-        if (visited.contains(currentSignal)) continue;
-        visited.insert(currentSignal);
+    // For this implementation, we'll assume the source is the signal we want to find a path from
+    // In a proper implementation, this should be passed as a parameter
+    if (!potentialSources.isEmpty()) {
+        sourceSignalId = potentialSources.first(); // Use first potential source
+        qDebug() << "   🚀 Detected source signal:" << sourceSignalId;
+    }
+
+    // RIPPLE Step 2: Destination Expansion (Upward) - Find controllers of destination
+    QSet<QString> destinationExpansion;
+    QQueue<QString> destinationQueue;
+    QSet<QString> destinationVisited;
+
+    destinationQueue.enqueue(destinationSignalId);
+    destinationExpansion.insert(destinationSignalId);
+
+    qDebug() << "🔍 [RIPPLE] Destination Expansion (Upward):";
+    qDebug() << "   📍 Starting from destination:" << destinationSignalId;
+
+    while (!destinationQueue.isEmpty()) {
+        QString currentSignal = destinationQueue.dequeue();
+        if (destinationVisited.contains(currentSignal)) continue;
+        destinationVisited.insert(currentSignal);
 
         QVariantMap nodeData = nodes[currentSignal].toMap();
         QStringList controlledBy = nodeData["controlledBy"].toStringList();
-        QStringList controls = nodeData["controls"].toStringList(); // NEW: Also get controlled signals
 
-        qDebug() << "   📍" << currentSignal
-                 << "controlled by:" << controlledBy
-                 << "controls:" << controls; // NEW: Log both directions
+        qDebug() << "   📊" << currentSignal << "controlled by:" << controlledBy;
 
-        // EXISTING: Process controlling signals (upstream)
         for (const QString& controllingSignal : controlledBy) {
-            if (nodes.contains(controllingSignal) && !relevantSignals.contains(controllingSignal)) {
-                relevantSignals.insert(controllingSignal);
-                toProcess.enqueue(controllingSignal);
-                qDebug() << "     ➕ Added controlling signal:" << controllingSignal;
-            }
-        }
-
-        // NEW: Process controlled signals (downstream)
-        for (const QString& controlledSignal : controls) {
-            if (nodes.contains(controlledSignal) && !relevantSignals.contains(controlledSignal)) {
-                relevantSignals.insert(controlledSignal);
-                toProcess.enqueue(controlledSignal);
-                qDebug() << "     ➕ Added controlled signal:" << controlledSignal;
+            if (nodes.contains(controllingSignal) && !destinationExpansion.contains(controllingSignal)) {
+                destinationExpansion.insert(controllingSignal);
+                destinationQueue.enqueue(controllingSignal);
+                qDebug() << "     ⬆️ Added controller:" << controllingSignal;
             }
         }
     }
 
-    // ENHANCED: Also include additional upstream influencers for complete safety analysis
-    QSet<QString> additionalUpstream;
-    for (const QString& signalId : relevantSignals) {
-        QVariantMap nodeData = nodes[signalId].toMap();
-        QStringList controlledBy = nodeData["controlledBy"].toStringList();
+    // RIPPLE Step 3: Source Expansion (Downward) - Find signals controlled by source
+    QSet<QString> sourceExpansion;
 
-        for (const QString& controllingSignal : controlledBy) {
-            if (nodes.contains(controllingSignal) && !relevantSignals.contains(controllingSignal)) {
-                additionalUpstream.insert(controllingSignal);
-                qDebug() << "     ➕ Added upstream influencer:" << controllingSignal;
+    if (!sourceSignalId.isEmpty() && nodes.contains(sourceSignalId)) {
+        QQueue<QString> sourceQueue;
+        QSet<QString> sourceVisited;
+
+        sourceQueue.enqueue(sourceSignalId);
+        sourceExpansion.insert(sourceSignalId);
+
+        qDebug() << "🔍 [RIPPLE] Source Expansion (Downward):";
+        qDebug() << "   📍 Starting from source:" << sourceSignalId;
+
+        while (!sourceQueue.isEmpty()) {
+            QString currentSignal = sourceQueue.dequeue();
+            if (sourceVisited.contains(currentSignal)) continue;
+            sourceVisited.insert(currentSignal);
+
+            QVariantMap nodeData = nodes[currentSignal].toMap();
+            QStringList controls = nodeData["controls"].toStringList();
+
+            qDebug() << "   📊" << currentSignal << "controls:" << controls;
+
+            for (const QString& controlledSignal : controls) {
+                if (nodes.contains(controlledSignal) && !sourceExpansion.contains(controlledSignal)) {
+                    sourceExpansion.insert(controlledSignal);
+                    sourceQueue.enqueue(controlledSignal);
+                    qDebug() << "     ⬇️ Added controlled signal:" << controlledSignal;
+                }
             }
         }
     }
-    relevantSignals.unite(additionalUpstream);
 
-    // Build pruned graph with all relevant signals
+    // RIPPLE Step 4: Find the intersection path between source and destination
+    // We need signals that are in the direct control path from source to destination
+    QSet<QString> directPath;
+
+    // Add signals that are in both the upward path from destination and accessible from source
+    // This creates the direct control chain
+    if (!sourceSignalId.isEmpty()) {
+        // Find path from source toward destination
+        QQueue<QString> pathQueue;
+        QSet<QString> pathVisited;
+        QHash<QString, QString> pathParent; // Track path for reconstruction
+
+        pathQueue.enqueue(sourceSignalId);
+        pathVisited.insert(sourceSignalId);
+
+        bool pathFound = false;
+        QString pathEndpoint;
+
+        while (!pathQueue.isEmpty() && !pathFound) {
+            QString currentSignal = pathQueue.dequeue();
+
+            // Check if we've reached the destination or any signal in destination expansion
+            if (currentSignal == destinationSignalId || destinationExpansion.contains(currentSignal)) {
+                pathFound = true;
+                pathEndpoint = currentSignal;
+                break;
+            }
+
+            QVariantMap nodeData = nodes[currentSignal].toMap();
+            QStringList controlledBy = nodeData["controlledBy"].toStringList();
+
+            for (const QString& controller : controlledBy) {
+                if (nodes.contains(controller) && !pathVisited.contains(controller)) {
+                    pathVisited.insert(controller);
+                    pathParent[controller] = currentSignal;
+                    pathQueue.enqueue(controller);
+                }
+            }
+        }
+
+        // Reconstruct the direct path
+        if (pathFound) {
+            QString current = pathEndpoint;
+            while (!current.isEmpty()) {
+                directPath.insert(current);
+                current = pathParent.value(current, "");
+            }
+            qDebug() << "   🛤️ Direct path found:" << directPath.values();
+        }
+    }
+
+    // RIPPLE Step 5: Combine relevant signals
+    QSet<QString> relevantSignals;
+
+    // Always include destination expansion (upward controllers)
+    relevantSignals.unite(destinationExpansion);
+
+    // Include source expansion only if it connects to the destination
+    if (!directPath.isEmpty()) {
+        relevantSignals.unite(directPath);
+        // Add source expansion signals that are part of the direct path
+        for (const QString& sourceSignal : sourceExpansion) {
+            if (directPath.contains(sourceSignal)) {
+                relevantSignals.insert(sourceSignal);
+            }
+        }
+    } else {
+        // Fallback: include source expansion
+        relevantSignals.unite(sourceExpansion);
+    }
+
+    qDebug() << "🎯 [RIPPLE] Expansion Results:";
+    qDebug() << "   ⬆️ Destination expansion:" << destinationExpansion.values();
+    qDebug() << "   ⬇️ Source expansion:" << sourceExpansion.values();
+    qDebug() << "   🛤️ Direct path:" << directPath.values();
+    qDebug() << "   ✅ Final relevant signals:" << relevantSignals.values();
+
+    // RIPPLE Step 6: Build pruned graph with only relevant signals
     QVariantMap prunedNodes;
     QVariantList prunedEdges;
 
@@ -742,23 +832,271 @@ QVariantMap AspectPropagationService::pruneGraphForDestinationInternal(
         }
     }
 
-    qDebug() << "✂️ [GRAPH_PRUNE] Enhanced pruning completed:"
-             << "Original:" << nodes.size() << "signals"
-             << "→ Kept:" << relevantSignals.size() << "relevant signals:"
-             << relevantSignals.values();
+    // Calculate pruning efficiency
+    int originalSize = nodes.size();
+    int prunedSize = relevantSignals.size();
+    int excludedSignals = originalSize - prunedSize;
+
+    qDebug() << "✂️ [RIPPLE] Pruning completed:";
+    qDebug() << "   📊 Original:" << originalSize << "signals";
+    qDebug() << "   ✅ Kept:" << prunedSize << "relevant signals";
+    qDebug() << "   ❌ Excluded:" << excludedSignals << "irrelevant signals";
+
+    // Log excluded signals for debugging
+    if (excludedSignals > 0) {
+        QSet<QString> allSignals(nodes.keys().begin(), nodes.keys().end());
+        QSet<QString> excludedSet = allSignals - relevantSignals;
+        qDebug() << "   🗑️ Excluded signals:" << excludedSet.values();
+    }
 
     QVariantMap result;
     result["success"] = true;
     result["nodes"] = prunedNodes;
     result["edges"] = prunedEdges;
     result["processingTimeMs"] = timer.elapsed();
-    result["originalSize"] = nodes.size();
-    result["prunedSize"] = relevantSignals.size();
+    result["originalSize"] = originalSize;
+    result["prunedSize"] = prunedSize;
+    result["excludedSignals"] = excludedSignals;
+    result["sourceExpansion"] = QStringList(sourceExpansion.values());
+    result["destinationExpansion"] = QStringList(destinationExpansion.values());
+    result["directPath"] = QStringList(directPath.values());
 
     recordProcessingTime("graph_pruning", timer.elapsed());
 
     return result;
 }
+
+// SAFE: Crash-proof RIPPLE implementation with proper error handling
+QVariantMap AspectPropagationService::pruneGraphForRouteInternal(
+    const QVariantMap& fullGraph,
+    const QString& sourceSignalId,
+    const QString& destinationSignalId)
+{
+    QElapsedTimer timer;
+    timer.start();
+
+    qDebug() << "✂️ [RIPPLE] Starting RIPPLE algorithm for route pruning";
+    qDebug() << "   🚀 Source:" << sourceSignalId << "→ 🎯 Destination:" << destinationSignalId;
+
+    QVariantMap nodes = fullGraph["nodes"].toMap();
+    QVariantList edges = fullGraph["edges"].toList();
+
+    // SAFE: Validate inputs with proper error handling
+    if (!nodes.contains(sourceSignalId)) {
+        qWarning() << "⚠️ [RIPPLE] Source signal not found:" << sourceSignalId;
+
+        QVariantMap errorResult;
+        errorResult["success"] = false;
+        errorResult["error"] = "Source signal not found in control graph";
+        errorResult["nodes"] = QVariantMap();
+        errorResult["edges"] = QVariantList();
+        errorResult["processingTimeMs"] = timer.elapsed();
+        return errorResult;
+    }
+
+    if (!nodes.contains(destinationSignalId)) {
+        qWarning() << "⚠️ [RIPPLE] Destination signal not found:" << destinationSignalId;
+
+        QVariantMap errorResult;
+        errorResult["success"] = false;
+        errorResult["error"] = "Destination signal not found in control graph";
+        errorResult["nodes"] = QVariantMap();
+        errorResult["edges"] = QVariantList();
+        errorResult["processingTimeMs"] = timer.elapsed();
+        return errorResult;
+    }
+
+    try {
+        // SAFE: RIPPLE Step 1 - Destination Expansion (Upward)
+        QSet<QString> destinationExpansion;
+        QQueue<QString> destinationQueue;
+        QSet<QString> destinationVisited;
+
+        destinationQueue.enqueue(destinationSignalId);
+        destinationExpansion.insert(destinationSignalId);
+
+        qDebug() << "🔍 [RIPPLE] Destination Expansion (Upward):";
+
+        // SAFE: Limit expansion depth to prevent infinite loops
+        int maxDepth = 10;
+        int currentDepth = 0;
+
+        while (!destinationQueue.isEmpty() && currentDepth < maxDepth) {
+            QString currentSignal = destinationQueue.dequeue();
+            if (destinationVisited.contains(currentSignal)) continue;
+            destinationVisited.insert(currentSignal);
+
+            if (!nodes.contains(currentSignal)) {
+                qWarning() << "⚠️ [RIPPLE] Signal not found in graph:" << currentSignal;
+                continue;
+            }
+
+            QVariantMap nodeData = nodes[currentSignal].toMap();
+            QStringList controlledBy = nodeData["controlledBy"].toStringList();
+
+            qDebug() << "   📊" << currentSignal << "controlled by:" << controlledBy;
+
+            for (const QString& controllingSignal : controlledBy) {
+                if (nodes.contains(controllingSignal) &&
+                    !destinationExpansion.contains(controllingSignal)) {
+                    destinationExpansion.insert(controllingSignal);
+                    destinationQueue.enqueue(controllingSignal);
+                    qDebug() << "     ⬆️ Added controller:" << controllingSignal;
+                }
+            }
+            currentDepth++;
+        }
+
+        // SAFE: RIPPLE Step 2 - Source Expansion (Downward)
+        QSet<QString> sourceExpansion;
+        QQueue<QString> sourceQueue;
+        QSet<QString> sourceVisited;
+
+        sourceQueue.enqueue(sourceSignalId);
+        sourceExpansion.insert(sourceSignalId);
+
+        qDebug() << "🔍 [RIPPLE] Source Expansion (Downward):";
+
+        // SAFE: Reset depth counter
+        currentDepth = 0;
+
+        while (!sourceQueue.isEmpty() && currentDepth < maxDepth) {
+            QString currentSignal = sourceQueue.dequeue();
+            if (sourceVisited.contains(currentSignal)) continue;
+            sourceVisited.insert(currentSignal);
+
+            if (!nodes.contains(currentSignal)) {
+                qWarning() << "⚠️ [RIPPLE] Signal not found in graph:" << currentSignal;
+                continue;
+            }
+
+            QVariantMap nodeData = nodes[currentSignal].toMap();
+            QStringList controls = nodeData["controls"].toStringList();
+
+            qDebug() << "   📊" << currentSignal << "controls:" << controls;
+
+            for (const QString& controlledSignal : controls) {
+                if (nodes.contains(controlledSignal) &&
+                    !sourceExpansion.contains(controlledSignal)) {
+                    sourceExpansion.insert(controlledSignal);
+                    sourceQueue.enqueue(controlledSignal);
+                    qDebug() << "     ⬇️ Added controlled signal:" << controlledSignal;
+                }
+            }
+            currentDepth++;
+        }
+
+        // SAFE: RIPPLE Step 3 - Combine relevant signals
+        QSet<QString> relevantSignals = sourceExpansion;
+        relevantSignals.unite(destinationExpansion);
+
+        // SAFE: RIPPLE Step 4 - Calculate excluded signals
+        QSet<QString> allSignals;
+        for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+            allSignals.insert(it.key());
+        }
+        QSet<QString> excludedSignals = allSignals - relevantSignals;
+
+        // SAFE: Convert QSet to QStringList properly
+        QStringList sourceExpansionList;
+        for (const QString& signal : sourceExpansion) {
+            sourceExpansionList.append(signal);
+        }
+
+        QStringList destinationExpansionList;
+        for (const QString& signal : destinationExpansion) {
+            destinationExpansionList.append(signal);
+        }
+
+        QStringList relevantSignalsList;
+        for (const QString& signal : relevantSignals) {
+            relevantSignalsList.append(signal);
+        }
+
+        QStringList excludedSignalsList;
+        for (const QString& signal : excludedSignals) {
+            excludedSignalsList.append(signal);
+        }
+
+        qDebug() << "🎯 [RIPPLE] Expansion Results:";
+        qDebug() << "   🚀 Source expansion:" << sourceExpansionList;
+        qDebug() << "   🎯 Destination expansion:" << destinationExpansionList;
+        qDebug() << "   ✅ Final relevant signals:" << relevantSignalsList;
+        qDebug() << "   ❌ Excluded signals:" << excludedSignalsList;
+
+        // SAFE: Build pruned graph
+        QVariantMap prunedNodes;
+        QVariantList prunedEdges;
+
+        for (const QString& signalId : relevantSignals) {
+            if (nodes.contains(signalId)) {
+                prunedNodes[signalId] = nodes[signalId];
+            }
+        }
+
+        for (const QVariant& edgeVariant : edges) {
+            QVariantMap edge = edgeVariant.toMap();
+            QString fromSignal = edge["from"].toString();
+            QString toSignal = edge["to"].toString();
+
+            if (relevantSignals.contains(fromSignal) && relevantSignals.contains(toSignal)) {
+                prunedEdges.append(edge);
+            }
+        }
+
+        qDebug() << "✂️ [RIPPLE] Pruning completed: Original:" << nodes.size()
+                 << "→ Kept:" << relevantSignals.size() << "signals";
+
+        // SAFE: Build result with all required fields
+        QVariantMap result;
+        result["success"] = true;
+        result["nodes"] = prunedNodes;
+        result["edges"] = prunedEdges;
+        result["processingTimeMs"] = timer.elapsed();
+        result["originalSize"] = nodes.size();
+        result["prunedSize"] = relevantSignals.size();
+        result["sourceExpansion"] = sourceExpansionList;
+        result["destinationExpansion"] = destinationExpansionList;
+        result["excludedSignals"] = excludedSignalsList;
+
+        recordProcessingTime("ripple_pruning", timer.elapsed());
+        return result;
+
+    } catch (const std::exception& e) {
+        qCritical() << "❌ [RIPPLE] Exception occurred:" << e.what();
+
+        QVariantMap errorResult;
+        errorResult["success"] = false;
+        errorResult["error"] = QString("RIPPLE exception: %1").arg(e.what());
+        errorResult["nodes"] = QVariantMap();
+        errorResult["edges"] = QVariantList();
+        errorResult["processingTimeMs"] = timer.elapsed();
+        return errorResult;
+
+    } catch (...) {
+        qCritical() << "❌ [RIPPLE] Unknown exception occurred";
+
+        QVariantMap errorResult;
+        errorResult["success"] = false;
+        errorResult["error"] = "Unknown RIPPLE exception";
+        errorResult["nodes"] = QVariantMap();
+        errorResult["edges"] = QVariantList();
+        errorResult["processingTimeMs"] = timer.elapsed();
+        return errorResult;
+    }
+}
+
+
+QVariantMap AspectPropagationService::createErrorResult(const QString& errorMessage)
+{
+    QVariantMap errorResult;
+    errorResult["success"] = false;
+    errorResult["error"] = errorMessage;
+    errorResult["nodes"] = QVariantMap();
+    errorResult["edges"] = QVariantList();
+    return errorResult;
+}
+
 
 QVector<ControlNode> AspectPropagationService::createDependencyOrder(const QVariantMap& prunedGraph)
 {

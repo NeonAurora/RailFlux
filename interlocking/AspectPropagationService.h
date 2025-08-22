@@ -150,6 +150,12 @@ public:
         bool dryRun = true
     );
 
+    Q_INVOKABLE QVariantMap pruneGraphForRoute(
+        const QVariantMap& fullGraph,
+        const QString& sourceSignalId,
+        const QString& destinationSignalId
+        );
+
 public slots:
     void initialize();
     void onSignalAspectChanged(const QString& signalId, const QString& newAspect);
@@ -190,6 +196,13 @@ private:
         const QVariantMap& fullGraph,
         const QString& destinationSignalId
     );
+
+    QVariantMap pruneGraphForRouteInternal(
+        const QVariantMap& fullGraph,
+        const QString& sourceSignalId,
+        const QString& destinationSignalId
+        );
+
     QStringList findControlPath(
         const QString& sourceId,
         const QString& destinationId,
@@ -314,6 +327,8 @@ private:
         SignalRole role,
         const QVariantMap& options) const;
     QString getRoleDescription(SignalRole role) const;
+
+    QVariantMap createErrorResult(const QString& errorMessage);
 
 private:
     // Service dependencies
