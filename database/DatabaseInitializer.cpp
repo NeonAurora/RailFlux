@@ -1478,7 +1478,7 @@ bool DatabaseInitializer::createFunctions() {
     END;
     $$ LANGUAGE plpgsql)",
 
-        // Insert Router Assignment o
+        // Insert Route Assignment
         R"(CREATE OR REPLACE FUNCTION railway_control.insert_route_assignment(
         route_id_param UUID,
         source_signal_id_param VARCHAR,
@@ -1494,6 +1494,7 @@ bool DatabaseInitializer::createFunctions() {
     RETURNS BOOLEAN AS $$
     DECLARE
         rows_affected INTEGER;
+        sequence_num BIGINT;
     BEGIN
         -- Set operator context for audit logging
         PERFORM set_config('railway.operator_id', operator_id_param, true);
@@ -1529,13 +1530,20 @@ bool DatabaseInitializer::createFunctions() {
 
         -- Log route creation event
         IF rows_affected > 0 THEN
+            -- ✅ FIXED: Get sequence number and include all required columns
+            sequence_num := nextval('railway_audit.event_sequence');
+
             INSERT INTO railway_control.route_events (
                 route_id,
                 event_type,
                 event_data,
                 operator_id,
                 source_component,
-                safety_critical
+                correlation_id,           -- ✅ ADDED: Required column
+                response_time_ms,         -- ✅ ADDED: Required column
+                safety_critical,
+                event_timestamp,          -- ✅ ADDED: Required column
+                sequence_number           -- ✅ ADDED: Required column
             ) VALUES (
                 route_id_param,
                 'ROUTE_REQUESTED',
@@ -1549,13 +1557,17 @@ bool DatabaseInitializer::createFunctions() {
                 ),
                 operator_id_param,
                 'DatabaseManager',
-                TRUE
+                NULL,                     -- ✅ ADDED: correlation_id (NULL for new routes)
+                NULL,                     -- ✅ ADDED: response_time_ms (NULL for creation)
+                TRUE,                     -- ✅ ADDED: safety_critical (TRUE for route creation)
+                CURRENT_TIMESTAMP,        -- ✅ ADDED: event_timestamp
+                sequence_num              -- ✅ ADDED: sequence_number
             );
         END IF;
 
         RETURN rows_affected > 0;
     END;
-    $$ LANGUAGE plpgsql)"
+    $$ LANGUAGE plpgsql)",
 
         // ============================================================================
         // NOTIFICATION FUNCTIONS - Real-time system change notifications

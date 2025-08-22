@@ -2214,6 +2214,20 @@ bool DatabaseManager::insertRouteAssignment(
     int priority,
     const QString& operatorId
     ) {
+
+    // ✅ DETAILED LOGGING: What we received
+    qDebug() << "📥 [RECEIVED] DatabaseManager::insertRouteAssignment received:";
+    qDebug() << "   [RECEIVED] routeId:" << routeId << "(length:" << routeId.length() << ")";
+    qDebug() << "   [RECEIVED] sourceSignalId:" << sourceSignalId << "(length:" << sourceSignalId.length() << ")";
+    qDebug() << "   [RECEIVED] destSignalId:" << destSignalId << "(length:" << destSignalId.length() << ")";
+    qDebug() << "   [RECEIVED] direction:" << direction << "(length:" << direction.length() << ")";
+    qDebug() << "   [RECEIVED] assignedCircuits:" << assignedCircuits << "(size:" << assignedCircuits.size() << ")";
+    qDebug() << "   [RECEIVED] overlapCircuits:" << overlapCircuits << "(size:" << overlapCircuits.size() << ")";
+    qDebug() << "   [RECEIVED] state:" << state << "(length:" << state.length() << ")";
+    qDebug() << "   [RECEIVED] lockedPointMachines:" << lockedPointMachines << "(size:" << lockedPointMachines.size() << ")";
+    qDebug() << "   [RECEIVED] priority:" << priority;
+    qDebug() << "   [RECEIVED] operatorId:" << operatorId << "(length:" << operatorId.length() << ")";
+
     if (!connected) {
         logError("insertRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
         return false;
@@ -2222,90 +2236,135 @@ bool DatabaseManager::insertRouteAssignment(
     QElapsedTimer timer;
     timer.start();
 
-    qDebug() << "?? SAFETY: Creating route assignment:" << routeId;
-    qDebug() << "   Route:" << sourceSignalId << "?" << destSignalId;
+    qDebug() << "🚄 SAFETY: Creating route assignment:" << routeId;
+    qDebug() << "   Route:" << sourceSignalId << "→" << destSignalId;
     qDebug() << "   Direction:" << direction << "State:" << state;
     qDebug() << "   Priority:" << priority << "Operator:" << operatorId;
-    qDebug() << "?? Route details:";
+    qDebug() << "🚄 Route details:";
     qDebug() << "   Assigned circuits:" << assignedCircuits.size() << assignedCircuits;
     qDebug() << "   Overlap circuits:" << overlapCircuits.size() << overlapCircuits;
     qDebug() << "   Locked point machines:" << lockedPointMachines.size() << lockedPointMachines;
 
     // Validate priority range
     if ((priority < 1) || (priority > 1000)) {
-        qWarning() << "? Priority must be between 1 and 1000";
+        qWarning() << "❌ Priority must be between 1 and 1000";
         emit operationBlocked(routeId, "Invalid priority");
         return false;
     }
 
     // Start database transaction
     if (!db.transaction()) {
-        qWarning() << "? Failed to start transaction for route assignment:" << db.lastError().text();
+        qWarning() << "❌ Failed to start transaction for route assignment:" << db.lastError().text();
         return false;
     }
 
     QSqlQuery query(db);
 
-    // ? FIXED: Use proper PostgreSQL array syntax without casting
-    query.prepare("SELECT railway_control.insert_route_assignment($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)");
+    // ✅ FIXED: Use native PostgreSQL array format {item1,item2}
+    QString assignedCircuitsArray = "{" + assignedCircuits.join(",") + "}";
+    QString overlapCircuitsArray = "{" + overlapCircuits.join(",") + "}";
+    QString lockedPointMachinesArray = "{" + lockedPointMachines.join(",") + "}";
 
-    // ? FIXED: Format arrays properly for PostgreSQL
-    QString assignedCircuitsArray = "ARRAY[" + formatStringListForSQL(assignedCircuits) + "]";
-    QString overlapCircuitsArray = "ARRAY[" + formatStringListForSQL(overlapCircuits) + "]";
-    QString lockedPointMachinesArray = "ARRAY[" + formatStringListForSQL(lockedPointMachines) + "]";
+    // ✅ DETAILED LOGGING: What we're sending to database
+    qDebug() << "🗃️ [INSERTING] Preparing database query with parameters:";
+    qDebug() << "   [INSERTING] Function: railway_control.insert_route_assignment";
+    qDebug() << "   [INSERTING] Param 1 (routeId):" << routeId;
+    qDebug() << "   [INSERTING] Param 2 (sourceSignalId):" << sourceSignalId;
+    qDebug() << "   [INSERTING] Param 3 (destSignalId):" << destSignalId;
+    qDebug() << "   [INSERTING] Param 4 (direction):" << direction;
+    qDebug() << "   [INSERTING] Param 5 (assignedCircuitsArray):" << assignedCircuitsArray;
+    qDebug() << "   [INSERTING] Param 6 (overlapCircuitsArray):" << overlapCircuitsArray;
+    qDebug() << "   [INSERTING] Param 7 (state):" << state;
+    qDebug() << "   [INSERTING] Param 8 (lockedPointMachinesArray):" << lockedPointMachinesArray;
+    qDebug() << "   [INSERTING] Param 9 (priority):" << priority;
+    qDebug() << "   [INSERTING] Param 10 (operatorId):" << operatorId;
+
+    // ✅ TEST: Verify function exists
+    QSqlQuery testQuery(db);
+    testQuery.exec("SELECT 1 FROM information_schema.routines WHERE routine_name = 'insert_route_assignment' AND routine_schema = 'railway_control'");
+    if (!testQuery.next()) {
+        qWarning() << "❌ [INSERTING] Function railway_control.insert_route_assignment does not exist!";
+        return false;
+    } else {
+        qDebug() << "✅ [INSERTING] Function railway_control.insert_route_assignment exists";
+    }
+
+    // ✅ FIXED: Use proper casting for array parameters
+    QString queryString = "SELECT railway_control.insert_route_assignment(?, ?, ?, ?, ?::text[], ?::text[], ?, ?::text[], ?, ?)";
+    qDebug() << "   [INSERTING] Query string:" << queryString;
+
+    query.prepare(queryString);
 
     query.addBindValue(routeId);
     query.addBindValue(sourceSignalId);
     query.addBindValue(destSignalId);
     query.addBindValue(direction);
-    query.addBindValue(assignedCircuitsArray);
-    query.addBindValue(overlapCircuitsArray);
+    query.addBindValue(assignedCircuitsArray);      // "{W22T,3T}"
+    query.addBindValue(overlapCircuitsArray);       // "{W21T,2T}"
     query.addBindValue(state.isEmpty() ? "REQUESTED" : state);
-    query.addBindValue(lockedPointMachinesArray);
+    query.addBindValue(lockedPointMachinesArray);   // "{}"
     query.addBindValue(priority);
     query.addBindValue(operatorId.isEmpty() ? "HMI_USER" : operatorId);
 
+    qDebug() << "🗃️ [INSERTING] About to execute query...";
+
     bool success = false;
-    if (query.exec() && query.next()) {
-        success = query.value(0).toBool();
-        if (success && db.commit()) {
-            // Verify route was created
-            QSqlQuery verifyQuery(db);
-            verifyQuery.prepare(R"(
-                SELECT state, created_at, priority
-                FROM railway_control.route_assignments
-                WHERE id = ?
-            )");
-            verifyQuery.addBindValue(routeId);
+    if (query.exec()) {
+        qDebug() << "✅ [INSERTING] Query executed successfully, checking results...";
+        if (query.next()) {
+            success = query.value(0).toBool();
+            qDebug() << "✅ [INSERTING] Function returned:" << success;
+            if (success && db.commit()) {
+                qDebug() << "✅ [INSERTING] Transaction committed successfully";
 
-            if (verifyQuery.exec() && verifyQuery.next()) {
-                QString verifiedState = verifyQuery.value(0).toString();
-                QString createdAt = verifyQuery.value(1).toString();
-                int verifiedPriority = verifyQuery.value(2).toInt();
-                qDebug() << "? SAFETY: Route assignment created";
-                qDebug() << "   ID:" << routeId;
-                qDebug() << "   State:" << verifiedState;
-                qDebug() << "   Created at:" << createdAt;
-                qDebug() << "   Priority:" << verifiedPriority;
+                // Verify route was created
+                QSqlQuery verifyQuery(db);
+                verifyQuery.prepare(R"(
+                    SELECT state, created_at, priority
+                    FROM railway_control.route_assignments
+                    WHERE id = ?
+                )");
+                verifyQuery.addBindValue(routeId);
+
+                if (verifyQuery.exec() && verifyQuery.next()) {
+                    QString verifiedState = verifyQuery.value(0).toString();
+                    QString createdAt = verifyQuery.value(1).toString();
+                    int verifiedPriority = verifyQuery.value(2).toInt();
+                    qDebug() << "✅ SAFETY: Route assignment created";
+                    qDebug() << "   ID:" << routeId;
+                    qDebug() << "   State:" << verifiedState;
+                    qDebug() << "   Created at:" << createdAt;
+                    qDebug() << "   Priority:" << verifiedPriority;
+                } else {
+                    qWarning() << "⚠️ [INSERTING] Route created but verification failed:" << verifyQuery.lastError().text();
+                }
+
+                // Emit success signals
+                emit routeAssignmentInserted(routeId);
+                emit routeAssignmentsChanged();
+
+                qDebug() << "✅ Route assignment creation completed in" << timer.elapsed() << "ms";
+                return true;
+            } else {
+                qWarning() << "❌ [INSERTING] Route assignment creation failed during commit:" << query.lastError().text();
+                db.rollback();
+                return false;
             }
-
-            // Emit success signals
-            emit routeAssignmentInserted(routeId);
-            emit routeAssignmentsChanged();
-
-            qDebug() << "? Route assignment creation completed in" << timer.elapsed() << "ms";
-            return true;
         } else {
-            qWarning() << "? Route assignment creation failed:" << query.lastError().text();
+            qWarning() << "❌ [INSERTING] Query executed but no results returned";
             db.rollback();
             return false;
         }
     } else {
-        qWarning() << "? Route assignment query execution failed:" << query.lastError().text();
+        qWarning() << "❌ [INSERTING] Route assignment query execution failed:" << query.lastError().text();
+        qWarning() << "❌ [INSERTING] Failed query was:" << queryString;
+        qWarning() << "❌ [INSERTING] Database error type:" << query.lastError().type();
+        qWarning() << "❌ [INSERTING] Database error number:" << query.lastError().nativeErrorCode();
         db.rollback();
         return false;
     }
 }
+
 // ============================================================================
 // ROUTE ASSIGNMENT METHODS IMPLEMENTATION
 // ============================================================================

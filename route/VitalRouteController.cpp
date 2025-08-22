@@ -1274,6 +1274,19 @@ bool VitalRouteController::persistRouteToDatabase(const RouteAssignment& route) 
         return false;
     }
 
+    // ✅ DETAILED LOGGING: What we're sending
+    qDebug() << "🚀 [SENT] VitalRouteController sending to insertRouteAssignment:";
+    qDebug() << "   [SENT] routeId:" << route.key();
+    qDebug() << "   [SENT] sourceSignalId:" << route.sourceSignalId;
+    qDebug() << "   [SENT] destSignalId:" << route.destSignalId;
+    qDebug() << "   [SENT] direction:" << route.direction;
+    qDebug() << "   [SENT] assignedCircuits:" << route.assignedCircuits << "(size:" << route.assignedCircuits.size() << ")";
+    qDebug() << "   [SENT] overlapCircuits:" << route.overlapCircuits << "(size:" << route.overlapCircuits.size() << ")";
+    qDebug() << "   [SENT] state enum:" << static_cast<int>(route.state) << "-> string:" << routeStateToString(route.state);
+    qDebug() << "   [SENT] lockedPointMachines:" << route.lockedPointMachines << "(size:" << route.lockedPointMachines.size() << ")";
+    qDebug() << "   [SENT] priority:" << route.priority;
+    qDebug() << "   [SENT] operatorId:" << route.operatorId;
+
     // ✅ FIXED: Use actual DatabaseManager method instead of stub
     bool success = m_dbManager->insertRouteAssignment(
         route.key(),                    // routeId
@@ -1289,9 +1302,9 @@ bool VitalRouteController::persistRouteToDatabase(const RouteAssignment& route) 
         );
 
     if (success) {
-        qDebug() << "✅ VitalRouteController: Successfully persisted route" << route.key() << "to database";
+        qDebug() << "✅ [SENT] VitalRouteController: Successfully persisted route" << route.key() << "to database";
     } else {
-        qWarning() << "❌ VitalRouteController: Failed to persist route" << route.key() << "to database";
+        qWarning() << "❌ [SENT] VitalRouteController: Failed to persist route" << route.key() << "to database";
     }
 
     return success;
