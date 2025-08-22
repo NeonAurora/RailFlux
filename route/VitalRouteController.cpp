@@ -707,26 +707,26 @@ ValidationResult VitalRouteController::reserveRouteResourcesInternal(RouteAssign
         return validation;
     }
 
-    // 2. Lock resources through ResourceLockService
-    if (!lockResourcesForRoute(route)) {
-        return ValidationResult::blocked("Failed to lock required resources", SafetyLevel::WARNING);
-    }
-
-    // 3. Update route state and persist
+    // ✅ FIXED: 2. Update route state and persist FIRST
     route.state = RouteState::RESERVED;
     route.createdAt = QDateTime::currentDateTime();
 
     if (!persistRouteToDatabase(route)) {
-        // Rollback resource locks
-        unlockResourcesForRoute(route.key());
         return ValidationResult::blocked("Failed to persist route to database");
     }
 
-    // 4. Add to active routes
+    // ✅ FIXED: 3. Lock resources AFTER route is persisted (so it exists for the check)
+    if (!lockResourcesForRoute(route)) {
+        // ✅ SAFETY: Rollback - remove route from database if resource locking fails
+        removeRouteFromDatabase(route.key());
+        return ValidationResult::blocked("Failed to lock required resources", SafetyLevel::WARNING);
+    }
+
+    // 4. Add to active routes (unchanged)
     QString routeId = route.key();
     m_activeRoutes[routeId] = route;
 
-    // 5. Index by circuits
+    // 5. Index by circuits (unchanged)
     for (const QString& circuitId : route.assignedCircuits + route.overlapCircuits) {
         if (!m_routesByCircuit.contains(circuitId)) {
             m_routesByCircuit[circuitId] = QStringList();
@@ -734,19 +734,19 @@ ValidationResult VitalRouteController::reserveRouteResourcesInternal(RouteAssign
         m_routesByCircuit[circuitId].append(routeId);
     }
 
-    qDebug() << "🟢 VitalRouteController: Reserved route" << routeId 
+    qDebug() << "🟢 VitalRouteController: Reserved route" << routeId
              << "from" << route.sourceSignalId << "to" << route.destSignalId;
 
     // Record safety event
-    recordSafetyEvent("route_reserved", routeId, 
-                     QString("Route from %1 to %2").arg(route.sourceSignalId, route.destSignalId));
+    recordSafetyEvent("route_reserved", routeId,
+                      QString("Route from %1 to %2").arg(route.sourceSignalId, route.destSignalId));
 
     ValidationResult result = ValidationResult::allowed("Route resources reserved successfully");
     result.safetyLevel = SafetyLevel::VITAL_SAFE;
     result.details = QString("Reserved %1 circuits and %2 point machines")
-                        .arg(route.assignedCircuits.size())
-                        .arg(route.lockedPointMachines.size());
-    
+                         .arg(route.assignedCircuits.size())
+                         .arg(route.lockedPointMachines.size());
+
     return result;
 }
 
@@ -1269,13 +1269,58 @@ void VitalRouteController::notifyEmergencyServices(const QString& routeId, const
 
 // Stub implementations for remaining methods
 bool VitalRouteController::persistRouteToDatabase(const RouteAssignment& route) {
-    Q_UNUSED(route)
-    return true; // Placeholder
+    if (!m_dbManager) {
+        qCritical() << "VitalRouteController: DatabaseManager is null";
+        return false;
+    }
+
+    // ✅ FIXED: Use actual DatabaseManager method instead of stub
+    bool success = m_dbManager->insertRouteAssignment(
+        route.key(),                    // routeId
+        route.sourceSignalId,          // sourceSignalId
+        route.destSignalId,            // destSignalId
+        route.direction,               // direction
+        route.assignedCircuits,        // assignedCircuits
+        route.overlapCircuits,         // overlapCircuits
+        routeStateToString(route.state), // state (convert enum to string)
+        route.lockedPointMachines,     // lockedPointMachines
+        route.priority,                // priority
+        route.operatorId               // operatorId
+        );
+
+    if (success) {
+        qDebug() << "✅ VitalRouteController: Successfully persisted route" << route.key() << "to database";
+    } else {
+        qWarning() << "❌ VitalRouteController: Failed to persist route" << route.key() << "to database";
+    }
+
+    return success;
 }
 
 bool VitalRouteController::updateRouteInDatabase(const RouteAssignment& route) {
     Q_UNUSED(route)
     return true; // Placeholder
+}
+
+bool VitalRouteController::removeRouteFromDatabase(const QString& routeId) {
+    if (!m_dbManager) {
+        qCritical() << "VitalRouteController: DatabaseManager is null";
+        return false;
+    }
+
+    // ✅ SAFETY: Remove route record if resource locking fails
+    QSqlQuery query(m_dbManager->getDatabase());
+    query.prepare("DELETE FROM railway_control.route_assignments WHERE id = ?");
+    query.addBindValue(routeId);
+
+    if (!query.exec()) {
+        qWarning() << "❌ VitalRouteController: Failed to remove route" << routeId
+                   << "from database:" << query.lastError().text();
+        return false;
+    }
+
+    qDebug() << "🗑️ VitalRouteController: Removed route" << routeId << "from database (rollback)";
+    return true;
 }
 
 void VitalRouteController::onTrackCircuitOccupancyChanged(const QString& circuitId, bool isOccupied) {

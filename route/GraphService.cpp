@@ -32,8 +32,6 @@ GraphService::GraphService(DatabaseManager* dbManager, QObject* parent)
 GraphService::~GraphService() = default;
 
 bool GraphService::loadGraphFromDatabase() {
-    qDebug() << "🔄 GraphService: Loading pathfinding graph from database...";
-    
     if (!m_dbManager || !m_dbManager->isConnected()) {
         emit graphLoadError("Database not connected");
         return false;
@@ -61,22 +59,16 @@ bool GraphService::loadGraphFromDatabase() {
         buildAdjacencyMap();
 
         m_isLoaded = true;
-        double loadTimeMs = timer.elapsed();
-        
-        qDebug() << "✅ GraphService: Graph loaded successfully";
-        qDebug() << "   - Circuits:" << m_circuitNodes.size();
-        qDebug() << "   - Edges:" << m_edges.size();
-        qDebug() << "   - Load time:" << loadTimeMs << "ms";
 
         emit isLoadedChanged();
         emit graphChanged();
-        
+
         // Validate graph integrity
         QStringList warnings = validateGraphIntegrity();
         if (!warnings.isEmpty()) {
-            qWarning() << "⚠️ GraphService: Graph integrity warnings:";
+            qWarning() << "GraphService: Graph integrity warnings:";
             for (const QString& warning : warnings) {
-                qWarning() << "   -" << warning;
+                qWarning() << " -" << warning;
             }
         }
 
@@ -84,7 +76,7 @@ bool GraphService::loadGraphFromDatabase() {
 
     } catch (const std::exception& e) {
         QString error = QString("Graph loading failed: %1").arg(e.what());
-        qCritical() << "❌ GraphService:" << error;
+        qCritical() << "GraphService:" << error;
         emit graphLoadError(error);
         return false;
     }
@@ -93,7 +85,7 @@ bool GraphService::loadGraphFromDatabase() {
 bool GraphService::loadCircuitPositionsFromDatabase() {
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
-        SELECT 
+        SELECT
             tc.circuit_id,
             ts.start_row,
             ts.start_col,
@@ -114,7 +106,7 @@ bool GraphService::loadCircuitPositionsFromDatabase() {
 
     while (query.next()) {
         QString circuitId = query.value("circuit_id").toString();
-        
+
         QVariantMap circuitData;
         circuitData["start_row"] = query.value("start_row").toDouble();
         circuitData["start_col"] = query.value("start_col").toDouble();
@@ -122,7 +114,7 @@ bool GraphService::loadCircuitPositionsFromDatabase() {
         circuitData["end_col"] = query.value("end_col").toDouble();
         circuitData["length_meters"] = query.value("length_meters").toDouble();
         circuitData["is_active"] = query.value("is_active").toBool();
-        
+
         // Calculate center position for heuristic calculations
         double centerRow = (circuitData["start_row"].toDouble() + circuitData["end_row"].toDouble()) / 2.0;
         double centerCol = (circuitData["start_col"].toDouble() + circuitData["end_col"].toDouble()) / 2.0;
@@ -132,14 +124,13 @@ bool GraphService::loadCircuitPositionsFromDatabase() {
         m_circuitNodes[circuitId] = circuitData;
     }
 
-    qDebug() << "📍 GraphService: Loaded" << m_circuitNodes.size() << "circuit positions";
     return true;
 }
 
 bool GraphService::loadEdgesFromDatabase() {
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
-        SELECT 
+        SELECT
             from_circuit_id,
             to_circuit_id,
             side,
@@ -181,7 +172,6 @@ bool GraphService::loadEdgesFromDatabase() {
         m_edges.append(edge);
     }
 
-    qDebug() << "🔗 GraphService: Loaded" << m_edges.size() << "graph edges";
     return true;
 }
 
@@ -194,8 +184,6 @@ void GraphService::buildAdjacencyMap() {
         }
         m_adjacencyMap[edge.fromCircuitId].append(&edge);
     }
-
-    qDebug() << "🗺️ GraphService: Built adjacency map with" << m_adjacencyMap.size() << "nodes";
 }
 
 void GraphService::clearGraph() {
@@ -219,36 +207,8 @@ QVariantMap GraphService::findRoute(
 
     m_totalPathfindingCalls++;
 
-    // **ADD DETAILED ENTRY LOGGING**
-    qDebug() << "🔍 [GRAPH] findRoute() called:";
-    qDebug() << "   📍 Start:" << startCircuitId << "Goal:" << goalCircuitId;
-    qDebug() << "   📍 Direction:" << direction;
-    qDebug() << "   📍 PM States provided:" << pointMachineStates.keys()
-             << (pointMachineStates.isEmpty() ? "(EMPTY - might block conditional edges!)" : "");
-
-    // ✅ FIXED: Properly log the PM States structure
-    qDebug() << "🔧 [RECEIVE] PM States received by GraphService:";
-    for (auto it = pointMachineStates.begin(); it != pointMachineStates.end(); ++it) {
-        QString machineId = it.key();
-        QVariant pmVariant = it.value();
-
-        qDebug() << "   PM" << machineId << "(type:" << pmVariant.typeName() << ")";
-
-        if (pmVariant.canConvert<QVariantMap>()) {
-            QVariantMap pmData = pmVariant.toMap();
-            qDebug() << "     Fields:" << pmData.keys();
-            qDebug() << "     current_position:" << pmData.value("current_position", "MISSING").toString();
-            qDebug() << "     availability_status:" << pmData.value("availability_status", "MISSING").toString();
-            qDebug() << "     is_moveable:" << pmData.value("is_moveable", false).toBool();
-        } else {
-            qDebug() << "     Raw value:" << pmVariant.toString();
-        }
-    }
-
-    qDebug() << "   📍 Graph loaded:" << m_isLoaded << "Circuits:" << m_circuitNodes.size() << "Edges:" << m_edges.size();
-
     if (!m_isLoaded) {
-        qDebug() << "❌ [GRAPH] Graph not loaded";
+        qWarning() << "GraphService: Graph not loaded";
         return QVariantMap{
             {"success", false},
             {"error", "Graph not loaded"},
@@ -260,7 +220,6 @@ QVariantMap GraphService::findRoute(
     }
 
     if (startCircuitId == goalCircuitId) {
-        qDebug() << "✅ [GRAPH] Same start/goal - trivial path";
         return QVariantMap{
             {"success", true},
             {"path", QStringList{startCircuitId}},
@@ -272,8 +231,7 @@ QVariantMap GraphService::findRoute(
 
     // Validate circuit existence
     if (!m_circuitNodes.contains(startCircuitId)) {
-        qDebug() << "❌ [GRAPH] Start circuit not found:" << startCircuitId;
-        qDebug() << "   📍 Available circuits:" << m_circuitNodes.keys().mid(0, 10); // First 10
+        qWarning() << "GraphService: Start circuit not found:" << startCircuitId;
         return QVariantMap{
             {"success", false},
             {"error", QString("Start circuit not found: %1").arg(startCircuitId)},
@@ -285,7 +243,7 @@ QVariantMap GraphService::findRoute(
     }
 
     if (!m_circuitNodes.contains(goalCircuitId)) {
-        qDebug() << "❌ [GRAPH] Goal circuit not found:" << goalCircuitId;
+        qWarning() << "GraphService: Goal circuit not found:" << goalCircuitId;
         return QVariantMap{
             {"success", false},
             {"error", QString("Goal circuit not found: %1").arg(goalCircuitId)},
@@ -296,52 +254,24 @@ QVariantMap GraphService::findRoute(
         };
     }
 
-    // **ADD AVAILABLE EDGES LOGGING FOR START CIRCUIT**
-    qDebug() << "🔍 [GRAPH] Available edges FROM" << startCircuitId << ":";
-    int availableCount = 0;
-    for (const auto& edge : m_edges) {
-        if (edge.fromCircuitId == startCircuitId) {
-            QString pmInfo = edge.conditionPmId.isEmpty() ?
-                                 "unconditional" :
-                                 QString("PM:%1=%2").arg(edge.conditionPmId, edge.conditionPosition);
-            qDebug() << "   🔗" << edge.fromCircuitId << "→" << edge.toCircuitId
-                     << "side:" << edge.side << pmInfo << "weight:" << edge.weight;
-            availableCount++;
-        }
-    }
-    qDebug() << "📊 [GRAPH] Total available edges from" << startCircuitId << ":" << availableCount;
-
     // Perform A* pathfinding
-    Direction dir = (direction.toUpper() == "DOWN") ? Direction::DOWN : Direction::UP; // **SIMPLIFIED**
+    Direction dir = (direction.toUpper() == "DOWN") ? Direction::DOWN : Direction::UP;
 
-    qDebug() << "🔍 [GRAPH] Starting A* pathfinding...";
     PathfindingResult result = findPathAStar(startCircuitId, goalCircuitId, dir, pointMachineStates, timeoutMs);
 
     double totalTimeMs = timer.elapsed();
     m_lastPathfindingTimeMs = totalTimeMs;
     m_totalPathfindingTime += totalTimeMs;
 
-    // **ADD RESULT LOGGING**
-    qDebug() << "📊 [GRAPH] A* completed in" << totalTimeMs << "ms";
-    qDebug() << "📊 [GRAPH] Result: success=" << result.success
-             << "nodes explored=" << result.nodesExplored;
-
-    if (result.success) {
-        m_successfulPaths++;
-        qDebug() << "✅ [GRAPH] Path found:" << result.path.join(" → ");
-        qDebug() << "✅ [GRAPH] Total cost:" << result.totalCost;
-    } else {
-        qDebug() << "❌ [GRAPH] No path found. Error:" << result.error;
-        qDebug() << "❌ [GRAPH] Possible causes:";
-        qDebug() << "   - Missing PM states for conditional edges";
-        qDebug() << "   - Direction mismatch (need" << direction << "edges)";
-        qDebug() << "   - Disconnected graph topology";
+    if (!result.success) {
+        qWarning() << "GraphService: Pathfinding failed for"
+                   << startCircuitId << "->" << goalCircuitId << ":" << result.error;
     }
 
-    // Log performance warnings
+    // Performance warning
     if (totalTimeMs > PATHFINDING_WARNING_THRESHOLD_MS) {
-        qWarning() << "⚠️ GraphService: Slow pathfinding:" << totalTimeMs << "ms for"
-                   << startCircuitId << "→" << goalCircuitId;
+        qWarning() << "GraphService: Slow pathfinding:" << totalTimeMs << "ms for"
+                   << startCircuitId << "->" << goalCircuitId;
     }
 
     emit pathfindingCompleted(totalTimeMs, result.success);
@@ -388,14 +318,14 @@ GraphService::PathfindingResult GraphService::findPathAStar(
         // Get node with lowest f-cost
         PathfindingNode current = openSet.top();
         openSet.pop();
-        
+
         result.nodesExplored++;
-        
+
         // Check if we've already processed this node
         if (closedSet.contains(current.circuitId)) {
             continue;
         }
-        
+
         closedSet.insert(current.circuitId);
 
         // Goal check
@@ -406,7 +336,7 @@ GraphService::PathfindingResult GraphService::findPathAStar(
                     cameFrom[it.key()] = it.value().parent;
                 }
             }
-            
+
             result.path = reconstructPath(goal, cameFrom);
             result.totalCost = current.gCost;
             result.success = true;
@@ -440,18 +370,18 @@ GraphService::PathfindingResult GraphService::findPathAStar(
             }
 
             double tentativeGCost = current.gCost + edgeCost;
-            
+
             // Check if this path to neighbor is better
             bool isNewNode = !allNodes.contains(neighbor);
             bool isBetterPath = isNewNode || tentativeGCost < allNodes[neighbor].gCost;
-            
+
             if (isBetterPath) {
                 PathfindingNode neighborNode;
                 neighborNode.circuitId = neighbor;
                 neighborNode.gCost = tentativeGCost;
                 neighborNode.hCost = calculateHeuristic(neighbor, goal);
                 neighborNode.parent = current.circuitId;
-                
+
                 allNodes[neighbor] = neighborNode;
                 openSet.push(neighborNode);
             }
@@ -464,7 +394,7 @@ GraphService::PathfindingResult GraphService::findPathAStar(
     } else if (result.error.isEmpty()) {
         result.error = "No path found";
     }
-    
+
     result.timeMs = timer.elapsed();
     return result;
 }
@@ -483,25 +413,8 @@ QStringList GraphService::getViableNeighbors(
             edge.side == targetSide &&
             edge.isActive) {
 
-            // **USE NEW ACCESSIBILITY CHECK**
             if (isEdgeAccessible(edge, pointMachineStates)) {
                 neighbors.append(edge.toCircuitId);
-
-                // Log edge usage reason
-                if (!edge.conditionPmId.isEmpty()) {
-                    QVariantMap pmData = pointMachineStates[edge.conditionPmId].toMap();
-                    QString currentPos = pmData["current_position"].toString();
-                    bool isMoveable = pmData["is_moveable"].toBool();
-
-                    if (currentPos == edge.conditionPosition) {
-                        qDebug() << "✅ [GRAPH] Using edge (current PM position):"
-                                 << edge.fromCircuitId << "→" << edge.toCircuitId;
-                    } else if (isMoveable) {
-                        qDebug() << "🔄 [GRAPH] Using edge (PM will be moved):"
-                                 << edge.fromCircuitId << "→" << edge.toCircuitId
-                                 << "PM" << edge.conditionPmId << ":" << currentPos << "→" << edge.conditionPosition;
-                    }
-                }
             }
         }
     }
@@ -518,7 +431,7 @@ bool GraphService::isEdgeAccessible(const GraphEdge& edge, const QVariantMap& po
 
     // Check if PM data exists
     if (!pointMachineStates.contains(edge.conditionPmId)) {
-        qDebug() << "?? [GRAPH] Missing PM data for:" << edge.conditionPmId;
+        qWarning() << "GraphService: Missing PM data for:" << edge.conditionPmId;
         return false;
     }
 
@@ -533,17 +446,6 @@ bool GraphService::isEdgeAccessible(const GraphEdge& edge, const QVariantMap& po
     bool canBeMoved = isMoveable;
 
     bool accessible = isCurrentPosition || canBeMoved;
-
-    if (!accessible) {
-        qDebug() << "?? [GRAPH] Edge blocked:" << edge.fromCircuitId << "?" << edge.toCircuitId
-                 << "requires PM" << edge.conditionPmId << "=" << edge.conditionPosition
-                 << "but current=" << currentPosition << "moveable=" << canBeMoved;
-    } else if (!isCurrentPosition && canBeMoved) {
-        qDebug() << "?? [GRAPH] Edge accessible via PM movement:" << edge.fromCircuitId << "?" << edge.toCircuitId
-                 << "PM" << edge.conditionPmId << "can move from" << currentPosition
-                 << "to" << edge.conditionPosition;
-    }
-
     return accessible;
 }
 
@@ -596,12 +498,12 @@ QStringList GraphService::reconstructPath(
 ) const {
     QStringList path;
     QString current = goal;
-    
+
     while (!current.isEmpty()) {
         path.prepend(current);
         current = cameFrom.value(current, QString());
     }
-    
+
     return path;
 }
 
@@ -628,11 +530,11 @@ double GraphService::calculatePathWeight(const QStringList& path) const {
     }
 
     double totalWeight = 0.0;
-    
+
     for (int i = 0; i < path.size() - 1; ++i) {
         QString from = path[i];
         QString to = path[i + 1];
-        
+
         // Find edge weight
         double edgeWeight = 1.0; // Default weight
         if (m_adjacencyMap.contains(from)) {
@@ -643,10 +545,10 @@ double GraphService::calculatePathWeight(const QStringList& path) const {
                 }
             }
         }
-        
+
         totalWeight += edgeWeight;
     }
-    
+
     return totalWeight;
 }
 
@@ -657,7 +559,7 @@ bool GraphService::isCircuitReachable(const QString& circuitId) const {
 QVariantMap GraphService::getGraphStatistics() const {
     int conditionalEdges = 0;
     int unconditionalEdges = 0;
-    
+
     for (const GraphEdge& edge : m_edges) {
         if (edge.conditionPmId.isEmpty()) {
             unconditionalEdges++;
@@ -666,9 +568,9 @@ QVariantMap GraphService::getGraphStatistics() const {
         }
     }
 
-    double successRate = m_totalPathfindingCalls > 0 ? 
+    double successRate = m_totalPathfindingCalls > 0 ?
                         (double)m_successfulPaths / m_totalPathfindingCalls * 100.0 : 0.0;
-    double avgTimeMs = m_totalPathfindingCalls > 0 ? 
+    double avgTimeMs = m_totalPathfindingCalls > 0 ?
                       m_totalPathfindingTime / m_totalPathfindingCalls : 0.0;
 
     return QVariantMap{
@@ -687,26 +589,26 @@ QVariantMap GraphService::getGraphStatistics() const {
 
 QStringList GraphService::validateGraphIntegrity() const {
     QStringList warnings;
-    
+
     // Check for orphaned circuits
     QSet<QString> referencedCircuits;
     for (const GraphEdge& edge : m_edges) {
         referencedCircuits.insert(edge.fromCircuitId);
         referencedCircuits.insert(edge.toCircuitId);
     }
-    
+
     for (auto it = m_circuitNodes.begin(); it != m_circuitNodes.end(); ++it) {
         if (!referencedCircuits.contains(it.key())) {
             warnings.append(QString("Orphaned circuit (no edges): %1").arg(it.key()));
         }
     }
-    
+
     // Check for bidirectional connectivity
     QHash<QString, QSet<QString>> connections;
     for (const GraphEdge& edge : m_edges) {
         connections[edge.fromCircuitId].insert(edge.toCircuitId);
     }
-    
+
     for (auto it = connections.begin(); it != connections.end(); ++it) {
         for (const QString& neighbor : it.value()) {
             if (!connections.contains(neighbor) || !connections[neighbor].contains(it.key())) {
@@ -714,7 +616,7 @@ QStringList GraphService::validateGraphIntegrity() const {
             }
         }
     }
-    
+
     return warnings;
 }
 
@@ -736,14 +638,14 @@ QVariantList GraphService::getAlternativeRoutes(
     int maxAlternatives
 ) {
     QVariantList alternatives;
-    
+
     // For now, return just the primary route
     // Future enhancement: implement k-shortest paths algorithm
     QVariantMap primaryRoute = findRoute(startCircuitId, goalCircuitId, direction, pointMachineStates);
     if (primaryRoute["success"].toBool()) {
         alternatives.append(primaryRoute);
     }
-    
+
     return alternatives;
 }
 
@@ -752,12 +654,12 @@ bool GraphEdge::isViable(const QVariantMap& pmStates) const {
     if (conditionPmId.isEmpty()) {
         return isActive; // Unconditional edge
     }
-    
+
     // Check if point machine is in required position
     if (!pmStates.contains(conditionPmId)) {
         return false; // PM state unknown
     }
-    
+
     QString currentPosition = pmStates[conditionPmId].toString();
     return isActive && (currentPosition == conditionPosition);
 }

@@ -20,7 +20,7 @@ TelemetryService::TelemetryService(DatabaseManager* dbManager, QObject* parent)
     , m_cleanupTimer(new QTimer(this))
 {
     if (!m_dbManager) {
-        qCritical() << "TelemetryService: DatabaseManager is null";
+        qCritical() << "[TelemetryService > ctor] DatabaseManager is null";
         return;
     }
 
@@ -51,10 +51,8 @@ TelemetryService::~TelemetryService() {
 }
 
 void TelemetryService::initialize() {
-    qDebug() << "🔄 TelemetryService: Initializing...";
-
     if (!m_dbManager || !m_dbManager->isConnected()) {
-        qWarning() << "TelemetryService: Cannot initialize - database not connected";
+        qWarning() << "[TelemetryService > initialize] Cannot initialize - database not connected";
         return;
     }
 
@@ -77,15 +75,14 @@ void TelemetryService::initialize() {
 
             m_isOperational = true;
             startMonitoring();
-            
-            qDebug() << "✅ TelemetryService: Initialized successfully";
+
             emit operationalStateChanged();
         } else {
-            qCritical() << "❌ TelemetryService: Failed to load configuration";
+            qCritical() << "[TelemetryService > initialize] Failed to load configuration";
         }
 
     } catch (const std::exception& e) {
-        qCritical() << "❌ TelemetryService: Initialization failed:" << e.what();
+        qCritical() << "[TelemetryService > initialize] Initialization failed:" << e.what();
         m_isOperational = false;
         emit operationalStateChanged();
     }
@@ -100,19 +97,15 @@ void TelemetryService::startMonitoring() {
     m_thresholdTimer->start();
     m_cleanupTimer->start();
 
-    qDebug() << "📊 TelemetryService: Monitoring started";
-    
     // Record system startup
-    recordSafetyEvent("system_startup", "INFO", "TelemetryService", 
-                     "Telemetry monitoring started", "system");
+    recordSafetyEvent("system_startup", "INFO", "TelemetryService",
+                      "Telemetry monitoring started", "system");
 }
 
 void TelemetryService::stopMonitoring() {
     m_collectionTimer->stop();
     m_thresholdTimer->stop();
     m_cleanupTimer->stop();
-
-    qDebug() << "📊 TelemetryService: Monitoring stopped";
 }
 
 void TelemetryService::recordPerformanceMetric(
@@ -142,17 +135,17 @@ void TelemetryService::recordPerformanceMetric(
         double threshold = m_performanceThresholds[operation];
         if (responseTimeMs > threshold) {
             emit performanceThresholdExceeded(operation, responseTimeMs, threshold);
-            
+
             // Create alert for significant threshold violations
             if (responseTimeMs > threshold * 2.0) {
-                createAlert("WARNING", 
-                          QString("Performance Threshold Exceeded"),
-                          QString("%1 took %2ms (threshold: %3ms)")
-                              .arg(operation)
-                              .arg(responseTimeMs, 0, 'f', 1)
-                              .arg(threshold, 0, 'f', 1),
-                          "TelemetryService",
-                          QVariantMap{{"operation", operation}, {"responseTime", responseTimeMs}, {"threshold", threshold}});
+                createAlert("WARNING",
+                            QString("Performance Threshold Exceeded"),
+                            QString("%1 took %2ms (threshold: %3ms)")
+                                .arg(operation)
+                                .arg(responseTimeMs, 0, 'f', 1)
+                                .arg(threshold, 0, 'f', 1),
+                            "TelemetryService",
+                            QVariantMap{{"operation", operation}, {"responseTime", responseTimeMs}, {"threshold", threshold}});
             }
         }
     }
@@ -164,7 +157,7 @@ void TelemetryService::recordPerformanceMetric(
 
 void TelemetryService::addPerformanceMetric(const PerformanceMetric& metric) {
     m_performanceMetrics.push_back(metric);
-    
+
     // Maintain size limit
     if (m_performanceMetrics.size() > MAX_PERFORMANCE_METRICS) {
         m_performanceMetrics.pop_front();
@@ -195,42 +188,39 @@ void TelemetryService::recordSafetyEvent(
     addSafetyMetric(metric);
     m_totalMetricsRecorded++;
 
-    // Log safety events to debug output
-    qDebug() << "🛡️ TelemetryService: Safety event -" << eventType << severity << entityId << description;
-
     // Create alert for WARNING and above safety events
     if (metric.severity >= AlertLevel::WARNING) {
         QString alertLevel = (metric.severity >= AlertLevel::CRITICAL) ? "CRITICAL" : "WARNING";
         createAlert(alertLevel,
-                   QString("Safety Event: %1").arg(eventType),
-                   QString("%1: %2").arg(entityId, description),
-                   "SafetyMonitor",
-                   QVariantMap{{"eventType", eventType}, {"entityId", entityId}, {"operatorId", operatorId}});
+                    QString("Safety Event: %1").arg(eventType),
+                    QString("%1: %2").arg(entityId, description),
+                    "SafetyMonitor",
+                    QVariantMap{{"eventType", eventType}, {"entityId", entityId}, {"operatorId", operatorId}});
     }
 
     // Check safety violation thresholds
     if (eventType.contains("violation") && m_safetyViolationThresholds.contains(eventType)) {
         int violationCount = countSafetyViolations(eventType, 1); // Last hour
         int threshold = m_safetyViolationThresholds[eventType];
-        
+
         if (violationCount >= threshold) {
             emit safetyViolationThresholdExceeded(eventType, violationCount, threshold);
-            
+
             createAlert("CRITICAL",
-                       QString("Safety Violation Threshold Exceeded"),
-                       QString("%1 violations in last hour: %2 (threshold: %3)")
-                           .arg(eventType)
-                           .arg(violationCount)
-                           .arg(threshold),
-                       "TelemetryService",
-                       QVariantMap{{"violationType", eventType}, {"count", violationCount}, {"threshold", threshold}});
+                        QString("Safety Violation Threshold Exceeded"),
+                        QString("%1 violations in last hour: %2 (threshold: %3)")
+                            .arg(eventType)
+                            .arg(violationCount)
+                            .arg(threshold),
+                        "TelemetryService",
+                        QVariantMap{{"violationType", eventType}, {"count", violationCount}, {"threshold", threshold}});
         }
     }
 }
 
 void TelemetryService::addSafetyMetric(const SafetyMetric& metric) {
     m_safetyMetrics.push_back(metric);
-    
+
     // Maintain size limit
     if (m_safetyMetrics.size() > MAX_SAFETY_METRICS) {
         m_safetyMetrics.pop_front();
@@ -269,7 +259,7 @@ void TelemetryService::recordOperationalMetric(
 
 void TelemetryService::addOperationalMetric(const OperationalMetric& metric) {
     m_operationalMetrics.push_back(metric);
-    
+
     // Maintain size limit
     if (m_operationalMetrics.size() > MAX_OPERATIONAL_METRICS) {
         m_operationalMetrics.pop_front();
@@ -286,7 +276,7 @@ void TelemetryService::updateResourceUtilization(
     }
 
     double utilizationPercentage = (double)usedResources / totalResources * 100.0;
-    
+
     recordOperationalMetric(
         QString("%1_utilization").arg(resourceType.toLower()),
         utilizationPercentage,
@@ -297,14 +287,14 @@ void TelemetryService::updateResourceUtilization(
     // Alert on high utilization
     if (utilizationPercentage > 90.0) {
         createAlert("WARNING",
-                   QString("High Resource Utilization"),
-                   QString("%1 utilization: %2% (%3/%4)")
-                       .arg(resourceType)
-                       .arg(utilizationPercentage, 0, 'f', 1)
-                       .arg(usedResources)
-                       .arg(totalResources),
-                   "ResourceMonitor",
-                   QVariantMap{{"resourceType", resourceType}, {"utilization", utilizationPercentage}});
+                    QString("High Resource Utilization"),
+                    QString("%1 utilization: %2% (%3/%4)")
+                        .arg(resourceType)
+                        .arg(utilizationPercentage, 0, 'f', 1)
+                        .arg(usedResources)
+                        .arg(totalResources),
+                    "ResourceMonitor",
+                    QVariantMap{{"resourceType", resourceType}, {"utilization", utilizationPercentage}});
     }
 }
 
@@ -334,15 +324,15 @@ void TelemetryService::recordSystemHealth(
     // Emit signal if health status changed
     if (previousStatus != healthStatus && previousStatus != "unknown") {
         emit systemHealthDegraded(component, previousStatus, healthStatus);
-        
+
         if (healthStatus == "degraded" || healthStatus == "critical") {
             QString alertLevel = (healthStatus == "critical") ? "CRITICAL" : "WARNING";
             createAlert(alertLevel,
-                       QString("System Health Alert"),
-                       QString("%1 status changed from %2 to %3")
-                           .arg(component, previousStatus, healthStatus),
-                       "HealthMonitor",
-                       QVariantMap{{"component", component}, {"previousStatus", previousStatus}, {"currentStatus", healthStatus}});
+                        QString("System Health Alert"),
+                        QString("%1 status changed from %2 to %3")
+                            .arg(component, previousStatus, healthStatus),
+                        "HealthMonitor",
+                        QVariantMap{{"component", component}, {"previousStatus", previousStatus}, {"currentStatus", healthStatus}});
         }
     }
 
@@ -364,7 +354,7 @@ double TelemetryService::calculateSystemHealthScore() {
 
     for (const SystemHealthMetric& metric : m_systemHealthMetrics) {
         double componentScore = 100.0; // Default healthy score
-        
+
         if (metric.healthStatus == "degraded") {
             componentScore = 75.0;
         } else if (metric.healthStatus == "critical") {
@@ -375,29 +365,29 @@ double TelemetryService::calculateSystemHealthScore() {
 
         // Factor in uptime
         componentScore *= (metric.uptime / 100.0);
-        
+
         totalScore += componentScore;
         componentCount++;
     }
 
     double newScore = totalScore / componentCount;
-    
+
     // Update cached score and emit signal if changed significantly
     if (qAbs(newScore - m_systemHealthScore) > 5.0) {
         m_systemHealthScore = newScore;
         emit healthScoreChanged();
-        
+
         // Alert on significant health degradation
         if (m_systemHealthScore < HEALTH_SCORE_CRITICAL_THRESHOLD) {
             createAlert("CRITICAL",
-                       "System Health Critical",
-                       QString("Overall system health score: %1%").arg(m_systemHealthScore, 0, 'f', 1),
-                       "HealthMonitor");
+                        "System Health Critical",
+                        QString("Overall system health score: %1%").arg(m_systemHealthScore, 0, 'f', 1),
+                        "HealthMonitor");
         } else if (m_systemHealthScore < HEALTH_SCORE_DEGRADED_THRESHOLD) {
             createAlert("WARNING",
-                       "System Health Degraded",
-                       QString("Overall system health score: %1%").arg(m_systemHealthScore, 0, 'f', 1),
-                       "HealthMonitor");
+                        "System Health Degraded",
+                        QString("Overall system health score: %1%").arg(m_systemHealthScore, 0, 'f', 1),
+                        "HealthMonitor");
         }
     }
 
@@ -418,9 +408,9 @@ QString TelemetryService::createAlert(
 ) {
     AlertLevel alertLevel = stringToAlertLevel(level);
     Alert alert = createAlertInternal(alertLevel, title, message, source, metadata);
-    
+
     processAlert(alert);
-    
+
     return alert.alertId;
 }
 
@@ -451,14 +441,12 @@ void TelemetryService::processAlert(const Alert& alert) {
     emit alertCreated(alert.alertId, alertLevelToString(alert.level), alert.title);
     emit alertCountChanged();
 
-    // Special handling for critical alerts
+    // Only critical and warning level logs
     if (alert.level >= AlertLevel::CRITICAL) {
+        qCritical() << "[TelemetryService > processAlert] CRITICAL ALERT:" << alert.title << "-" << alert.message;
         emit criticalAlertCreated(alert.alertId, alert.title, alert.message);
-        qCritical() << "🚨 CRITICAL ALERT:" << alert.title << "-" << alert.message;
     } else if (alert.level == AlertLevel::WARNING) {
-        qWarning() << "⚠️ WARNING ALERT:" << alert.title << "-" << alert.message;
-    } else {
-        qDebug() << "ℹ️ INFO ALERT:" << alert.title << "-" << alert.message;
+        qWarning() << "[TelemetryService > processAlert] WARNING ALERT:" << alert.title << "-" << alert.message;
     }
 }
 
@@ -476,7 +464,6 @@ bool TelemetryService::acknowledgeAlert(const QString& alertId, const QString& a
     alert.acknowledgedBy = acknowledgedBy;
     alert.isActive = false;
 
-    qDebug() << "✅ TelemetryService: Alert" << alertId << "acknowledged by" << acknowledgedBy;
     emit alertCountChanged();
 
     return true;
@@ -494,7 +481,7 @@ int TelemetryService::activeAlerts() const {
 
 QVariantList TelemetryService::getActiveAlerts() const {
     QVariantList alerts;
-    
+
     for (const Alert& alert : m_activeAlerts) {
         if (alert.isActive) {
             QVariantMap alertMap;
@@ -513,15 +500,15 @@ QVariantList TelemetryService::getActiveAlerts() const {
     std::sort(alerts.begin(), alerts.end(), [](const QVariant& a, const QVariant& b) {
         QVariantMap mapA = a.toMap();
         QVariantMap mapB = b.toMap();
-        
+
         // Critical alerts first
         AlertLevel levelA = TelemetryService::stringToAlertLevel(mapA["level"].toString());
         AlertLevel levelB = TelemetryService::stringToAlertLevel(mapB["level"].toString());
-        
+
         if (levelA != levelB) {
             return levelA > levelB; // Higher severity first
         }
-        
+
         // Then by creation time (newest first)
         return mapA["createdAt"].toDateTime() > mapB["createdAt"].toDateTime();
     });
@@ -531,7 +518,7 @@ QVariantList TelemetryService::getActiveAlerts() const {
 
 double TelemetryService::calculateAverageResponseTime(const QString& operation, int timeWindowMinutes) const {
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-timeWindowMinutes * 60);
-    
+
     double totalTime = 0.0;
     int count = 0;
 
@@ -539,11 +526,11 @@ double TelemetryService::calculateAverageResponseTime(const QString& operation, 
         if (metric.timestamp < cutoff) {
             continue; // Outside time window
         }
-        
+
         if (!operation.isEmpty() && metric.operation != operation) {
             continue; // Different operation
         }
-        
+
         totalTime += metric.responseTimeMs;
         count++;
     }
@@ -553,7 +540,7 @@ double TelemetryService::calculateAverageResponseTime(const QString& operation, 
     }
 
     double average = totalTime / count;
-    
+
     // Update cached value if calculating overall average
     if (operation.isEmpty()) {
         const_cast<TelemetryService*>(this)->m_averageResponseTime = average;
@@ -564,7 +551,7 @@ double TelemetryService::calculateAverageResponseTime(const QString& operation, 
 
 int TelemetryService::countSafetyViolations(const QString& violationType, int timeWindowHours) const {
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-timeWindowHours * 3600);
-    
+
     int count = 0;
     for (const SafetyMetric& metric : m_safetyMetrics) {
         if (metric.timestamp >= cutoff && metric.eventType == violationType) {
@@ -577,7 +564,7 @@ int TelemetryService::countSafetyViolations(const QString& violationType, int ti
 
 QVariantMap TelemetryService::getPerformanceStatistics(const QString& operation, int timeWindowMinutes) const {
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-timeWindowMinutes * 60);
-    
+
     QList<double> responseTimes;
     int successCount = 0;
     int totalCount = 0;
@@ -586,11 +573,11 @@ QVariantMap TelemetryService::getPerformanceStatistics(const QString& operation,
         if (metric.timestamp < cutoff) {
             continue;
         }
-        
+
         if (!operation.isEmpty() && metric.operation != operation) {
             continue;
         }
-        
+
         responseTimes.append(metric.responseTimeMs);
         if (metric.success) {
             successCount++;
@@ -611,7 +598,7 @@ QVariantMap TelemetryService::getPerformanceStatistics(const QString& operation,
     }
 
     std::sort(responseTimes.begin(), responseTimes.end());
-    
+
     double sum = std::accumulate(responseTimes.begin(), responseTimes.end(), 0.0);
     double average = sum / responseTimes.size();
     double min = responseTimes.first();
@@ -652,7 +639,7 @@ void TelemetryService::performPeriodicCollection() {
 
     // Update system health metrics
     calculateSystemHealthScore();
-    
+
     // Record operational metrics
     recordOperationalMetric("active_alerts", activeAlerts(), "count");
     recordOperationalMetric("metrics_recorded_total", m_totalMetricsRecorded, "count");
@@ -672,12 +659,12 @@ void TelemetryService::checkThresholds() {
 void TelemetryService::checkPerformanceThresholds() {
     // Check recent performance metrics for threshold violations
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-60); // Last minute
-    
+
     for (const PerformanceMetric& metric : m_performanceMetrics) {
         if (metric.timestamp < cutoff) {
             continue;
         }
-        
+
         if (m_performanceThresholds.contains(metric.operation)) {
             double threshold = m_performanceThresholds[metric.operation];
             if (metric.responseTimeMs > threshold) {
@@ -715,7 +702,7 @@ void TelemetryService::cleanupOldMetrics() {
 
 void TelemetryService::cleanupPerformanceMetrics() {
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-METRIC_RETENTION_HOURS * 3600);
-    
+
     while (!m_performanceMetrics.empty() && m_performanceMetrics.front().timestamp < cutoff) {
         m_performanceMetrics.pop_front();
     }
@@ -723,7 +710,7 @@ void TelemetryService::cleanupPerformanceMetrics() {
 
 void TelemetryService::cleanupSafetyMetrics() {
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-METRIC_RETENTION_HOURS * 3600);
-    
+
     while (!m_safetyMetrics.empty() && m_safetyMetrics.front().timestamp < cutoff) {
         m_safetyMetrics.pop_front();
     }
@@ -731,7 +718,7 @@ void TelemetryService::cleanupSafetyMetrics() {
 
 void TelemetryService::cleanupOperationalMetrics() {
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-METRIC_RETENTION_HOURS * 3600);
-    
+
     while (!m_operationalMetrics.empty() && m_operationalMetrics.front().timestamp < cutoff) {
         m_operationalMetrics.pop_front();
     }
@@ -739,20 +726,16 @@ void TelemetryService::cleanupOperationalMetrics() {
 
 void TelemetryService::cleanupOldAlerts() {
     QDateTime cutoff = QDateTime::currentDateTime().addDays(-ALERT_RETENTION_DAYS);
-    
+
     QStringList toRemove;
     for (auto it = m_activeAlerts.begin(); it != m_activeAlerts.end(); ++it) {
         if (!it.value().isActive && it.value().createdAt < cutoff) {
             toRemove.append(it.key());
         }
     }
-    
+
     for (const QString& alertId : toRemove) {
         m_activeAlerts.remove(alertId);
-    }
-    
-    if (!toRemove.isEmpty()) {
-        qDebug() << "🧹 TelemetryService: Cleaned up" << toRemove.size() << "old alerts";
     }
 }
 
@@ -789,8 +772,6 @@ void TelemetryService::setPerformanceMonitoringEnabled(bool enabled) {
     if (m_performanceMonitoringEnabled != enabled) {
         m_performanceMonitoringEnabled = enabled;
         emit configurationChanged();
-        
-        qDebug() << "TelemetryService: Performance monitoring" << (enabled ? "enabled" : "disabled");
     }
 }
 
@@ -828,7 +809,7 @@ void TelemetryService::recordBatchPerformanceMetrics(const QVariantList& metrics
         double responseTime = metricMap["responseTime"].toDouble();
         bool success = metricMap["success"].toBool();
         QString operatorId = metricMap.value("operatorId", "system").toString();
-        
+
         recordPerformanceMetric(operation, responseTime, success, operatorId);
     }
 }
@@ -836,7 +817,7 @@ void TelemetryService::recordBatchPerformanceMetrics(const QVariantList& metrics
 QVariantList TelemetryService::getSafetyEvents(int limitHours, const QString& severity) const {
     QVariantList result;
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-limitHours * 3600);
-    
+
     for (const SafetyMetric& metric : m_safetyMetrics) {
         if (metric.timestamp >= cutoff) {
             if (severity.isEmpty() || alertLevelToString(metric.severity) == severity) {
@@ -852,7 +833,7 @@ QVariantList TelemetryService::getSafetyEvents(int limitHours, const QString& se
             }
         }
     }
-    
+
     return result;
 }
 
@@ -860,7 +841,7 @@ QVariantMap TelemetryService::getOperationalMetrics(int limitHours) const {
     QVariantMap result;
     QVariantList metrics;
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-limitHours * 3600);
-    
+
     for (const OperationalMetric& metric : m_operationalMetrics) {
         if (metric.timestamp >= cutoff) {
             QVariantMap metricMap;
@@ -872,11 +853,11 @@ QVariantMap TelemetryService::getOperationalMetrics(int limitHours) const {
             metrics.append(metricMap);
         }
     }
-    
+
     result["metrics"] = metrics;
     result["timeWindow"] = limitHours;
     result["totalCount"] = metrics.size();
-    
+
     return result;
 }
 
@@ -888,7 +869,7 @@ QVariantMap TelemetryService::getSystemHealthStatus() const {
     result["averageResponseTime"] = m_averageResponseTime;
     result["totalMetricsRecorded"] = m_totalMetricsRecorded;
     result["lastUpdate"] = QDateTime::currentDateTime();
-    
+
     // Convert system health metrics to QVariantMap
     QVariantMap componentStatuses;
     for (auto it = m_systemHealthMetrics.constBegin(); it != m_systemHealthMetrics.constEnd(); ++it) {
@@ -901,14 +882,14 @@ QVariantMap TelemetryService::getSystemHealthStatus() const {
         componentStatuses[it.key()] = componentStatus;
     }
     result["componentStatuses"] = componentStatuses;
-    
+
     return result;
 }
 
 QVariantList TelemetryService::getAlertHistory(int limitHours) const {
     QVariantList result;
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-limitHours * 3600);
-    
+
     for (const Alert& alert : m_activeAlerts) {
         if (alert.createdAt >= cutoff) {
             QVariantMap alertMap;
@@ -925,7 +906,7 @@ QVariantList TelemetryService::getAlertHistory(int limitHours) const {
             result.append(alertMap);
         }
     }
-    
+
     return result;
 }
 
@@ -933,14 +914,14 @@ QVariantList TelemetryService::getPerformanceTrends(const QString& operation, in
     QVariantList result;
     QDateTime cutoff = QDateTime::currentDateTime().addSecs(-periodHours * 3600);
     QDateTime intervalStart = cutoff;
-    
+
     while (intervalStart < QDateTime::currentDateTime()) {
         QDateTime intervalEnd = intervalStart.addSecs(intervalMinutes * 60);
-        
+
         QList<double> responseTimes;
         int successCount = 0;
         int totalCount = 0;
-        
+
         for (const PerformanceMetric& metric : m_performanceMetrics) {
             if (metric.timestamp >= intervalStart && metric.timestamp < intervalEnd) {
                 if (operation.isEmpty() || metric.operation == operation) {
@@ -952,11 +933,11 @@ QVariantList TelemetryService::getPerformanceTrends(const QString& operation, in
                 }
             }
         }
-        
+
         if (totalCount > 0) {
             double average = std::accumulate(responseTimes.begin(), responseTimes.end(), 0.0) / responseTimes.size();
             double successRate = (double)successCount / totalCount * 100.0;
-            
+
             QVariantMap intervalData;
             intervalData["intervalStart"] = intervalStart;
             intervalData["intervalEnd"] = intervalEnd;
@@ -966,22 +947,22 @@ QVariantList TelemetryService::getPerformanceTrends(const QString& operation, in
             intervalData["successRate"] = successRate;
             result.append(intervalData);
         }
-        
+
         intervalStart = intervalEnd;
     }
-    
+
     return result;
 }
 
 QVariantMap TelemetryService::generatePerformanceReport(const QDateTime& startTime, const QDateTime& endTime) const {
     QVariantMap report;
-    
+
     // Calculate metrics for the specified period
     QList<double> responseTimes;
     int totalOperations = 0;
     int successfulOperations = 0;
     QHash<QString, int> operationCounts;
-    
+
     for (const PerformanceMetric& metric : m_performanceMetrics) {
         if (metric.timestamp >= startTime && metric.timestamp <= endTime) {
             responseTimes.append(metric.responseTimeMs);
@@ -992,11 +973,11 @@ QVariantMap TelemetryService::generatePerformanceReport(const QDateTime& startTi
             operationCounts[metric.operation]++;
         }
     }
-    
+
     if (!responseTimes.isEmpty()) {
         std::sort(responseTimes.begin(), responseTimes.end());
         double average = std::accumulate(responseTimes.begin(), responseTimes.end(), 0.0) / responseTimes.size();
-        
+
         report["reportPeriod"] = QVariantMap{
             {"startTime", startTime},
             {"endTime", endTime}
@@ -1008,24 +989,24 @@ QVariantMap TelemetryService::generatePerformanceReport(const QDateTime& startTi
         report["minResponseTime"] = responseTimes.first();
         report["maxResponseTime"] = responseTimes.last();
         report["p95ResponseTime"] = responseTimes[qRound(responseTimes.size() * 0.95) - 1];
-        
+
         QVariantMap operationBreakdown;
         for (auto it = operationCounts.begin(); it != operationCounts.end(); ++it) {
             operationBreakdown[it.key()] = it.value();
         }
         report["operationBreakdown"] = operationBreakdown;
     }
-    
+
     return report;
 }
 
 QVariantMap TelemetryService::generateSafetyReport(const QDateTime& startTime, const QDateTime& endTime) const {
     QVariantMap report;
-    
+
     QHash<QString, int> eventTypeCounts;
     QHash<QString, int> severityCounts;
     int totalEvents = 0;
-    
+
     for (const SafetyMetric& metric : m_safetyMetrics) {
         if (metric.timestamp >= startTime && metric.timestamp <= endTime) {
             eventTypeCounts[metric.eventType]++;
@@ -1033,25 +1014,25 @@ QVariantMap TelemetryService::generateSafetyReport(const QDateTime& startTime, c
             totalEvents++;
         }
     }
-    
+
     QVariantMap reportPeriod;
     reportPeriod["startTime"] = startTime;
     reportPeriod["endTime"] = endTime;
     report["reportPeriod"] = reportPeriod;
     report["totalSafetyEvents"] = totalEvents;
-    
+
     QVariantMap eventBreakdown;
     for (auto it = eventTypeCounts.begin(); it != eventTypeCounts.end(); ++it) {
         eventBreakdown[it.key()] = it.value();
     }
     report["eventTypeBreakdown"] = eventBreakdown;
-    
+
     QVariantMap severityBreakdown;
     for (auto it = severityCounts.begin(); it != severityCounts.end(); ++it) {
         severityBreakdown[it.key()] = it.value();
     }
     report["severityBreakdown"] = severityBreakdown;
-    
+
     return report;
 }
 

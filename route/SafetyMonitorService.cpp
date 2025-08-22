@@ -16,7 +16,7 @@ SafetyMonitorService::SafetyMonitorService(
     DatabaseManager* dbManager,
     TelemetryService* telemetryService,
     QObject* parent
-)
+    )
     : QObject(parent)
     , m_dbManager(dbManager)
     , m_telemetryService(telemetryService)
@@ -42,37 +42,25 @@ SafetyMonitorService::~SafetyMonitorService() {
 }
 
 void SafetyMonitorService::initialize() {
-    qDebug() << "🔄 SafetyMonitorService: Initializing compliance monitoring service...";
-
     if (!m_dbManager) {
-        qCritical() << "SafetyMonitorService: DatabaseManager not set";
+        qCritical() << "[SafetyMonitorService > initialize] DatabaseManager not set";
         return;
     }
 
     try {
-        // Load configuration
         if (loadComplianceConfiguration()) {
-            // Load active violations from database
             if (loadActiveViolationsFromDatabase()) {
-                // Load default alert thresholds
                 loadDefaultAlertThresholds();
 
-                // Calculate initial compliance level
                 m_currentComplianceLevel = calculateOverallCompliance();
                 m_currentComplianceScore = calculateComplianceScore();
 
                 m_isOperational = true;
 
-                qDebug() << "✅ SafetyMonitorService: Initialized successfully";
-                qDebug() << "   - Active violations:" << m_activeViolations.size();
-                qDebug() << "   - Compliance level:" << complianceLevelToString(m_currentComplianceLevel);
-                qDebug() << "   - Compliance score:" << QString::number(m_currentComplianceScore, 'f', 1) << "%";
-
                 emit operationalStateChanged();
                 emit complianceLevelChanged();
                 emit complianceScoreChanged();
 
-                // Record initialization
                 if (m_telemetryService) {
                     m_telemetryService->recordSafetyEvent(
                         "safety_monitor_initialized",
@@ -82,17 +70,17 @@ void SafetyMonitorService::initialize() {
                             .arg(complianceLevelToString(m_currentComplianceLevel))
                             .arg(m_currentComplianceScore, 0, 'f', 1),
                         "system"
-                    );
+                        );
                 }
             } else {
-                qCritical() << "❌ SafetyMonitorService: Failed to load active violations";
+                qCritical() << "[SafetyMonitorService > initialize] Failed to load active violations";
             }
         } else {
-            qCritical() << "❌ SafetyMonitorService: Failed to load configuration";
+            qCritical() << "[SafetyMonitorService > initialize] Failed to load configuration";
         }
 
     } catch (const std::exception& e) {
-        qCritical() << "❌ SafetyMonitorService: Initialization failed:" << e.what();
+        qCritical() << "[SafetyMonitorService > initialize] Initialization failed:" << e.what();
         m_isOperational = false;
         emit operationalStateChanged();
     }
@@ -104,22 +92,17 @@ int SafetyMonitorService::activeViolations() const {
 
 void SafetyMonitorService::startContinuousMonitoring() {
     if (!m_isOperational) {
-        qWarning() << "SafetyMonitorService: Cannot start monitoring - service not operational";
+        qWarning() << "[SafetyMonitorService > startContinuousMonitoring] Cannot start monitoring - service not operational";
         return;
     }
 
     if (m_continuousMonitoring) {
-        qDebug() << "SafetyMonitorService: Continuous monitoring already active";
         return;
     }
 
     m_continuousMonitoring = true;
     m_monitoringTimer->start();
     m_alertTimer->start();
-
-    qDebug() << "🔍 SafetyMonitorService: Continuous monitoring started";
-    qDebug() << "   - Monitoring interval:" << m_monitoringIntervalMs << "ms";
-    qDebug() << "   - Alert check interval:" << m_alertCheckIntervalMs << "ms";
 
     if (m_telemetryService) {
         m_telemetryService->recordSafetyEvent(
@@ -128,7 +111,7 @@ void SafetyMonitorService::startContinuousMonitoring() {
             "SafetyMonitorService",
             "Continuous safety monitoring activated",
             "system"
-        );
+            );
     }
 }
 
@@ -141,8 +124,6 @@ void SafetyMonitorService::stopContinuousMonitoring() {
     m_monitoringTimer->stop();
     m_alertTimer->stop();
 
-    qDebug() << "⏹️ SafetyMonitorService: Continuous monitoring stopped";
-
     if (m_telemetryService) {
         m_telemetryService->recordSafetyEvent(
             "continuous_monitoring_stopped",
@@ -150,7 +131,7 @@ void SafetyMonitorService::stopContinuousMonitoring() {
             "SafetyMonitorService",
             "Continuous safety monitoring deactivated",
             "system"
-        );
+            );
     }
 }
 
@@ -161,8 +142,6 @@ bool SafetyMonitorService::performSafetyAudit() {
 
     QElapsedTimer auditTimer;
     auditTimer.start();
-
-    qDebug() << "🔍 SafetyMonitorService: Performing comprehensive safety audit...";
 
     int initialViolations = m_activeViolations.size();
     int newViolations = 0;
@@ -189,29 +168,16 @@ bool SafetyMonitorService::performSafetyAudit() {
         double auditTime = auditTimer.elapsed();
         recordMonitoringMetrics("comprehensive_audit", auditTime, newViolations);
 
-        qDebug() << "✅ SafetyMonitorService: Safety audit completed";
-        qDebug() << "   - Duration:" << auditTime << "ms";
-        qDebug() << "   - New violations:" << newViolations;
-        qDebug() << "   - Total active violations:" << m_activeViolations.size();
-        qDebug() << "   - Compliance level:" << complianceLevelToString(m_currentComplianceLevel);
-        qDebug() << "   - Compliance score:" << QString::number(m_currentComplianceScore, 'f', 1) << "%";
-
-        // Emit signals for changes
-        if (newViolations > 0) {
-            emit violationCountChanged();
-        }
-
-        if (previousLevel != m_currentComplianceLevel) {
+        if (newViolations > 0 && previousLevel != m_currentComplianceLevel) {
             emit complianceLevelChanged();
             emit complianceLevelDowngraded(
                 complianceLevelToString(previousLevel),
                 complianceLevelToString(m_currentComplianceLevel)
-            );
+                );
         }
 
         emit complianceScoreChanged();
 
-        // Record audit completion
         if (m_telemetryService) {
             m_telemetryService->recordSafetyEvent(
                 "safety_audit_completed",
@@ -221,7 +187,7 @@ bool SafetyMonitorService::performSafetyAudit() {
                     .arg(newViolations)
                     .arg(m_currentComplianceScore, 0, 'f', 1),
                 "system"
-            );
+                );
         }
 
         QString auditId = generateReportId();
@@ -230,7 +196,7 @@ bool SafetyMonitorService::performSafetyAudit() {
         return true;
 
     } catch (const std::exception& e) {
-        qCritical() << "❌ SafetyMonitorService: Safety audit failed:" << e.what();
+        qCritical() << "[SafetyMonitorService > performSafetyAudit] Safety audit failed:" << e.what();
         return false;
     }
 }
@@ -263,7 +229,7 @@ QString SafetyMonitorService::reportViolation(
     const QString& affectedResource,
     const QString& operatorId,
     const QVariantMap& metadata
-) {
+    ) {
     if (!m_isOperational) {
         return QString();
     }
@@ -280,8 +246,8 @@ QString SafetyMonitorService::reportViolation(
     violation.isActive = true;
 
     // Determine severity based on type and context
-    violation.severity = isViolationCritical(violation) ? 
-        ComplianceLevel::SAFETY_CRITICAL : ComplianceLevel::MAJOR_DEVIATION;
+    violation.severity = isViolationCritical(violation) ?
+                             ComplianceLevel::SAFETY_CRITICAL : ComplianceLevel::MAJOR_DEVIATION;
 
     // Store violation
     m_activeViolations[violation.id] = violation;
@@ -301,11 +267,10 @@ QString SafetyMonitorService::reportViolation(
 
     m_violationsDetected++;
 
-    qWarning() << "⚠️ SafetyMonitorService: Violation reported -" << violation.id;
-    qWarning() << "   - Type:" << violationType;
-    qWarning() << "   - Severity:" << complianceLevelToString(violation.severity);
-    qWarning() << "   - Resource:" << affectedResource;
-    qWarning() << "   - Description:" << description;
+    qWarning() << "[SafetyMonitorService > reportViolation] id:" << violation.id
+               << "| type:" << violationType
+               << "| severity:" << complianceLevelToString(violation.severity)
+               << "| resource:" << affectedResource;
 
     // Emit signals
     emit violationDetected(violation.id, violationType, complianceLevelToString(violation.severity));
@@ -320,7 +285,7 @@ QString SafetyMonitorService::reportViolation(
         emit complianceLevelDowngraded(
             complianceLevelToString(previousLevel),
             complianceLevelToString(m_currentComplianceLevel)
-        );
+            );
     }
 
     emit complianceScoreChanged();
@@ -333,7 +298,7 @@ QString SafetyMonitorService::reportViolation(
             violation.affectedResource,
             QString("Violation: %1 - %2").arg(violationType, description),
             operatorId
-        );
+            );
     }
 
     return violation.id;
@@ -341,21 +306,18 @@ QString SafetyMonitorService::reportViolation(
 
 bool SafetyMonitorService::acknowledgeViolation(const QString& violationId, const QString& operatorId) {
     if (!m_activeViolations.contains(violationId)) {
-        qWarning() << "SafetyMonitorService: Cannot acknowledge unknown violation:" << violationId;
+        qWarning() << "[SafetyMonitorService > acknowledgeViolation] Unknown violation:" << violationId;
         return false;
     }
 
     SafetyViolation& violation = m_activeViolations[violationId];
-    
+
     if (!violation.acknowledgedAt.isNull()) {
-        qDebug() << "SafetyMonitorService: Violation already acknowledged:" << violationId;
         return true;
     }
 
     violation.acknowledgedAt = QDateTime::currentDateTime();
     updateViolationInDatabase(violation);
-
-    qDebug() << "✅ SafetyMonitorService: Violation acknowledged -" << violationId << "by" << operatorId;
 
     if (m_telemetryService) {
         m_telemetryService->recordSafetyEvent(
@@ -364,7 +326,7 @@ bool SafetyMonitorService::acknowledgeViolation(const QString& violationId, cons
             violation.affectedResource,
             QString("Violation %1 acknowledged").arg(violationId),
             operatorId
-        );
+            );
     }
 
     return true;
@@ -374,16 +336,15 @@ bool SafetyMonitorService::resolveViolation(
     const QString& violationId,
     const QString& resolution,
     const QString& operatorId
-) {
+    ) {
     if (!m_activeViolations.contains(violationId)) {
-        qWarning() << "SafetyMonitorService: Cannot resolve unknown violation:" << violationId;
+        qWarning() << "[SafetyMonitorService > resolveViolation] Unknown violation:" << violationId;
         return false;
     }
 
     SafetyViolation& violation = m_activeViolations[violationId];
-    
+
     if (!violation.resolvedAt.isNull()) {
-        qDebug() << "SafetyMonitorService: Violation already resolved:" << violationId;
         return true;
     }
 
@@ -403,10 +364,6 @@ bool SafetyMonitorService::resolveViolation(
 
     m_violationsResolved++;
 
-    qDebug() << "✅ SafetyMonitorService: Violation resolved -" << violationId;
-    qDebug() << "   - Resolution:" << resolution;
-    qDebug() << "   - Duration:" << violation.durationMs() << "ms";
-
     // Emit signals
     emit violationResolved(violationId, resolution);
     emit violationCountChanged();
@@ -425,7 +382,7 @@ bool SafetyMonitorService::resolveViolation(
             violation.affectedResource,
             QString("Violation %1 resolved: %2").arg(violationId, resolution),
             operatorId
-        );
+            );
     }
 
     return true;
@@ -433,7 +390,7 @@ bool SafetyMonitorService::resolveViolation(
 
 QVariantMap SafetyMonitorService::checkRouteCompliance(const QString& routeId) {
     QVariantMap result;
-    
+
     if (!m_isOperational) {
         result["success"] = false;
         result["error"] = "Service not operational";
@@ -457,7 +414,6 @@ QVariantMap SafetyMonitorService::checkRouteCompliance(const QString& routeId) {
     // Determine compliance level for this route
     ComplianceLevel routeCompliance = ComplianceLevel::COMPLIANT;
     if (!routeViolations.isEmpty()) {
-        // Find the most severe violation
         for (const SafetyViolation& violation : routeViolations) {
             if (violation.severity > routeCompliance) {
                 routeCompliance = violation.severity;
@@ -482,7 +438,7 @@ QVariantMap SafetyMonitorService::checkRouteCompliance(const QString& routeId) {
 
 QVariantMap SafetyMonitorService::checkSystemCompliance() {
     QVariantMap result;
-    
+
     if (!m_isOperational) {
         result["success"] = false;
         result["error"] = "Service not operational";
@@ -499,18 +455,18 @@ QVariantMap SafetyMonitorService::checkSystemCompliance() {
 
     for (const SafetyViolation& violation : m_activeViolations.values()) {
         switch (violation.severity) {
-            case ComplianceLevel::SAFETY_CRITICAL:
-            case ComplianceLevel::NON_COMPLIANT:
-                criticalViolations++;
-                break;
-            case ComplianceLevel::MAJOR_DEVIATION:
-                majorViolations++;
-                break;
-            case ComplianceLevel::MINOR_DEVIATION:
-                minorViolations++;
-                break;
-            default:
-                break;
+        case ComplianceLevel::SAFETY_CRITICAL:
+        case ComplianceLevel::NON_COMPLIANT:
+            criticalViolations++;
+            break;
+        case ComplianceLevel::MAJOR_DEVIATION:
+            majorViolations++;
+            break;
+        case ComplianceLevel::MINOR_DEVIATION:
+            minorViolations++;
+            break;
+        default:
+            break;
         }
     }
 
@@ -526,7 +482,6 @@ QVariantMap SafetyMonitorService::checkSystemCompliance() {
     result["checkTimeMs"] = checkTime;
     result["lastAuditTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
-    // Add recommendations
     QStringList recommendations = generateRecommendations();
     result["recommendations"] = QVariantList(recommendations.begin(), recommendations.end());
 
@@ -536,20 +491,14 @@ QVariantMap SafetyMonitorService::checkSystemCompliance() {
 QString SafetyMonitorService::generateComplianceReport(
     const QDateTime& periodStart,
     const QDateTime& periodEnd
-) {
+    ) {
     if (!m_isOperational) {
         return QString();
     }
 
     ComplianceReport report = generateComplianceReportInternal(periodStart, periodEnd);
-    
-    if (saveComplianceReport(report)) {
-        qDebug() << "📊 SafetyMonitorService: Compliance report generated -" << report.reportId;
-        qDebug() << "   - Period:" << periodStart.toString() << "to" << periodEnd.toString();
-        qDebug() << "   - Overall compliance:" << complianceLevelToString(report.overallCompliance);
-        qDebug() << "   - Compliance score:" << QString::number(report.complianceScore, 'f', 1) << "%";
-        qDebug() << "   - Total violations:" << report.totalViolations;
 
+    if (saveComplianceReport(report)) {
         return report.reportId;
     }
 
@@ -558,37 +507,37 @@ QString SafetyMonitorService::generateComplianceReport(
 
 QVariantMap SafetyMonitorService::getCurrentComplianceStatus() const {
     QVariantMap status;
-    
+
     status["isOperational"] = m_isOperational;
     status["complianceLevel"] = complianceLevelToString(m_currentComplianceLevel);
     status["complianceScore"] = m_currentComplianceScore;
     status["activeViolations"] = m_activeViolations.size();
     status["continuousMonitoring"] = m_continuousMonitoring;
     status["lastUpdateTime"] = QDateTime::currentDateTime().toString(Qt::ISODate);
-    
+
     // Statistics
     status["totalChecks"] = m_totalChecks;
     status["violationsDetected"] = m_violationsDetected;
     status["violationsResolved"] = m_violationsResolved;
     status["criticalViolations"] = m_criticalViolations;
     status["alertsSent"] = m_alertsSent;
-    
+
     // Performance
     status["averageMonitoringTimeMs"] = m_averageMonitoringTime;
-    
+
     return status;
 }
 
 // Core monitoring functions
 void SafetyMonitorService::checkRouteConflicts() {
     QList<SafetyViolation> violations = detectRouteConflicts();
-    
+
     for (const SafetyViolation& violation : violations) {
         if (!m_activeViolations.contains(violation.id)) {
             SafetyViolation newViolation = violation;
             newViolation.id = generateViolationId();
             newViolation.detectedAt = QDateTime::currentDateTime();
-            
+
             m_activeViolations[newViolation.id] = newViolation;
             persistViolation(newViolation);
         }
@@ -597,13 +546,13 @@ void SafetyMonitorService::checkRouteConflicts() {
 
 void SafetyMonitorService::checkSignalCompliance() {
     QList<SafetyViolation> violations = detectSignalViolations();
-    
+
     for (const SafetyViolation& violation : violations) {
         if (!m_activeViolations.contains(violation.id)) {
             SafetyViolation newViolation = violation;
             newViolation.id = generateViolationId();
             newViolation.detectedAt = QDateTime::currentDateTime();
-            
+
             m_activeViolations[newViolation.id] = newViolation;
             persistViolation(newViolation);
         }
@@ -692,7 +641,6 @@ ComplianceLevel SafetyMonitorService::calculateOverallCompliance() const {
         return ComplianceLevel::COMPLIANT;
     }
 
-    // Find the most severe active violation
     ComplianceLevel mostSevere = ComplianceLevel::COMPLIANT;
     for (const SafetyViolation& violation : m_activeViolations.values()) {
         if (violation.severity > mostSevere) {
@@ -708,23 +656,22 @@ double SafetyMonitorService::calculateComplianceScore() const {
         return 100.0;
     }
 
-    // Calculate score based on violation severity and count
     double score = 100.0;
-    
+
     for (const SafetyViolation& violation : m_activeViolations.values()) {
         switch (violation.severity) {
-            case ComplianceLevel::SAFETY_CRITICAL:
-            case ComplianceLevel::NON_COMPLIANT:
-                score -= 20.0;
-                break;
-            case ComplianceLevel::MAJOR_DEVIATION:
-                score -= 10.0;
-                break;
-            case ComplianceLevel::MINOR_DEVIATION:
-                score -= 2.0;
-                break;
-            default:
-                break;
+        case ComplianceLevel::SAFETY_CRITICAL:
+        case ComplianceLevel::NON_COMPLIANT:
+            score -= 20.0;
+            break;
+        case ComplianceLevel::MAJOR_DEVIATION:
+            score -= 10.0;
+            break;
+        case ComplianceLevel::MINOR_DEVIATION:
+            score -= 2.0;
+            break;
+        default:
+            break;
         }
     }
 
@@ -733,7 +680,7 @@ double SafetyMonitorService::calculateComplianceScore() const {
 
 QStringList SafetyMonitorService::generateRecommendations() const {
     QStringList recommendations;
-    
+
     if (m_activeViolations.isEmpty()) {
         recommendations.append("System is fully compliant - maintain current safety protocols");
         return recommendations;
@@ -741,7 +688,7 @@ QStringList SafetyMonitorService::generateRecommendations() const {
 
     int criticalCount = 0;
     int majorCount = 0;
-    
+
     for (const SafetyViolation& violation : m_activeViolations.values()) {
         if (violation.severity >= ComplianceLevel::SAFETY_CRITICAL) {
             criticalCount++;
@@ -753,11 +700,11 @@ QStringList SafetyMonitorService::generateRecommendations() const {
     if (criticalCount > 0) {
         recommendations.append(QString("URGENT: Address %1 critical safety violations immediately").arg(criticalCount));
     }
-    
+
     if (majorCount > 0) {
         recommendations.append(QString("Review and resolve %1 major compliance deviations").arg(majorCount));
     }
-    
+
     if (m_activeViolations.size() > 10) {
         recommendations.append("High violation count - consider comprehensive safety review");
     }
@@ -766,7 +713,6 @@ QStringList SafetyMonitorService::generateRecommendations() const {
 }
 
 bool SafetyMonitorService::isViolationCritical(const SafetyViolation& violation) const {
-    // Determine if violation is critical based on type and context
     return violation.type == ViolationType::ROUTE_CONFLICT ||
            violation.type == ViolationType::SIGNAL_VIOLATION ||
            violation.type == ViolationType::INTERLOCKING_VIOLATION ||
@@ -798,16 +744,16 @@ ViolationType SafetyMonitorService::stringToViolationType(const QString& typeStr
 
 QString SafetyMonitorService::violationTypeToString(ViolationType type) const {
     switch (type) {
-        case ViolationType::ROUTE_CONFLICT: return "ROUTE_CONFLICT";
-        case ViolationType::SIGNAL_VIOLATION: return "SIGNAL_VIOLATION";
-        case ViolationType::TRACK_CIRCUIT_VIOLATION: return "TRACK_CIRCUIT_VIOLATION";
-        case ViolationType::POINT_MACHINE_VIOLATION: return "POINT_MACHINE_VIOLATION";
-        case ViolationType::OVERLAP_VIOLATION: return "OVERLAP_VIOLATION";
-        case ViolationType::TIMING_VIOLATION: return "TIMING_VIOLATION";
-        case ViolationType::INTERLOCKING_VIOLATION: return "INTERLOCKING_VIOLATION";
-        case ViolationType::OPERATOR_VIOLATION: return "OPERATOR_VIOLATION";
-        case ViolationType::SYSTEM_INTEGRITY: return "SYSTEM_INTEGRITY";
-        case ViolationType::EMERGENCY_PROTOCOL: return "EMERGENCY_PROTOCOL";
+    case ViolationType::ROUTE_CONFLICT: return "ROUTE_CONFLICT";
+    case ViolationType::SIGNAL_VIOLATION: return "SIGNAL_VIOLATION";
+    case ViolationType::TRACK_CIRCUIT_VIOLATION: return "TRACK_CIRCUIT_VIOLATION";
+    case ViolationType::POINT_MACHINE_VIOLATION: return "POINT_MACHINE_VIOLATION";
+    case ViolationType::OVERLAP_VIOLATION: return "OVERLAP_VIOLATION";
+    case ViolationType::TIMING_VIOLATION: return "TIMING_VIOLATION";
+    case ViolationType::INTERLOCKING_VIOLATION: return "INTERLOCKING_VIOLATION";
+    case ViolationType::OPERATOR_VIOLATION: return "OPERATOR_VIOLATION";
+    case ViolationType::SYSTEM_INTEGRITY: return "SYSTEM_INTEGRITY";
+    case ViolationType::EMERGENCY_PROTOCOL: return "EMERGENCY_PROTOCOL";
     }
     return "UNKNOWN";
 }
@@ -823,11 +769,11 @@ ComplianceLevel SafetyMonitorService::stringToComplianceLevel(const QString& lev
 
 QString SafetyMonitorService::complianceLevelToString(ComplianceLevel level) const {
     switch (level) {
-        case ComplianceLevel::COMPLIANT: return "COMPLIANT";
-        case ComplianceLevel::MINOR_DEVIATION: return "MINOR_DEVIATION";
-        case ComplianceLevel::MAJOR_DEVIATION: return "MAJOR_DEVIATION";
-        case ComplianceLevel::SAFETY_CRITICAL: return "SAFETY_CRITICAL";
-        case ComplianceLevel::NON_COMPLIANT: return "NON_COMPLIANT";
+    case ComplianceLevel::COMPLIANT: return "COMPLIANT";
+    case ComplianceLevel::MINOR_DEVIATION: return "MINOR_DEVIATION";
+    case ComplianceLevel::MAJOR_DEVIATION: return "MAJOR_DEVIATION";
+    case ComplianceLevel::SAFETY_CRITICAL: return "SAFETY_CRITICAL";
+    case ComplianceLevel::NON_COMPLIANT: return "NON_COMPLIANT";
     }
     return "UNKNOWN";
 }
@@ -854,7 +800,7 @@ QVariantMap SafetyMonitorService::violationToVariantMap(const SafetyViolation& v
 void SafetyMonitorService::recordMonitoringMetrics(const QString& checkType, double durationMs, int violationsFound) {
     Q_UNUSED(checkType)
     Q_UNUSED(violationsFound)
-    
+
     m_monitoringTimes.append(durationMs);
     if (m_monitoringTimes.size() > PERFORMANCE_HISTORY_SIZE) {
         m_monitoringTimes.removeFirst();
@@ -865,10 +811,10 @@ void SafetyMonitorService::updatePerformanceStatistics() {
     if (m_monitoringTimes.isEmpty()) {
         return;
     }
-    
+
     double total = std::accumulate(m_monitoringTimes.begin(), m_monitoringTimes.end(), 0.0);
     m_averageMonitoringTime = total / m_monitoringTimes.size();
-    
+
     m_lastPerformanceUpdate = QDateTime::currentDateTime();
 }
 
@@ -909,9 +855,7 @@ bool SafetyMonitorService::shouldSendAlert(const QString& metricType, double val
     }
 
     double threshold = m_alertThresholds[metricType];
-    
-    // For most metrics, alert when value exceeds threshold
-    // For compliance_score, alert when value falls below threshold
+
     if (metricType == "compliance_score") {
         return value < threshold;
     } else {
@@ -922,15 +866,17 @@ bool SafetyMonitorService::shouldSendAlert(const QString& metricType, double val
 void SafetyMonitorService::sendAlert(const QString& alertType, const QVariantMap& alertData) {
     m_alertsSent++;
     m_lastAlertSent = QDateTime::currentDateTime();
-    
-    qWarning() << "🚨 SafetyMonitorService: Alert -" << alertType;
-    qWarning() << "   - Data:" << alertData;
+
+    qWarning() << "[SafetyMonitorService > sendAlert] type:" << alertType
+               << "| metric:" << alertData.value("metric").toString()
+               << "| value:" << alertData.value("currentValue").toDouble()
+               << "| threshold:" << alertData.value("threshold").toDouble();
 
     emit complianceThresholdBreached(
         alertData["metric"].toString(),
         alertData["currentValue"].toDouble(),
         alertData["threshold"].toDouble()
-    );
+        );
 
     if (m_telemetryService) {
         m_telemetryService->recordSafetyEvent(
@@ -939,7 +885,7 @@ void SafetyMonitorService::sendAlert(const QString& alertType, const QVariantMap
             "SafetyMonitorService",
             QString("Alert: %1").arg(alertType),
             "system"
-        );
+            );
     }
 }
 
@@ -965,7 +911,7 @@ bool SafetyMonitorService::loadActiveViolationsFromDatabase() {
 ComplianceReport SafetyMonitorService::generateComplianceReportInternal(
     const QDateTime& periodStart,
     const QDateTime& periodEnd
-) {
+    ) {
     ComplianceReport report;
     report.reportId = generateReportId();
     report.generatedAt = QDateTime::currentDateTime();
@@ -973,11 +919,10 @@ ComplianceReport SafetyMonitorService::generateComplianceReportInternal(
     report.periodEnd = periodEnd;
     report.overallCompliance = m_currentComplianceLevel;
     report.complianceScore = m_currentComplianceScore;
-    
-    // Calculate statistics for the period
+
     report.totalViolations = m_activeViolations.size();
     report.activeViolations = m_activeViolations.size();
-    
+
     return report;
 }
 
@@ -1020,7 +965,7 @@ void SafetyMonitorService::onSystemOverload() {
         "system",
         "system",
         QVariantMap{{"timestamp", QDateTime::currentDateTime().toString(Qt::ISODate)}}
-    );
+        );
 }
 
 // Additional methods for main.cpp compatibility
@@ -1031,7 +976,7 @@ void SafetyMonitorService::recordSafetyViolation(const QString& routeId, const Q
         "system",
         routeId,
         QVariantMap{{"severity", severity}}
-    );
+        );
 }
 
 void SafetyMonitorService::recordEmergencyEvent(const QString& eventType, const QString& reason) {
@@ -1041,7 +986,7 @@ void SafetyMonitorService::recordEmergencyEvent(const QString& eventType, const 
         "system",
         "system",
         QVariantMap{{"eventType", eventType}}
-    );
+        );
 }
 
 void SafetyMonitorService::recordPerformanceWarning(const QString& warningType, const QVariantMap& details) {
@@ -1051,24 +996,24 @@ void SafetyMonitorService::recordPerformanceWarning(const QString& warningType, 
         "system",
         "system",
         details
-    );
+        );
 }
 
 QVariantMap SafetyMonitorService::getViolationDetails(const QString& violationId) const {
     if (!m_activeViolations.contains(violationId)) {
         return QVariantMap();
     }
-    
+
     return violationToVariantMap(m_activeViolations[violationId]);
 }
 
 QVariantList SafetyMonitorService::getActiveViolations() const {
     QVariantList result;
-    
+
     for (const SafetyViolation& violation : m_activeViolations.values()) {
         result.append(violationToVariantMap(violation));
     }
-    
+
     return result;
 }
 
@@ -1082,9 +1027,9 @@ QVariantMap SafetyMonitorService::getComplianceReport(const QString& reportId) c
     if (!m_complianceReports.contains(reportId)) {
         return QVariantMap();
     }
-    
+
     const ComplianceReport& report = m_complianceReports[reportId];
-    
+
     QVariantMap reportMap;
     reportMap["reportId"] = report.reportId;
     reportMap["generatedAt"] = report.generatedAt;
@@ -1097,22 +1042,22 @@ QVariantMap SafetyMonitorService::getComplianceReport(const QString& reportId) c
     reportMap["resolvedViolations"] = report.resolvedViolations;
     reportMap["criticalViolations"] = report.criticalViolations;
     reportMap["recommendations"] = report.recommendations;
-    
+
     return reportMap;
 }
 
 QVariantList SafetyMonitorService::getComplianceReports(int limitDays) const {
     Q_UNUSED(limitDays)
-    
+
     QVariantList result;
     QDateTime cutoff = QDateTime::currentDateTime().addDays(-limitDays);
-    
+
     for (const ComplianceReport& report : m_complianceReports.values()) {
         if (report.generatedAt >= cutoff) {
             result.append(getComplianceReport(report.reportId));
         }
     }
-    
+
     return result;
 }
 
@@ -1137,24 +1082,22 @@ bool SafetyMonitorService::setAlertThreshold(const QString& metricType, double t
         return false;
     }
     m_alertThresholds[metricType] = threshold;
-    qDebug() << "🔧 SafetyMonitorService: Set alert threshold" << metricType << "to" << threshold;
     return true;
 }
 
 QVariantMap SafetyMonitorService::getAlertConfiguration() const {
     QVariantMap config;
-    
+
     for (auto it = m_alertThresholds.begin(); it != m_alertThresholds.end(); ++it) {
         config[it.key()] = it.value();
     }
-    
+
     return config;
 }
 
 QVariantList SafetyMonitorService::getPendingAlerts() const {
     QVariantList alerts;
-    
-    // Check current metrics against thresholds
+
     if (m_currentComplianceScore < m_alertThresholds.value("compliance_score", WARNING_COMPLIANCE_THRESHOLD)) {
         QVariantMap alert;
         alert["type"] = "compliance_score_low";
@@ -1164,7 +1107,7 @@ QVariantList SafetyMonitorService::getPendingAlerts() const {
         alert["severity"] = "WARNING";
         alerts.append(alert);
     }
-    
+
     if (m_activeViolations.size() > m_alertThresholds.value("active_violations", 5.0)) {
         QVariantMap alert;
         alert["type"] = "high_violation_count";
@@ -1174,7 +1117,7 @@ QVariantList SafetyMonitorService::getPendingAlerts() const {
         alert["severity"] = "WARNING";
         alerts.append(alert);
     }
-    
+
     return alerts;
 }
 

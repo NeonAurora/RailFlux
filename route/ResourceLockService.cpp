@@ -393,30 +393,37 @@ bool ResourceLockService::loadLocksFromDatabase() {
 }
 
 bool ResourceLockService::persistLockToDatabase(const ResourceLock& lock) {
-    QSqlQuery query(m_dbManager->getDatabase());
-    query.prepare(R"(
-        INSERT INTO railway_control.resource_locks 
-        (resource_type, resource_id, route_id, lock_type, locked_at, expires_at, operator_id, lock_reason, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    )");
-
-    query.addBindValue(lock.resourceType);
-    query.addBindValue(lock.resourceId);
-    query.addBindValue(lock.routeId.toString());
-    query.addBindValue(lock.lockType);
-    query.addBindValue(lock.lockedAt);
-    query.addBindValue(lock.expiresAt);
-    query.addBindValue(lock.operatorId);
-    query.addBindValue(lock.lockReason);
-    query.addBindValue(lock.isActive);
-
-    if (!query.exec()) {
-        qCritical() << "ResourceLockService: Failed to persist lock to database:" << query.lastError().text();
+    // ✅ SAFETY: Use DatabaseManager's validated method instead of direct SQL
+    if (!m_dbManager) {
+        qCritical() << "ResourceLockService: DatabaseManager is null";
         return false;
     }
 
+    // ✅ FIXED: lock.resourceType and lock.lockType are already QString values
+    // No enum conversion needed - they're already "TRACK_CIRCUIT", "EXCLUSIVE", etc.
+    qDebug() << "🔒 ResourceLockService: Persisting lock for"
+             << lock.resourceType << lock.resourceId << "route:" << lock.routeId;
+
+    // ✅ FIXED: Use DatabaseManager's insertResourceLock method
+    // This uses SQL functions that properly handle the database schema
+    bool success = m_dbManager->insertResourceLock(
+        lock.resourceType,           // Already "TRACK_CIRCUIT", "POINT_MACHINE", "SIGNAL"
+        lock.resourceId,            // Resource ID string
+        lock.routeId.toString(),    // Route UUID as string
+        lock.lockType              // Already "EXCLUSIVE", "SHARED", "OVERLAP"
+        );
+
+    if (!success) {
+        qCritical() << "ResourceLockService: Failed to persist lock via DatabaseManager for resource:"
+                    << lock.resourceType << lock.resourceId << "route:" << lock.routeId;
+        return false;
+    }
+
+    qDebug() << "✅ ResourceLockService: Successfully persisted lock for"
+             << lock.resourceType << lock.resourceId << "route:" << lock.routeId;
     return true;
 }
+
 
 bool ResourceLockService::removeLockFromDatabase(const ResourceLock& lock) {
     QSqlQuery query(m_dbManager->getDatabase());
