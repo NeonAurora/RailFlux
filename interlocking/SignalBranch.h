@@ -10,6 +10,8 @@ class SignalBranch : public QObject {
     Q_OBJECT
 
 public:
+public:
+    InterlockingRuleEngine* getRuleEngine() const { return m_ruleEngine.get(); }
     explicit SignalBranch(DatabaseManager* dbManager, QObject* parent = nullptr);
 
     // ✅ Main validation interface
