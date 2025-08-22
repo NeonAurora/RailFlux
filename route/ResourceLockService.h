@@ -25,7 +25,7 @@ enum class ResourceType {
 };
 
 enum class LockType {
-    EXCLUSIVE,    // Only one route can use this resource
+    ROUTE,    // Only one route can use this resource
     SHARED,       // Multiple routes can share (e.g., for read-only operations)
     OVERLAP       // Special lock for overlap regions
 };
@@ -88,7 +88,7 @@ public:
         const QString& resourceType,
         const QString& resourceId,
         const QString& routeId,
-        const QString& lockType = "EXCLUSIVE",
+        const QString& lockType = "ROUTE",
         const QString& operatorId = "system",
         const QString& reason = "",
         int timeoutMinutes = 30

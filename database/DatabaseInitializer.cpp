@@ -2033,7 +2033,7 @@ bool DatabaseInitializer::createFunctions() {
         resource_type_param VARCHAR,
         resource_id_param VARCHAR,
         route_id_param UUID,
-        lock_type_param VARCHAR DEFAULT 'EXCLUSIVE',
+        lock_type_param VARCHAR DEFAULT 'ROUTE',  -- ✅ FIXED: Changed default to 'ROUTE'
         operator_id_param VARCHAR DEFAULT 'system',
         expires_at_param TIMESTAMP WITH TIME ZONE DEFAULT NULL
     )
@@ -2053,9 +2053,9 @@ bool DatabaseInitializer::createFunctions() {
             RAISE EXCEPTION 'Invalid resource type: %. Must be TRACK_CIRCUIT, POINT_MACHINE, or SIGNAL', resource_type_param;
         END IF;
 
-        -- Validate lock type
-        IF lock_type_param NOT IN ('EXCLUSIVE', 'SHARED', 'OVERLAP') THEN
-            RAISE EXCEPTION 'Invalid lock type: %. Must be EXCLUSIVE, SHARED, or OVERLAP', lock_type_param;
+        -- ✅ FIXED: Validate lock type to match database schema
+        IF lock_type_param NOT IN ('ROUTE', 'OVERLAP', 'EMERGENCY', 'MAINTENANCE') THEN
+            RAISE EXCEPTION 'Invalid lock type: %. Must be ROUTE, OVERLAP, EMERGENCY, or MAINTENANCE', lock_type_param;
         END IF;
 
         -- Validate route exists
@@ -2091,18 +2091,21 @@ bool DatabaseInitializer::createFunctions() {
             RAISE EXCEPTION 'Resource not found or inactive: % %', resource_type_param, resource_id_param;
         END IF;
 
-        -- Check for conflicting locks
+        -- ✅ FIXED: Update conflict detection logic for new lock types
         SELECT COUNT(*) INTO conflicting_locks
         FROM railway_control.resource_locks
         WHERE resource_type = resource_type_param
         AND resource_id = resource_id_param
         AND is_active = TRUE
         AND (
-            -- EXCLUSIVE locks conflict with any other lock
-            lock_type = 'EXCLUSIVE'
-            OR lock_type_param = 'EXCLUSIVE'
-            -- SHARED locks can coexist with other SHARED locks but not EXCLUSIVE
-            OR (lock_type != 'SHARED' AND lock_type_param != 'SHARED')
+            -- ROUTE locks conflict with any other ROUTE lock
+            (lock_type = 'ROUTE' AND lock_type_param = 'ROUTE')
+            -- EMERGENCY locks override everything
+            OR lock_type = 'EMERGENCY'
+            OR lock_type_param = 'EMERGENCY'
+            -- MAINTENANCE locks conflict with ROUTE locks
+            OR (lock_type = 'MAINTENANCE' AND lock_type_param = 'ROUTE')
+            OR (lock_type = 'ROUTE' AND lock_type_param = 'MAINTENANCE')
         );
 
         IF conflicting_locks > 0 THEN
@@ -2137,15 +2140,14 @@ bool DatabaseInitializer::createFunctions() {
 
         GET DIAGNOSTICS rows_affected = ROW_COUNT;
 
-        -- Log lock acquisition for audit trail
+        -- ✅ FIXED: Log lock acquisition using correct column names
         IF rows_affected > 0 THEN
             INSERT INTO railway_control.route_events (
                 route_id,
                 event_type,
                 event_data,
-                operator_id,
-                source_component,
-                safety_critical
+                triggered_by,        -- ✅ FIXED: Use correct column name
+                occurred_at          -- ✅ FIXED: Use correct column name
             ) VALUES (
                 route_id_param,
                 'RESOURCE_LOCKED',
@@ -2154,11 +2156,13 @@ bool DatabaseInitializer::createFunctions() {
                     'resource_type', resource_type_param,
                     'resource_id', resource_id_param,
                     'lock_type', lock_type_param,
-                    'expires_at', expires_at_param
+                    'expires_at', expires_at_param,
+                    'operator', operator_id_param,
+                    'source', 'DatabaseManager',
+                    'safety_critical', TRUE
                 ),
-                operator_id_param,
-                'DatabaseManager',
-                TRUE  -- Resource locking is safety-critical
+                operator_id_param,   -- Maps to triggered_by
+                CURRENT_TIMESTAMP    -- Maps to occurred_at
             );
 
             -- Additional audit logging for safety-critical operations

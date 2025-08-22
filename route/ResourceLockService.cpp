@@ -399,18 +399,18 @@ bool ResourceLockService::persistLockToDatabase(const ResourceLock& lock) {
         return false;
     }
 
-    // ✅ FIXED: lock.resourceType and lock.lockType are already QString values
-    // No enum conversion needed - they're already "TRACK_CIRCUIT", "EXCLUSIVE", etc.
+    // ✅ UPDATED: lock.resourceType and lock.lockType use railway terminology
+    // Lock types: "ROUTE", "OVERLAP", "EMERGENCY", "MAINTENANCE"
     qDebug() << "🔒 ResourceLockService: Persisting lock for"
              << lock.resourceType << lock.resourceId << "route:" << lock.routeId;
 
     // ✅ FIXED: Use DatabaseManager's insertResourceLock method
-    // This uses SQL functions that properly handle the database schema
+    // This uses SQL functions that properly handle the railway database schema
     bool success = m_dbManager->insertResourceLock(
-        lock.resourceType,           // Already "TRACK_CIRCUIT", "POINT_MACHINE", "SIGNAL"
+        lock.resourceType,           // "TRACK_CIRCUIT", "POINT_MACHINE", "SIGNAL"
         lock.resourceId,            // Resource ID string
         lock.routeId.toString(),    // Route UUID as string
-        lock.lockType              // Already "EXCLUSIVE", "SHARED", "OVERLAP"
+        lock.lockType              // "ROUTE", "OVERLAP", "EMERGENCY", "MAINTENANCE"
         );
 
     if (!success) {
@@ -479,18 +479,51 @@ QStringList ResourceLockService::findConflictingLocks(
 }
 
 bool ResourceLockService::isLockCompatible(const ResourceLock& existingLock, const LockRequest& newRequest) const {
-    // EXCLUSIVE locks are never compatible with others
-    if (existingLock.lockType == "EXCLUSIVE" || newRequest.lockType == "EXCLUSIVE") {
+    // ✅ REFACTORED: Use railway lock type compatibility rules
+
+    // EMERGENCY locks override everything and are never compatible
+    if (existingLock.lockType == "EMERGENCY" || newRequest.lockType == "EMERGENCY") {
         return false;
     }
 
-    // SHARED locks are compatible with other SHARED locks
-    if (existingLock.lockType == "SHARED" && newRequest.lockType == "SHARED") {
+    // ROUTE locks are exclusive - cannot coexist with other ROUTE locks
+    if (existingLock.lockType == "ROUTE" && newRequest.lockType == "ROUTE") {
+        return false;
+    }
+
+    // MAINTENANCE locks conflict with ROUTE locks
+    if ((existingLock.lockType == "MAINTENANCE" && newRequest.lockType == "ROUTE") ||
+        (existingLock.lockType == "ROUTE" && newRequest.lockType == "MAINTENANCE")) {
+        return false;
+    }
+
+    // ✅ RAILWAY RULE: OVERLAP locks have special compatibility rules
+    if (existingLock.lockType == "OVERLAP" && newRequest.lockType == "OVERLAP") {
+        // Multiple overlap locks can coexist for different routes in some cases
+        // This depends on railway operating rules - for safety, default to false
+        return false;
+    }
+
+    // OVERLAP locks can coexist with ROUTE locks in some cases
+    // but this should be carefully validated based on railway rules
+    if ((existingLock.lockType == "OVERLAP" && newRequest.lockType == "ROUTE") ||
+        (existingLock.lockType == "ROUTE" && newRequest.lockType == "OVERLAP")) {
+        // For safety-critical railway operations, default to no compatibility
+        // This can be refined based on specific railway operating procedures
+        return false;
+    }
+
+    // MAINTENANCE locks can potentially coexist with other MAINTENANCE locks
+    if (existingLock.lockType == "MAINTENANCE" && newRequest.lockType == "MAINTENANCE") {
+        // Multiple maintenance operations might be allowed
+        // but should be validated based on maintenance procedures
         return true;
     }
 
-    // OVERLAP locks have special rules - for now, treat as exclusive
-    return false;
+    // ✅ ADDED: Handle unknown lock type combinations safely
+    qWarning() << "⚠️ Unknown lock type combination:"
+               << existingLock.lockType << "vs" << newRequest.lockType;
+    return false; // Default to safe behavior
 }
 
 bool ResourceLockService::validateLockRequest(const LockRequest& request, QString& error) const {
@@ -509,15 +542,37 @@ bool ResourceLockService::validateLockRequest(const LockRequest& request, QStrin
         return false;
     }
 
-    QStringList validLockTypes = {"EXCLUSIVE", "SHARED", "OVERLAP"};
+    // ✅ UPDATED: Use railway lock types matching database schema
+    QStringList validLockTypes = {"ROUTE", "OVERLAP", "EMERGENCY", "MAINTENANCE"};
     if (!validLockTypes.contains(request.lockType)) {
-        error = QString("Invalid lock type: %1").arg(request.lockType);
+        error = QString("Invalid lock type: %1. Valid types are: %2")
+        .arg(request.lockType)
+            .arg(validLockTypes.join(", "));
         return false;
     }
 
     QStringList validResourceTypes = {"TRACK_CIRCUIT", "POINT_MACHINE", "SIGNAL"};
     if (!validResourceTypes.contains(request.resourceType)) {
-        error = QString("Invalid resource type: %1").arg(request.resourceType);
+        error = QString("Invalid resource type: %1. Valid types are: %2")
+        .arg(request.resourceType)
+            .arg(validResourceTypes.join(", "));
+        return false;
+    }
+
+    // ✅ ADDED: Railway-specific validation rules
+    if (request.lockType == "EMERGENCY" && request.reason.isEmpty()) {
+        error = "Emergency locks require a reason";
+        return false;
+    }
+
+    if (request.lockType == "MAINTENANCE" && request.reason.isEmpty()) {
+        error = "Maintenance locks require a reason";
+        return false;
+    }
+
+    // ✅ ADDED: Resource-specific validation
+    if (request.resourceType == "POINT_MACHINE" && request.lockType == "OVERLAP") {
+        error = "Point machines cannot have overlap locks";
         return false;
     }
 

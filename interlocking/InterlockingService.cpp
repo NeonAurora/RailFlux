@@ -580,9 +580,9 @@ ValidationResult InterlockingService::validateRouteRelease(const QString& routeI
 }
 
 ValidationResult InterlockingService::validateResourceConflict(const QString& resourceType,
-                                                              const QString& resourceId,
-                                                              const QString& requestingRouteId,
-                                                              const QVariantList& existingLocks) {
+                                                               const QString& resourceId,
+                                                               const QString& requestingRouteId,
+                                                               const QVariantList& existingLocks) {
     QElapsedTimer timer;
     timer.start();
 
@@ -590,7 +590,7 @@ ValidationResult InterlockingService::validateResourceConflict(const QString& re
         return ValidationResult::blocked("Interlocking system is not operational", "SYSTEM_NOT_OPERATIONAL");
     }
 
-    // 1. Check for exclusive locks
+    // 1. Check for conflicting locks based on railway lock types
     for (const QVariant& lockVar : existingLocks) {
         QVariantMap lock = lockVar.toMap();
         QString lockType = lock["lockType"].toString();
@@ -601,25 +601,52 @@ ValidationResult InterlockingService::validateResourceConflict(const QString& re
             continue;
         }
 
-        // Check for conflicts based on lock type
-        if (lockType == "EXCLUSIVE") {
+        // ✅ REFACTORED: Check for conflicts based on railway lock types
+        if (lockType == "ROUTE") {
+            // ROUTE locks are exclusive for route operations
             return ValidationResult::blocked(
-                QString("Resource %1 has exclusive lock from route %2").arg(resourceId, lockRouteId),
-                "EXCLUSIVE_LOCK_CONFLICT"
-            );
+                QString("Resource %1 has route lock from route %2").arg(resourceId, lockRouteId),
+                "ROUTE_LOCK_CONFLICT"
+                );
         }
 
-        // SHARED locks can coexist, OVERLAP locks have different rules
-        if (lockType == "OVERLAP" && resourceType == "TRACK_CIRCUIT") {
-            // Overlap locks prevent new exclusive locks but allow other overlaps
+        if (lockType == "EMERGENCY") {
+            // EMERGENCY locks override everything and block new acquisitions
             return ValidationResult::blocked(
-                QString("Resource %1 has overlap lock from route %2").arg(resourceId, lockRouteId),
-                "OVERLAP_LOCK_CONFLICT"
-            );
+                QString("Resource %1 has emergency lock - no operations permitted").arg(resourceId),
+                "EMERGENCY_LOCK_CONFLICT"
+                );
+        }
+
+        if (lockType == "MAINTENANCE") {
+            // MAINTENANCE locks prevent route operations
+            return ValidationResult::blocked(
+                QString("Resource %1 is under maintenance lock").arg(resourceId),
+                "MAINTENANCE_LOCK_CONFLICT"
+                );
+        }
+
+        // ✅ UPDATED: OVERLAP locks have specific railway rules
+        if (lockType == "OVERLAP" && resourceType == "TRACK_CIRCUIT") {
+            // Overlap locks prevent new route locks but may allow other overlaps
+            // depending on the specific railway interlocking rules
+            return ValidationResult::blocked(
+                QString("Resource %1 has overlap protection from route %2").arg(resourceId, lockRouteId),
+                "OVERLAP_PROTECTION_CONFLICT"
+                );
+        }
+
+        // ✅ ADDED: Handle unknown lock types safely
+        if (!QStringList({"ROUTE", "OVERLAP", "EMERGENCY", "MAINTENANCE"}).contains(lockType)) {
+            qWarning() << "⚠️ Unknown lock type:" << lockType << "for resource:" << resourceId;
+            return ValidationResult::blocked(
+                QString("Resource %1 has unknown lock type: %2").arg(resourceId, lockType),
+                "UNKNOWN_LOCK_TYPE"
+                );
         }
     }
 
-    // 2. Special validation for point machines
+    // 2. ✅ ENHANCED: Special validation for point machines with railway-specific rules
     if (resourceType == "POINT_MACHINE") {
         QString pairedMachine = m_dbManager->getPairedMachine(resourceId);
         if (!pairedMachine.isEmpty()) {
@@ -627,14 +654,47 @@ ValidationResult InterlockingService::validateResourceConflict(const QString& re
             QVariantList pairedLocks = m_dbManager->getConflictingLocks(pairedMachine, "POINT_MACHINE");
             for (const QVariant& lockVar : pairedLocks) {
                 QVariantMap lock = lockVar.toMap();
+                QString lockType = lock["lockType"].toString();
                 QString lockRouteId = lock["routeId"].toString();
-                
+
                 if (lockRouteId != requestingRouteId) {
-                    return ValidationResult::blocked(
-                        QString("Paired point machine %1 is locked by route %2").arg(pairedMachine, lockRouteId),
-                        "PAIRED_MACHINE_LOCKED"
-                    );
+                    // ✅ RAILWAY RULE: Different conflict behavior based on lock type
+                    if (lockType == "ROUTE") {
+                        return ValidationResult::blocked(
+                            QString("Paired point machine %1 has route lock from route %2").arg(pairedMachine, lockRouteId),
+                            "PAIRED_MACHINE_ROUTE_LOCKED"
+                            );
+                    } else if (lockType == "EMERGENCY") {
+                        return ValidationResult::blocked(
+                            QString("Paired point machine %1 has emergency lock").arg(pairedMachine),
+                            "PAIRED_MACHINE_EMERGENCY_LOCKED"
+                            );
+                    } else if (lockType == "MAINTENANCE") {
+                        return ValidationResult::blocked(
+                            QString("Paired point machine %1 is under maintenance").arg(pairedMachine),
+                            "PAIRED_MACHINE_MAINTENANCE"
+                            );
+                    }
+                    // OVERLAP locks on paired machines may be allowed depending on configuration
                 }
+            }
+        }
+    }
+
+    // ✅ ADDED: Special validation for signals
+    if (resourceType == "SIGNAL") {
+        // Check for signal-specific interlocking rules
+        for (const QVariant& lockVar : existingLocks) {
+            QVariantMap lock = lockVar.toMap();
+            QString lockType = lock["lockType"].toString();
+            QString lockRouteId = lock["routeId"].toString();
+
+            if (lockRouteId != requestingRouteId && lockType == "ROUTE") {
+                // Signals with route locks cannot be used by other routes
+                return ValidationResult::blocked(
+                    QString("Signal %1 is already controlling route %2").arg(resourceId, lockRouteId),
+                    "SIGNAL_ROUTE_CONFLICT"
+                    );
             }
         }
     }
