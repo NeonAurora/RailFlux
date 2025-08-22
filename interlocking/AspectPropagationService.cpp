@@ -188,18 +188,38 @@ AspectPropagationResult AspectPropagationService::propagateAspectsInternal(
         result.pointMachines = aspectSelections["pointMachines"].toMap();
         result.decisionReasons = aspectSelections["reasons"].toMap();
         result.processedSignals = aspectSelections["processOrder"].toStringList();
-        
-        // Extract pruned signals for analysis
-        QSet<QString> allSignals(fullGraph["nodes"].toMap().keys().begin(), fullGraph["nodes"].toMap().keys().end());
-        QSet<QString> relevantSignals(prunedGraph["nodes"].toMap().keys().begin(), prunedGraph["nodes"].toMap().keys().end());
-        result.prunedSignals = (allSignals - relevantSignals).values();
 
+        qDebug() << "🔍 [DEBUG] About to extract pruned signals...";
+
+        // Extract pruned signals for analysis// Extract pruned signals for analysis
+        QStringList allSignalsList = fullGraph["nodes"].toMap().keys();
+        QStringList relevantSignalsList = prunedGraph["nodes"].toMap().keys();
+
+        QSet<QString> allSignals(allSignalsList.begin(), allSignalsList.end());
+        QSet<QString> relevantSignals(relevantSignalsList.begin(), relevantSignalsList.end());
+
+        // ✅ FIX: Use correct conversion method
+        QSet<QString> prunedSignalsSet = allSignals - relevantSignals;
+        result.prunedSignals = QStringList(prunedSignalsSet.begin(), prunedSignalsSet.end());
+
+        qDebug() << "🔍 [DEBUG] About to increment success counter...";
         m_successfulPropagations++;
-        
+
+        qDebug() << "🔍 [DEBUG] About to log selected aspects...";
         qDebug() << "✅ [ASPECT_PROPAGATION] Success! Selected aspects:";
         for (auto it = result.signalAspects.begin(); it != result.signalAspects.end(); ++it) {
             qDebug() << "   " << it.key() << "→" << it.value().toString();
         }
+        qDebug() << "🔍 [DEBUG] Reached end of try block successfully";
+        m_successfulPropagations++;
+        
+        qDebug() << "🔍 [DEBUG] About to log selected aspects...";
+        qDebug() << "✅ [ASPECT_PROPAGATION] Success! Selected aspects:";
+        for (auto it = result.signalAspects.begin(); it != result.signalAspects.end(); ++it) {
+            qDebug() << "   " << it.key() << "→" << it.value().toString();
+        }
+
+        qDebug() << "🔍 [DEBUG] Reached end of try block successfully";
 
     } catch (const std::exception& e) {
         result.success = false;

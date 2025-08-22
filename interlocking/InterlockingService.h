@@ -55,7 +55,6 @@ public:
 
     // QML integration
     Q_INVOKABLE QVariantMap toVariantMap() const;
-    InterlockingRuleEngine* getRuleEngine() const;
 };
 
 class InterlockingService : public QObject {
@@ -122,6 +121,8 @@ public:
     Q_INVOKABLE bool isOperational() const { return m_isOperational; }
     Q_INVOKABLE double getAverageResponseTime() const;
     Q_INVOKABLE int getActiveInterlocksCount() const;
+
+    InterlockingRuleEngine* getRuleEngine() const;
 
 public slots:
     // ✅ REACTIVE INTERLOCKING: Called when hardware detects trackSegment occupancy changes
