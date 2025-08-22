@@ -760,7 +760,7 @@ bool VitalRouteController::lockResourcesForRoute(const RouteAssignment& route) {
     // Lock track circuits
     for (const QString& circuitId : route.assignedCircuits + route.overlapCircuits) {
         QVariantMap lockResult = m_resourceLockService->lockResource(
-            "TRACK_CIRCUIT", circuitId, route.key(), "EXCLUSIVE", route.operatorId,
+            "TRACK_CIRCUIT", circuitId, route.key(), "ROUTE", route.operatorId,
             QString("Route %1").arg(route.key())
         );
         
@@ -772,7 +772,7 @@ bool VitalRouteController::lockResourcesForRoute(const RouteAssignment& route) {
     // Lock point machines
     for (const QString& machineId : route.lockedPointMachines) {
         QVariantMap lockResult = m_resourceLockService->lockResource(
-            "POINT_MACHINE", machineId, route.key(), "EXCLUSIVE", route.operatorId,
+            "POINT_MACHINE", machineId, route.key(), "ROUTE", route.operatorId,
             QString("Route %1").arg(route.key())
         );
         
@@ -1273,19 +1273,6 @@ bool VitalRouteController::persistRouteToDatabase(const RouteAssignment& route) 
         qCritical() << "VitalRouteController: DatabaseManager is null";
         return false;
     }
-
-    // ✅ DETAILED LOGGING: What we're sending
-    qDebug() << "🚀 [SENT] VitalRouteController sending to insertRouteAssignment:";
-    qDebug() << "   [SENT] routeId:" << route.key();
-    qDebug() << "   [SENT] sourceSignalId:" << route.sourceSignalId;
-    qDebug() << "   [SENT] destSignalId:" << route.destSignalId;
-    qDebug() << "   [SENT] direction:" << route.direction;
-    qDebug() << "   [SENT] assignedCircuits:" << route.assignedCircuits << "(size:" << route.assignedCircuits.size() << ")";
-    qDebug() << "   [SENT] overlapCircuits:" << route.overlapCircuits << "(size:" << route.overlapCircuits.size() << ")";
-    qDebug() << "   [SENT] state enum:" << static_cast<int>(route.state) << "-> string:" << routeStateToString(route.state);
-    qDebug() << "   [SENT] lockedPointMachines:" << route.lockedPointMachines << "(size:" << route.lockedPointMachines.size() << ")";
-    qDebug() << "   [SENT] priority:" << route.priority;
-    qDebug() << "   [SENT] operatorId:" << route.operatorId;
 
     // ✅ FIXED: Use actual DatabaseManager method instead of stub
     bool success = m_dbManager->insertRouteAssignment(

@@ -2215,19 +2215,6 @@ bool DatabaseManager::insertRouteAssignment(
     const QString& operatorId
     ) {
 
-    // ✅ DETAILED LOGGING: What we received
-    qDebug() << "📥 [RECEIVED] DatabaseManager::insertRouteAssignment received:";
-    qDebug() << "   [RECEIVED] routeId:" << routeId << "(length:" << routeId.length() << ")";
-    qDebug() << "   [RECEIVED] sourceSignalId:" << sourceSignalId << "(length:" << sourceSignalId.length() << ")";
-    qDebug() << "   [RECEIVED] destSignalId:" << destSignalId << "(length:" << destSignalId.length() << ")";
-    qDebug() << "   [RECEIVED] direction:" << direction << "(length:" << direction.length() << ")";
-    qDebug() << "   [RECEIVED] assignedCircuits:" << assignedCircuits << "(size:" << assignedCircuits.size() << ")";
-    qDebug() << "   [RECEIVED] overlapCircuits:" << overlapCircuits << "(size:" << overlapCircuits.size() << ")";
-    qDebug() << "   [RECEIVED] state:" << state << "(length:" << state.length() << ")";
-    qDebug() << "   [RECEIVED] lockedPointMachines:" << lockedPointMachines << "(size:" << lockedPointMachines.size() << ")";
-    qDebug() << "   [RECEIVED] priority:" << priority;
-    qDebug() << "   [RECEIVED] operatorId:" << operatorId << "(length:" << operatorId.length() << ")";
-
     if (!connected) {
         logError("insertRouteAssignment", QSqlError("Not connected to database", "", QSqlError::ConnectionError));
         return false;
@@ -2235,14 +2222,6 @@ bool DatabaseManager::insertRouteAssignment(
 
     QElapsedTimer timer;
     timer.start();
-
-    qDebug() << "🚄 SAFETY: Creating route assignment:" << routeId;
-    qDebug() << "   Route:" << sourceSignalId << "→" << destSignalId;
-    qDebug() << "   Direction:" << direction << "State:" << state;
-    qDebug() << "   Priority:" << priority << "Operator:" << operatorId;
-    qDebug() << "🚄 Route details:";
-    qDebug() << "   Assigned circuits:" << assignedCircuits.size() << assignedCircuits;
-    qDebug() << "   Overlap circuits:" << overlapCircuits.size() << overlapCircuits;
     qDebug() << "   Locked point machines:" << lockedPointMachines.size() << lockedPointMachines;
 
     // Validate priority range
@@ -2264,30 +2243,6 @@ bool DatabaseManager::insertRouteAssignment(
     QString assignedCircuitsArray = "{" + assignedCircuits.join(",") + "}";
     QString overlapCircuitsArray = "{" + overlapCircuits.join(",") + "}";
     QString lockedPointMachinesArray = "{" + lockedPointMachines.join(",") + "}";
-
-    // ✅ DETAILED LOGGING: What we're sending to database
-    qDebug() << "🗃️ [INSERTING] Preparing database query with parameters:";
-    qDebug() << "   [INSERTING] Function: railway_control.insert_route_assignment";
-    qDebug() << "   [INSERTING] Param 1 (routeId):" << routeId;
-    qDebug() << "   [INSERTING] Param 2 (sourceSignalId):" << sourceSignalId;
-    qDebug() << "   [INSERTING] Param 3 (destSignalId):" << destSignalId;
-    qDebug() << "   [INSERTING] Param 4 (direction):" << direction;
-    qDebug() << "   [INSERTING] Param 5 (assignedCircuitsArray):" << assignedCircuitsArray;
-    qDebug() << "   [INSERTING] Param 6 (overlapCircuitsArray):" << overlapCircuitsArray;
-    qDebug() << "   [INSERTING] Param 7 (state):" << state;
-    qDebug() << "   [INSERTING] Param 8 (lockedPointMachinesArray):" << lockedPointMachinesArray;
-    qDebug() << "   [INSERTING] Param 9 (priority):" << priority;
-    qDebug() << "   [INSERTING] Param 10 (operatorId):" << operatorId;
-
-    // ✅ TEST: Verify function exists
-    QSqlQuery testQuery(db);
-    testQuery.exec("SELECT 1 FROM information_schema.routines WHERE routine_name = 'insert_route_assignment' AND routine_schema = 'railway_control'");
-    if (!testQuery.next()) {
-        qWarning() << "❌ [INSERTING] Function railway_control.insert_route_assignment does not exist!";
-        return false;
-    } else {
-        qDebug() << "✅ [INSERTING] Function railway_control.insert_route_assignment exists";
-    }
 
     // ✅ FIXED: Use proper casting for array parameters
     QString queryString = "SELECT railway_control.insert_route_assignment(?, ?, ?, ?, ?::text[], ?::text[], ?, ?::text[], ?, ?)";
@@ -3180,7 +3135,7 @@ bool DatabaseManager::insertResourceLock(
     }
 
     // Validate lock type
-    QStringList validLockTypes = {"EXCLUSIVE", "SHARED", "OVERLAP"};
+    QStringList validLockTypes = {"ROUTE", "OVERLAP", "EMERGENCY", "MAINTENANCE"};
     if (!validLockTypes.contains(lockType)) {
         qWarning() << "❌ Invalid lock type:" << lockType;
         emit operationBlocked(resourceId, "Invalid lock type");

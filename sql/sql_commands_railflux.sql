@@ -1300,7 +1300,6 @@ BEGIN
     UPDATE railway_control.route_assignments
     SET
         state = new_state_param,
-        updated_at = CURRENT_TIMESTAMP,
         -- Set specific timestamps based on state
         activated_at = CASE
             WHEN new_state_param = 'ACTIVE' AND activated_at IS NULL
@@ -1514,12 +1513,7 @@ RETURNS BOOLEAN AS $$
 DECLARE
     rows_affected INTEGER;
     route_exists BOOLEAN;
-    sequence_num BIGINT;
 BEGIN
-    -- Set operator context for audit logging
-    PERFORM set_config('railway.operator_id', COALESCE(operator_id_param, 'system'), true);
-    PERFORM set_config('railway.operation_source', COALESCE(source_component_param, 'DatabaseManager'), true);
-
     -- Validate route exists
     SELECT EXISTS(
         SELECT 1 FROM railway_control.route_assignments
@@ -1530,89 +1524,22 @@ BEGIN
         RAISE EXCEPTION 'Route not found for event logging: %', route_id_param;
     END IF;
 
-    -- Validate event type
-    IF event_type_param IS NULL OR LENGTH(TRIM(event_type_param)) = 0 THEN
-        RAISE EXCEPTION 'Event type cannot be null or empty';
-    END IF;
-
-    -- Validate event type against allowed values
-    IF event_type_param NOT IN (
-        'ROUTE_REQUESTED', 'VALIDATION_STARTED', 'VALIDATION_COMPLETED',
-        'PATHFINDING_COMPLETED', 'RESOURCE_LOCKED', 'ROUTE_RESERVED',
-        'POINT_MACHINE_MOVED', 'TRACK_CIRCUIT_OCCUPIED', 'ROUTE_ACTIVATED',
-        'MAIN_ROUTE_CLEARED', 'OVERLAP_TIMER_STARTED', 'OVERLAP_RELEASED',
-        'ROUTE_RELEASED', 'ROUTE_FAILED', 'EMERGENCY_RELEASE',
-        'PERFORMANCE_WARNING', 'SAFETY_VIOLATION', 'ROUTE_STATE_CHANGED',
-        'PERFORMANCE_METRICS_UPDATED', 'ROUTE_DELETION_REQUESTED'
-    ) THEN
-        RAISE EXCEPTION 'Invalid event type: %. Must be one of the predefined route event types.', event_type_param;
-    END IF;
-
-    -- Get next sequence number for ordering
-    sequence_num := nextval('railway_audit.event_sequence');
-
-    -- Insert route event
+    -- ✅ FIXED: Use actual table column names
     INSERT INTO railway_control.route_events (
         route_id,
         event_type,
         event_data,
-        operator_id,
-        source_component,
-        correlation_id,
-        response_time_ms,
-        safety_critical,
-        event_timestamp,
-        sequence_number
+        triggered_by,        -- ✅ FIXED: Use actual column name
+        occurred_at          -- ✅ FIXED: Use actual column name
     ) VALUES (
         route_id_param,
         event_type_param,
         COALESCE(event_data_param, '{}'),
         COALESCE(operator_id_param, 'system'),
-        COALESCE(source_component_param, 'DatabaseManager'),
-        NULLIF(correlation_id_param, ''),
-        CASE WHEN response_time_ms_param > 0 THEN response_time_ms_param ELSE NULL END,
-        COALESCE(safety_critical_param, FALSE),
-        CURRENT_TIMESTAMP,
-        sequence_num
+        CURRENT_TIMESTAMP
     );
 
     GET DIAGNOSTICS rows_affected = ROW_COUNT;
-
-    -- Additional audit logging for safety-critical events
-    IF safety_critical_param = TRUE THEN
-        INSERT INTO railway_audit.event_log (
-            event_type,
-            entity_type,
-            entity_id,
-            entity_name,
-            new_values,
-            operator_id,
-            operation_source,
-            safety_critical,
-            event_details,
-            sequence_number
-        ) VALUES (
-            'SAFETY_CRITICAL_ROUTE_EVENT',
-            'route_events',
-            route_id_param::TEXT,
-            CONCAT('Route Event: ', event_type_param),
-            jsonb_build_object(
-                'route_id', route_id_param,
-                'event_type', event_type_param,
-                'event_data', event_data_param,
-                'response_time_ms', response_time_ms_param
-            ),
-            COALESCE(operator_id_param, 'system'),
-            COALESCE(source_component_param, 'DatabaseManager'),
-            TRUE,
-            jsonb_build_object(
-                'correlation_id', correlation_id_param,
-                'safety_critical', safety_critical_param
-            ),
-            sequence_num
-        );
-    END IF;
-
     RETURN rows_affected > 0;
 END;
 $$ LANGUAGE plpgsql;
@@ -1635,7 +1562,6 @@ CREATE OR REPLACE FUNCTION railway_control.insert_route_assignment(
 RETURNS BOOLEAN AS $$
 DECLARE
     rows_affected INTEGER;
-    sequence_num BIGINT;
 BEGIN
     -- Set operator context for audit logging
     PERFORM set_config('railway.operator_id', operator_id_param, true);
@@ -1671,20 +1597,13 @@ BEGIN
 
     -- Log route creation event
     IF rows_affected > 0 THEN
-        -- ✅ FIXED: Get sequence number and include all required columns
-        sequence_num := nextval('railway_audit.event_sequence');
-
+        -- ✅ FIXED: Use actual table column names
         INSERT INTO railway_control.route_events (
             route_id,
             event_type,
             event_data,
-            operator_id,
-            source_component,
-            correlation_id,           -- ✅ ADDED: Required column
-            response_time_ms,         -- ✅ ADDED: Required column
-            safety_critical,
-            event_timestamp,          -- ✅ ADDED: Required column
-            sequence_number           -- ✅ ADDED: Required column
+            triggered_by,        -- ✅ FIXED: Use actual column name
+            occurred_at          -- ✅ FIXED: Use actual column name
         ) VALUES (
             route_id_param,
             'ROUTE_REQUESTED',
@@ -1694,15 +1613,11 @@ BEGIN
                 'direction', direction_param,
                 'assigned_circuits_count', array_length(assigned_circuits_param, 1),
                 'priority', priority_param,
-                'initial_state', state_param
+                'initial_state', state_param,
+                'operator', operator_id_param
             ),
-            operator_id_param,
-            'DatabaseManager',
-            NULL,                     -- ✅ ADDED: correlation_id (NULL for new routes)
-            NULL,                     -- ✅ ADDED: response_time_ms (NULL for creation)
-            TRUE,                     -- ✅ ADDED: safety_critical (TRUE for route creation)
-            CURRENT_TIMESTAMP,        -- ✅ ADDED: event_timestamp
-            sequence_num              -- ✅ ADDED: sequence_number
+            operator_id_param,   -- ✅ FIXED: Maps to triggered_by
+            CURRENT_TIMESTAMP    -- ✅ FIXED: Maps to occurred_at
         );
     END IF;
 
