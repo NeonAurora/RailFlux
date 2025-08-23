@@ -55,6 +55,10 @@ struct ProcessingResult {
     double totalTimeMs = 0.0;
     QVariantMap performanceBreakdown;
     QVariantMap validationResults;
+
+    QVariantMap signalAspects;
+    QVariantMap pointMachines;
+    QString overlapReservationId;
 };
 
 class RouteAssignmentService : public QObject {

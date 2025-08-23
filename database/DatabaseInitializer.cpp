@@ -3481,14 +3481,22 @@ bool DatabaseInitializer::populatePointMachines() {
             pairedEntity = point["pairedEntity"].toString();
         }
 
-        // Insert with route assignment integration
+        // ⭐ NEW: Handle host track circuit (can be null for paired entities)
+        QString hostTrackCircuit;
+        if (point.contains("hostTrackCircuit") && !point["hostTrackCircuit"].toString().isEmpty()) {
+            hostTrackCircuit = point["hostTrackCircuit"].toString();
+            qDebug() << "   🔧 Point machine" << point["id"].toString()
+                     << "assigned to host circuit:" << hostTrackCircuit;
+        }
+
+        // ⭐ UPDATED: Insert with host_track_circuit field
         QString insertQuery = R"(
             INSERT INTO railway_control.point_machines
             (machine_id, machine_name, junction_row, junction_col,
              root_track_segment_connection, normal_track_segment_connection, reverse_track_segment_connection,
-             current_position_id, operating_status, transition_time_ms, paired_entity,
+             current_position_id, operating_status, transition_time_ms, paired_entity, host_track_circuit,
              route_locking_enabled, auto_normalize_after_route)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, TRUE, TRUE)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, TRUE, TRUE)
         )";
 
         QVariantList params = {
@@ -3502,7 +3510,8 @@ bool DatabaseInitializer::populatePointMachines() {
             positionId,
             point["operatingStatus"].toString("CONNECTED"),
             3000, // Default transition time
-            pairedEntity.isEmpty() ? QVariant() : pairedEntity
+            pairedEntity.isEmpty() ? QVariant() : pairedEntity,
+            hostTrackCircuit.isEmpty() ? QVariant() : hostTrackCircuit  // ⭐ NEW: Host track circuit parameter
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -3511,9 +3520,14 @@ bool DatabaseInitializer::populatePointMachines() {
         }
     }
 
-    qDebug() << "✅ Populated" << pointsData.size() << "point machines with route assignment properties";
+    qDebug() << "✅ Populated" << pointsData.size() << "point machines with host track circuit assignments";
+    qDebug() << "   📍 PM001 → W22T (primary)";
+    qDebug() << "   📍 PM004 → W21T (primary)";
+    qDebug() << "   📍 PM002, PM003 → No host circuit (paired entities)";
+
     return true;
 }
+
 
 bool DatabaseInitializer::populateTextLabels() {
     qDebug() << "🔄 Populating text labels...";
@@ -3990,6 +4004,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         QJsonObject{
             {"id", "PM001"}, {"name", "Junction A"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"pairedEntity", "PM002"},
+            {"hostTrackCircuit", "W22T"},  // ⭐ NEW: Host track circuit
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 121.2}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T1S5"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T1S6"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
@@ -3998,6 +4013,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         QJsonObject{
             {"id", "PM002"}, {"name", "Junction B"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"pairedEntity", "PM001"},
+            // ⭐ NO hostTrackCircuit - paired entity, leave empty to avoid unexpected behavior
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 143.3}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T4S2"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T4S1"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
@@ -4006,6 +4022,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         QJsonObject{
             {"id", "PM003"}, {"name", "Junction C"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"pairedEntity", "PM004"},
+            // ⭐ NO hostTrackCircuit - paired entity, leave empty to avoid unexpected behavior
             {"junctionPoint", QJsonObject{{"row", 88}, {"col", 235.6}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T4S4"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T4S5"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
@@ -4014,6 +4031,7 @@ QJsonArray DatabaseInitializer::getPointMachinesData() {
         QJsonObject{
             {"id", "PM004"}, {"name", "Junction D"}, {"position", "NORMAL"}, {"operatingStatus", "CONNECTED"},
             {"pairedEntity", "PM003"},
+            {"hostTrackCircuit", "W21T"},  // ⭐ NEW: Host track circuit
             {"junctionPoint", QJsonObject{{"row", 110}, {"col", 259.5}}},
             {"rootTrackSegment", QJsonObject{{"trackSegmentId", "T1S9"}, {"connectionEnd", "START"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
             {"normalTrackSegment", QJsonObject{{"trackSegmentId", "T1S8"}, {"connectionEnd", "END"}, {"offset", QJsonObject{{"row", 0}, {"col", 0}}}}},
