@@ -78,6 +78,12 @@ struct AspectPropagationResult {
     QStringList validationWarnings;
 };
 
+struct PointMachineRequirement {
+    QString pointMachineId;
+    QString requiredPosition;
+    bool isRequired{false};
+};
+
 class AspectPropagationService : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool isOperational READ isOperational NOTIFY operationalStateChanged)
@@ -301,6 +307,11 @@ private:
         );
 
     QString getRequiredPointMachinePosition(
+        const QString& fromCircuit,
+        const QString& toCircuit
+        );
+
+    PointMachineRequirement getPointMachineRequirement(
         const QString& fromCircuit,
         const QString& toCircuit
         );

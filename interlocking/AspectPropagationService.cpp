@@ -1987,8 +1987,8 @@ QVariantMap AspectPropagationService::calculateRequiredPointMachineStates(
     const QStringList& routePath,
     const QStringList& overlapPath)
 {
-    qDebug() << "?? [POINT_MACHINES] Calculating required states for route path:" << routePath;
-    qDebug() << "?? [POINT_MACHINES] Overlap path:" << overlapPath;
+    qDebug() << "🔧 [POINT_MACHINES] Calculating required states for route path:" << routePath;
+    qDebug() << "🔧 [POINT_MACHINES] Overlap path:" << overlapPath;
 
     QVariantMap requiredStates;
     QStringList completePath = routePath + overlapPath;
@@ -1998,35 +1998,55 @@ QVariantMap AspectPropagationService::calculateRequiredPointMachineStates(
         QString fromCircuit = completePath[i];
         QString toCircuit = completePath[i + 1];
 
-        qDebug() << "  ?? Transition:" << fromCircuit << "?" << toCircuit;
+        qDebug() << "  🔄 Transition:" << fromCircuit << "→" << toCircuit;
 
-        // Get required point machine position for this transition
-        QString requiredPosition = getRequiredPointMachinePosition(fromCircuit, toCircuit);
+        // ✅ NEW: Get point machine requirement directly from track circuit edge
+        PointMachineRequirement requirement = getPointMachineRequirement(fromCircuit, toCircuit);
 
-        if (!requiredPosition.isEmpty()) {
-            // Find point machines in the source track circuit
-            QVariantList pointMachines = m_dbManager->getPointMachinesByTrackCircuit(fromCircuit);
+        if (requirement.isRequired) {
+            QString pmId = requirement.pointMachineId;
+            QString requiredPosition = requirement.requiredPosition;
 
-            for (const QVariant& pmVariant : pointMachines) {
-                QVariantMap pm = pmVariant.toMap();
-                QString pmId = pm["id"].toString();
+            qDebug() << "    🔧 Point machine" << pmId << "requires position:" << requiredPosition;
 
-                qDebug() << "    ?? Point machine" << pmId << "requires position:" << requiredPosition;
-
-                // Store required state
-                QVariantMap pmState;
-                pmState["requiredPosition"] = requiredPosition;
-                pmState["currentPosition"] = pm["currentPosition"].toString();
-                pmState["needsMovement"] = (pm["currentPosition"].toString() != requiredPosition);
-                pmState["hostTrackCircuit"] = fromCircuit;
-                pmState["forTransition"] = QString("%1?%2").arg(fromCircuit, toCircuit);
-
-                requiredStates[pmId] = pmState;
+            // ✅ ENHANCED: Get current position of the specific point machine
+            QVariantMap pmData = m_dbManager->getPointMachineById(pmId);
+            if (pmData.isEmpty()) {
+                qWarning() << "    ⚠️ Point machine" << pmId << "not found in database";
+                continue;
             }
+
+            QString currentPosition = pmData["currentPosition"].toString();
+
+            // Store required state
+            QVariantMap pmState;
+            pmState["requiredPosition"] = requiredPosition;
+            pmState["currentPosition"] = currentPosition;
+            pmState["needsMovement"] = (currentPosition != requiredPosition);
+            pmState["forTransition"] = QString("%1→%2").arg(fromCircuit, toCircuit);
+            pmState["availabilityStatus"] = pmData["availabilityStatus"].toString();
+            pmState["isLocked"] = pmData["isLocked"].toBool();
+
+            // ✅ SAFETY: Check if point machine is available for movement
+            QString availabilityStatus = pmData["availabilityStatus"].toString();
+            if (availabilityStatus != "AVAILABLE") {
+                qWarning() << "    ⚠️ Point machine" << pmId << "not available:" << availabilityStatus;
+                pmState["movementBlocked"] = true;
+                pmState["blockReason"] = availabilityStatus;
+            } else {
+                pmState["movementBlocked"] = false;
+            }
+
+            requiredStates[pmId] = pmState;
+
+            qDebug() << "    ✅ PM" << pmId << ":" << currentPosition << "→" << requiredPosition
+                     << (currentPosition != requiredPosition ? "(MOVE REQUIRED)" : "(NO MOVEMENT)");
+        } else {
+            qDebug() << "    ℹ️ No point machine required for this transition";
         }
     }
 
-    qDebug() << "? [POINT_MACHINES] Required states calculated:" << requiredStates.keys();
+    qDebug() << "✅ [POINT_MACHINES] Required states calculated:" << requiredStates.keys();
     return requiredStates;
 }
 
@@ -2058,4 +2078,43 @@ QString AspectPropagationService::getRequiredPointMachinePosition(
     }
 
     return QString(); // No point machine condition required
+}
+
+PointMachineRequirement AspectPropagationService::getPointMachineRequirement(
+    const QString& fromCircuit,
+    const QString& toCircuit)
+{
+    PointMachineRequirement requirement;
+
+    if (!m_dbManager) {
+        return requirement;
+    }
+
+    // ✅ ENHANCED: Query track_circuit_edges for both point machine ID and required position
+    QSqlQuery query(m_dbManager->getDatabase());
+    query.prepare(R"(
+        SELECT
+            condition_point_machine_id,
+            condition_position
+        FROM railway_control.track_circuit_edges
+        WHERE from_circuit_id = ? AND to_circuit_id = ?
+        AND condition_point_machine_id IS NOT NULL
+        AND condition_position IS NOT NULL
+        AND is_active = TRUE
+        LIMIT 1
+    )");
+    query.addBindValue(fromCircuit);
+    query.addBindValue(toCircuit);
+
+    if (query.exec() && query.next()) {
+        requirement.pointMachineId = query.value("condition_point_machine_id").toString();
+        requirement.requiredPosition = query.value("condition_position").toString();
+        requirement.isRequired = true;
+
+        qDebug() << "  📋 Edge" << fromCircuit << "→" << toCircuit
+                 << "requires PM" << requirement.pointMachineId
+                 << "in position:" << requirement.requiredPosition;
+    }
+
+    return requirement;
 }
