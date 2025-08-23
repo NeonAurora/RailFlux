@@ -1498,48 +1498,132 @@ bool DatabaseInitializer::createFunctions() {
     RETURNS BOOLEAN AS $$
     DECLARE
         rows_affected INTEGER;
+        function_start_time TIMESTAMP := CURRENT_TIMESTAMP;
+        step_name VARCHAR := 'INITIALIZATION';
+        error_context TEXT;
     BEGIN
-        -- Set operator context for audit logging
+        -- ✅ COMPREHENSIVE LOGGING: Function entry
+        RAISE NOTICE '[insert_route_assignment] 🚄 FUNCTION START: Route ID: %, Source: % → Dest: %',
+            route_id_param, source_signal_id_param, dest_signal_id_param;
+        RAISE NOTICE '[insert_route_assignment] 📋 Parameters: Direction: %, State: %, Priority: %, Operator: %',
+            direction_param, state_param, priority_param, operator_id_param;
+        RAISE NOTICE '[insert_route_assignment] 🛤️ Circuits: % (overlap: %)',
+            assigned_circuits_param, overlap_circuits_param;
+        RAISE NOTICE '[insert_route_assignment] 🔧 Point Machines: %', locked_point_machines_param;
+
+        -- ✅ PARAMETER VALIDATION
+        step_name := 'PARAMETER_VALIDATION';
+
+        IF route_id_param IS NULL THEN
+            error_context := 'route_id_param cannot be NULL';
+            RAISE EXCEPTION '[insert_route_assignment] ❌ VALIDATION_ERROR: %', error_context;
+        END IF;
+
+        IF source_signal_id_param IS NULL OR source_signal_id_param = '' THEN
+            error_context := 'source_signal_id_param cannot be NULL or empty';
+            RAISE EXCEPTION '[insert_route_assignment] ❌ VALIDATION_ERROR: %', error_context;
+        END IF;
+
+        IF dest_signal_id_param IS NULL OR dest_signal_id_param = '' THEN
+            error_context := 'dest_signal_id_param cannot be NULL or empty';
+            RAISE EXCEPTION '[insert_route_assignment] ❌ VALIDATION_ERROR: %', error_context;
+        END IF;
+
+        -- ✅ SIGNAL EXISTENCE VALIDATION
+        step_name := 'SIGNAL_VALIDATION';
+
+        IF NOT EXISTS(SELECT 1 FROM railway_control.signals WHERE signal_id = source_signal_id_param) THEN
+            error_context := 'Source signal does not exist: ' || source_signal_id_param;
+            RAISE EXCEPTION '[insert_route_assignment] ❌ SIGNAL_NOT_FOUND: %', error_context;
+        END IF;
+
+        IF NOT EXISTS(SELECT 1 FROM railway_control.signals WHERE signal_id = dest_signal_id_param) THEN
+            error_context := 'Destination signal does not exist: ' || dest_signal_id_param;
+            RAISE EXCEPTION '[insert_route_assignment] ❌ SIGNAL_NOT_FOUND: %', error_context;
+        END IF;
+
+        RAISE NOTICE '[insert_route_assignment] ✅ Parameter validation completed successfully';
+
+        -- ✅ DUPLICATE CHECK
+        step_name := 'DUPLICATE_CHECK';
+
+        IF EXISTS(SELECT 1 FROM railway_control.route_assignments WHERE id = route_id_param) THEN
+            error_context := 'Route with this ID already exists: ' || route_id_param;
+            RAISE EXCEPTION '[insert_route_assignment] ❌ DUPLICATE_ROUTE: %', error_context;
+        END IF;
+
+        RAISE NOTICE '[insert_route_assignment] ✅ Duplicate check passed';
+
+        -- ✅ SET OPERATOR CONTEXT
+        step_name := 'OPERATOR_CONTEXT';
         PERFORM set_config('railway.operator_id', operator_id_param, true);
+        RAISE NOTICE '[insert_route_assignment] 👤 Operator context set: %', operator_id_param;
 
-        -- Insert route assignment
-        INSERT INTO railway_control.route_assignments (
-            id,
-            source_signal_id,
-            dest_signal_id,
-            direction,
-            assigned_circuits,
-            overlap_circuits,
-            state,
-            locked_point_machines,
-            priority,
-            operator_id,
-            created_at
-        ) VALUES (
-            route_id_param,
-            source_signal_id_param,
-            dest_signal_id_param,
-            direction_param,
-            assigned_circuits_param,
-            COALESCE(overlap_circuits_param, '{}'),
-            state_param,
-            COALESCE(locked_point_machines_param, '{}'),
-            priority_param,
-            operator_id_param,
-            CURRENT_TIMESTAMP
-        );
+        -- ✅ ROUTE INSERTION
+        step_name := 'ROUTE_INSERTION';
+        RAISE NOTICE '[insert_route_assignment] 💾 Starting route insertion...';
 
-        GET DIAGNOSTICS rows_affected = ROW_COUNT;
+        BEGIN
+            INSERT INTO railway_control.route_assignments (
+                id,
+                source_signal_id,
+                dest_signal_id,
+                direction,
+                assigned_circuits,
+                overlap_circuits,
+                state,
+                locked_point_machines,
+                priority,
+                operator_id,
+                created_at
+            ) VALUES (
+                route_id_param,
+                source_signal_id_param,
+                dest_signal_id_param,
+                direction_param,
+                assigned_circuits_param,
+                COALESCE(overlap_circuits_param, '{}'),
+                state_param,
+                COALESCE(locked_point_machines_param, '{}'),
+                priority_param,
+                operator_id_param,
+                CURRENT_TIMESTAMP
+            );
 
-        -- Log route creation event
-        IF rows_affected > 0 THEN
-            -- ✅ FIXED: Use actual table column names
+            GET DIAGNOSTICS rows_affected = ROW_COUNT;
+            RAISE NOTICE '[insert_route_assignment] 💾 Route insertion completed. Rows affected: %', rows_affected;
+
+        EXCEPTION WHEN OTHERS THEN
+            error_context := 'Route insertion failed: ' || SQLERRM;
+            RAISE EXCEPTION '[insert_route_assignment] ❌ INSERTION_FAILED at %: %', step_name, error_context;
+        END;
+
+        -- ✅ INSERTION VERIFICATION
+        step_name := 'INSERTION_VERIFICATION';
+
+        IF rows_affected = 0 THEN
+            error_context := 'No rows were inserted - unknown error';
+            RAISE EXCEPTION '[insert_route_assignment] ❌ NO_ROWS_INSERTED: %', error_context;
+        END IF;
+
+        -- Verify the route actually exists
+        IF NOT EXISTS(SELECT 1 FROM railway_control.route_assignments WHERE id = route_id_param) THEN
+            error_context := 'Route was not found after insertion - possible rollback';
+            RAISE EXCEPTION '[insert_route_assignment] ❌ VERIFICATION_FAILED: %', error_context;
+        END IF;
+
+        RAISE NOTICE '[insert_route_assignment] ✅ Route insertion verified successfully';
+
+        -- ✅ EVENT LOGGING
+        step_name := 'EVENT_LOGGING';
+
+        BEGIN
             INSERT INTO railway_control.route_events (
                 route_id,
                 event_type,
                 event_data,
-                triggered_by,        -- ✅ FIXED: Use actual column name
-                occurred_at          -- ✅ FIXED: Use actual column name
+                triggered_by,
+                occurred_at
             ) VALUES (
                 route_id_param,
                 'ROUTE_REQUESTED',
@@ -1550,14 +1634,35 @@ bool DatabaseInitializer::createFunctions() {
                     'assigned_circuits_count', array_length(assigned_circuits_param, 1),
                     'priority', priority_param,
                     'initial_state', state_param,
-                    'operator', operator_id_param
+                    'operator', operator_id_param,
+                    'function_duration_ms', EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - function_start_time)) * 1000
                 ),
-                operator_id_param,   -- ✅ FIXED: Maps to triggered_by
-                CURRENT_TIMESTAMP    -- ✅ FIXED: Maps to occurred_at
+                operator_id_param,
+                CURRENT_TIMESTAMP
             );
-        END IF;
+
+            RAISE NOTICE '[insert_route_assignment] 📝 Route event logged successfully';
+
+        EXCEPTION WHEN OTHERS THEN
+            -- Don't fail the whole function if event logging fails
+            RAISE WARNING '[insert_route_assignment] ⚠️ Event logging failed: %', SQLERRM;
+        END;
+
+        -- ✅ SUCCESS
+        RAISE NOTICE '[insert_route_assignment] ✅ FUNCTION SUCCESS: Route % created in % ms',
+            route_id_param, EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - function_start_time)) * 1000;
 
         RETURN rows_affected > 0;
+
+    EXCEPTION WHEN OTHERS THEN
+        -- ✅ COMPREHENSIVE ERROR HANDLING
+        error_context := COALESCE(error_context, SQLERRM);
+        RAISE EXCEPTION '[insert_route_assignment] 🚨 CRITICAL_ERROR at step [%]: % | SQL State: % | Route: % | Duration: % ms',
+            step_name,
+            error_context,
+            SQLSTATE,
+            route_id_param,
+            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - function_start_time)) * 1000;
     END;
     $$ LANGUAGE plpgsql)",
 
@@ -1998,34 +2103,124 @@ bool DatabaseInitializer::createFunctions() {
     DECLARE
         rows_affected INTEGER;
         route_exists BOOLEAN;
+        function_start_time TIMESTAMP := CURRENT_TIMESTAMP;
+        step_name VARCHAR := 'INITIALIZATION';
+        error_context TEXT;
+        route_info RECORD;
     BEGIN
-        -- Validate route exists
-        SELECT EXISTS(
-            SELECT 1 FROM railway_control.route_assignments
-            WHERE id = route_id_param
-        ) INTO route_exists;
+        -- ✅ COMPREHENSIVE LOGGING: Function entry
+        RAISE NOTICE '[insert_route_event] 📝 EVENT LOGGING START: Route: %, Type: %, Critical: %',
+            route_id_param, event_type_param, safety_critical_param;
+        RAISE NOTICE '[insert_route_event] 🔧 Source: %, Operator: %, Correlation: %',
+            source_component_param, operator_id_param, correlation_id_param;
 
-        IF NOT route_exists THEN
-            RAISE EXCEPTION 'Route not found for event logging: %', route_id_param;
+        -- ✅ PARAMETER VALIDATION
+        step_name := 'PARAMETER_VALIDATION';
+
+        IF route_id_param IS NULL THEN
+            error_context := 'route_id_param cannot be NULL';
+            RAISE EXCEPTION '[insert_route_event] ❌ VALIDATION_ERROR: %', error_context;
         END IF;
 
-        -- ✅ FIXED: Use actual table column names
-        INSERT INTO railway_control.route_events (
-            route_id,
-            event_type,
-            event_data,
-            triggered_by,        -- ✅ FIXED: Use actual column name
-            occurred_at          -- ✅ FIXED: Use actual column name
-        ) VALUES (
+        IF event_type_param IS NULL OR event_type_param = '' THEN
+            error_context := 'event_type_param cannot be NULL or empty';
+            RAISE EXCEPTION '[insert_route_event] ❌ VALIDATION_ERROR: %', error_context;
+        END IF;
+
+        -- Validate event type
+        IF event_type_param NOT IN (
+            'ROUTE_REQUESTED', 'VALIDATION_STARTED', 'VALIDATION_COMPLETED',
+            'PATHFINDING_COMPLETED', 'RESOURCE_LOCKED', 'ROUTE_RESERVED',
+            'POINT_MACHINE_MOVED', 'TRACK_CIRCUIT_OCCUPIED', 'ROUTE_ACTIVATED',
+            'MAIN_ROUTE_CLEARED', 'OVERLAP_TIMER_STARTED', 'OVERLAP_RELEASED',
+            'ROUTE_RELEASED', 'ROUTE_FAILED', 'EMERGENCY_RELEASE',
+            'PERFORMANCE_WARNING', 'SAFETY_VIOLATION'
+        ) THEN
+            error_context := 'Invalid event_type: ' || event_type_param;
+            RAISE EXCEPTION '[insert_route_event] ❌ INVALID_EVENT_TYPE: %', error_context;
+        END IF;
+
+        RAISE NOTICE '[insert_route_event] ✅ Parameter validation completed';
+
+        -- ✅ ROUTE EXISTENCE CHECK WITH DETAILS
+        step_name := 'ROUTE_EXISTENCE_CHECK';
+
+        SELECT
+            EXISTS(SELECT 1 FROM railway_control.route_assignments WHERE id = route_id_param),
+            (SELECT source_signal_id || ' → ' || dest_signal_id || ' (' || state || ')'
+             FROM railway_control.route_assignments WHERE id = route_id_param LIMIT 1)
+        INTO route_exists, error_context;
+
+        IF NOT route_exists THEN
+            -- ✅ DETAILED ROUTE SEARCH
+            RAISE NOTICE '[insert_route_event] 🔍 Route not found. Searching for similar routes...';
+
+            -- Check if any route exists at all
+            IF NOT EXISTS(SELECT 1 FROM railway_control.route_assignments LIMIT 1) THEN
+                error_context := 'No routes exist in route_assignments table at all';
+            ELSE
+                -- Show existing routes for debugging
+                error_context := 'Route not found: ' || route_id_param || '. Existing routes: ';
+                FOR route_info IN
+                    SELECT id, source_signal_id, dest_signal_id, state, created_at
+                    FROM railway_control.route_assignments
+                    ORDER BY created_at DESC LIMIT 3
+                LOOP
+                    error_context := error_context || '(' || route_info.id || ': ' ||
+                        route_info.source_signal_id || '→' || route_info.dest_signal_id ||
+                        ' [' || route_info.state || ']) ';
+                END LOOP;
+            END IF;
+
+            RAISE EXCEPTION '[insert_route_event] ❌ ROUTE_NOT_FOUND: %', error_context;
+        END IF;
+
+        RAISE NOTICE '[insert_route_event] ✅ Route found: %', error_context;
+
+        -- ✅ EVENT INSERTION
+        step_name := 'EVENT_INSERTION';
+        RAISE NOTICE '[insert_route_event] 💾 Inserting route event...';
+
+        BEGIN
+            INSERT INTO railway_control.route_events (
+                route_id,
+                event_type,
+                event_data,
+                triggered_by,
+                occurred_at
+            ) VALUES (
+                route_id_param,
+                event_type_param,
+                COALESCE(event_data_param, '{}'),
+                COALESCE(operator_id_param, 'system'),
+                CURRENT_TIMESTAMP
+            );
+
+            GET DIAGNOSTICS rows_affected = ROW_COUNT;
+            RAISE NOTICE '[insert_route_event] 💾 Event insertion completed. Rows affected: %', rows_affected;
+
+        EXCEPTION WHEN OTHERS THEN
+            error_context := 'Event insertion failed: ' || SQLERRM;
+            RAISE EXCEPTION '[insert_route_event] ❌ EVENT_INSERTION_FAILED: %', error_context;
+        END;
+
+        -- ✅ SUCCESS
+        RAISE NOTICE '[insert_route_event] ✅ FUNCTION SUCCESS: Event % logged for route % in % ms',
+            event_type_param, route_id_param,
+            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - function_start_time)) * 1000;
+
+        RETURN rows_affected > 0;
+
+    EXCEPTION WHEN OTHERS THEN
+        -- ✅ COMPREHENSIVE ERROR HANDLING
+        error_context := COALESCE(error_context, SQLERRM);
+        RAISE EXCEPTION '[insert_route_event] 🚨 CRITICAL_ERROR at step [%]: % | SQL State: % | Route: % | Event: % | Duration: % ms',
+            step_name,
+            error_context,
+            SQLSTATE,
             route_id_param,
             event_type_param,
-            COALESCE(event_data_param, '{}'),
-            COALESCE(operator_id_param, 'system'),
-            CURRENT_TIMESTAMP
-        );
-
-        GET DIAGNOSTICS rows_affected = ROW_COUNT;
-        RETURN rows_affected > 0;
+            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - function_start_time)) * 1000;
     END;
     $$ LANGUAGE plpgsql)",
 

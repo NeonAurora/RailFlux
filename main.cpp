@@ -226,16 +226,6 @@ int main(int argc, char *argv[])
                          routeAssignmentService->emergencyReleaseAllRoutes("EMERGENCY_SHUTDOWN: " + reason);
                      });
 
-    // E. Route state changes propagation to database
-    QObject::connect(routeAssignmentService, &RouteAssignmentService::routeAssigned,
-                     dbManager, [dbManager](const QString& routeId, const QString& sourceSignal, const QString& destSignal, const QStringList& path) {
-                         dbManager->insertRouteEvent(routeId, "ROUTE_RESERVED", QVariantMap{
-                                                                                    {"sourceSignal", sourceSignal},
-                                                                                    {"destSignal", destSignal},
-                                                                                    {"path", path}
-                                                                                }, "ROUTE_SYSTEM", "RouteAssignmentService");
-                     });
-
     QObject::connect(routeAssignmentService, &RouteAssignmentService::routeActivated,
                      dbManager, [dbManager](const QString& routeId) {
                          dbManager->updateRouteActivation(routeId);

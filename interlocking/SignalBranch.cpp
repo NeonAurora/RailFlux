@@ -305,13 +305,28 @@ ValidationResult SignalBranch::validateBasicTransition(
     // Store signal ID for transition validation
     m_currentSignalId = signalId;
 
+    // ✅ ENHANCED: Special handling for RED→RED transitions
+    if (currentAspect == requestedAspect) {
+        if (currentAspect == "RED" && requestedAspect == "RED") {
+            qWarning() << "⚠️ [SAFETY_REDUNDANCY] Signal" << signalId
+                       << "RED→RED transition allowed for safety redundancy";
+            return ValidationResult::allowed("RED to RED transition allowed for safety");
+        } else {
+            return ValidationResult::blocked(
+                QString("No transition needed - signal %1 already showing %2")
+                    .arg(signalId, currentAspect),
+                "NO_TRANSITION_NEEDED"
+                );
+        }
+    }
+
     // Check if transition is valid
     if (!isValidAspectTransition(currentAspect, requestedAspect)) {
         return ValidationResult::blocked(
             QString("Invalid aspect transition from %1 to %2 for signal %3")
                 .arg(currentAspect, requestedAspect, signalId),
             "INVALID_TRANSITION"
-        );
+            );
     }
 
     // Get signal data to check capabilities
@@ -320,17 +335,17 @@ ValidationResult SignalBranch::validateBasicTransition(
         return ValidationResult::blocked("Signal not found: " + signalId, "SIGNAL_NOT_FOUND");
     }
 
-    // SAFETY: Validate aspect is supported by this signal type
+    // ✅ SAFETY: Validate aspect is supported by this signal type
     QStringList possibleAspects = signalData["possibleAspects"].toStringList();
     if (!possibleAspects.contains(requestedAspect)) {
         return ValidationResult::blocked(
             QString("Aspect %1 not supported by %2 signal %3")
                 .arg(requestedAspect, signalData["type"].toString(), signalId),
             "ASPECT_NOT_SUPPORTED"
-        );
+            );
     }
 
-    return ValidationResult::allowed();
+    return ValidationResult::allowed("Basic transition validation passed");
 }
 
 // ? UPDATED: Track Circuit Protection Method
@@ -411,38 +426,49 @@ QStringList SignalBranch::getInterlockedSignals(const QString& signalId) {
 }
 
 bool SignalBranch::isValidAspectTransition(const QString& from, const QString& to) {
-    // ? SAFETY: No change needed if same aspect
-    if (from == to) return false;
+    // ✅ SPECIAL CASE: Allow RED to RED transitions with warning (safety redundancy)
+    if (from == to) {
+        if (from == "RED" && to == "RED") {
+            qWarning() << "⚠️ [SAFETY_REDUNDANCY] Setting signal to RED when already RED:"
+                       << m_currentSignalId << "- allowed for safety but may indicate logic issue";
+            return true;  // Allow RED→RED with warning
+        } else {
+            qDebug() << "🚫 [TRANSITION_BLOCKED] Same aspect transition blocked:"
+                     << m_currentSignalId << from << "→" << to
+                     << "- no change needed for non-RED aspects";
+            return false; // Block all other same-aspect transitions
+        }
+    }
 
-    // ? SAFETY: RED is always accessible for emergency stops
+    // ✅ SAFETY: RED is always accessible for emergency stops
     if (to == "RED") return true;
 
-    // ? Get signal capabilities from database to validate transition
+    // ✅ Get signal capabilities from database to validate transition
     // This prevents invalid capability transitions
     auto signalData = m_dbManager->getSignalById(m_currentSignalId);
     if (signalData.isEmpty()) return false;
 
     QStringList supportedAspects = signalData["possibleAspects"].toStringList();
 
-    // ? SAFETY: Cannot transition to unsupported aspect
+    // ✅ SAFETY: Cannot transition to unsupported aspect
     if (!supportedAspects.contains(to)) {
-        qDebug() << "?? BLOCKED: Signal doesn't support aspect" << to;
+        qDebug() << "🚫 BLOCKED: Signal doesn't support aspect" << to;
         return false;
     }
 
-    // ? Check for inter-group transitions (your main concern)
+    // ✅ Check for inter-group transitions (your main concern)
     SignalGroup fromGroup = determineSignalGroup(from);
     SignalGroup toGroup = determineSignalGroup(to);
 
     if (fromGroup != toGroup) {
-        // ? SAFETY: Block dangerous inter-group transitions
+        // ✅ SAFETY: Block dangerous inter-group transitions
         if (isDangerousInterGroupTransition(fromGroup, toGroup, from, to)) {
-            qDebug() << "?? BLOCKED: Dangerous inter-group transition" << from << "?" << to;
+            qDebug() << "🚫 BLOCKED: Dangerous inter-group transition" << from << "→" << to;
             return false;
         }
     }
 
-    // ? Allow all other transitions within same group or safe inter-group
+    // ✅ Allow all other valid transitions
     return true;
 }
 
