@@ -750,45 +750,134 @@ ValidationResult VitalRouteController::reserveRouteResourcesInternal(RouteAssign
     return result;
 }
 
-bool VitalRouteController::lockResourcesForRoute(const RouteAssignment& route) {
+bool VitalRouteController::lockResourcesForRoute(const RouteAssignment& route, const QStringList& affectedSignals) {
     if (!m_resourceLockService) {
+        qCritical() << "❌ [LOCK_RESOURCES] ResourceLockService not available";
         return false;
     }
 
+    qDebug() << "🔒 [LOCK_RESOURCES] Starting resource locking for route:" << route.key();
+    qDebug() << "   📍 Main circuits:" << route.assignedCircuits;
+    qDebug() << "   🛡️ Overlap circuits:" << route.overlapCircuits;
+    qDebug() << "   🔧 Point machines:" << route.lockedPointMachines;
+    qDebug() << "   🚦 Affected signals:" << affectedSignals;
+
     QStringList failedLocks;
+    int totalLocks = 0;
+    int successfulLocks = 0;
 
-    // Lock track circuits
-    for (const QString& circuitId : route.assignedCircuits + route.overlapCircuits) {
+    // ✅ STEP 1: Lock Main Route Track Circuits (ROUTE type)
+    qDebug() << "🔒 [LOCK_RESOURCES] Locking main route circuits...";
+    for (const QString& circuitId : route.assignedCircuits) {
+        totalLocks++;
         QVariantMap lockResult = m_resourceLockService->lockResource(
-            "TRACK_CIRCUIT", circuitId, route.key(), "ROUTE", route.operatorId,
-            QString("Route %1").arg(route.key())
-        );
-        
-        if (!lockResult["success"].toBool()) {
-            failedLocks.append(QString("Circuit %1: %2").arg(circuitId, lockResult["error"].toString()));
+            "TRACK_CIRCUIT",    // resourceType
+            circuitId,          // resourceId
+            route.key(),        // routeId
+            "ROUTE",           // lockType
+            route.operatorId,   // operatorId
+            QString("Main route circuit for %1").arg(route.key()) // reason
+            );
+
+        if (lockResult["success"].toBool()) {
+            successfulLocks++;
+            qDebug() << "   ✅ Locked main circuit:" << circuitId;
+        } else {
+            failedLocks.append(QString("TRACK_CIRCUIT:%1 - %2").arg(circuitId, lockResult["error"].toString()));
+            qCritical() << "   ❌ Failed to lock main circuit:" << circuitId << "-" << lockResult["error"].toString();
         }
     }
 
-    // Lock point machines
+    // ✅ STEP 2: Lock Overlap Track Circuits (OVERLAP type)
+    qDebug() << "🔒 [LOCK_RESOURCES] Locking overlap circuits...";
+    for (const QString& circuitId : route.overlapCircuits) {
+        totalLocks++;
+        QVariantMap lockResult = m_resourceLockService->lockResource(
+            "TRACK_CIRCUIT",    // resourceType
+            circuitId,          // resourceId
+            route.key(),        // routeId
+            "OVERLAP",         // lockType (different from main route)
+            route.operatorId,   // operatorId
+            QString("Overlap circuit for %1").arg(route.key()) // reason
+            );
+
+        if (lockResult["success"].toBool()) {
+            successfulLocks++;
+            qDebug() << "   ✅ Locked overlap circuit:" << circuitId;
+        } else {
+            failedLocks.append(QString("TRACK_CIRCUIT:%1(OVERLAP) - %2").arg(circuitId, lockResult["error"].toString()));
+            qCritical() << "   ❌ Failed to lock overlap circuit:" << circuitId << "-" << lockResult["error"].toString();
+        }
+    }
+
+    // ✅ STEP 3: Lock Point Machines (ROUTE type)
+    qDebug() << "🔒 [LOCK_RESOURCES] Locking point machines...";
     for (const QString& machineId : route.lockedPointMachines) {
+        totalLocks++;
         QVariantMap lockResult = m_resourceLockService->lockResource(
-            "POINT_MACHINE", machineId, route.key(), "ROUTE", route.operatorId,
-            QString("Route %1").arg(route.key())
-        );
-        
-        if (!lockResult["success"].toBool()) {
-            failedLocks.append(QString("PM %1: %2").arg(machineId, lockResult["error"].toString()));
+            "POINT_MACHINE",    // resourceType
+            machineId,          // resourceId
+            route.key(),        // routeId
+            "ROUTE",           // lockType
+            route.operatorId,   // operatorId
+            QString("Point machine for %1").arg(route.key()) // reason
+            );
+
+        if (lockResult["success"].toBool()) {
+            successfulLocks++;
+            qDebug() << "   ✅ Locked point machine:" << machineId;
+        } else {
+            failedLocks.append(QString("POINT_MACHINE:%1 - %2").arg(machineId, lockResult["error"].toString()));
+            qCritical() << "   ❌ Failed to lock point machine:" << machineId << "-" << lockResult["error"].toString();
         }
     }
+
+    // ✅ STEP 4: Lock Signals from Aspect Propagation (ROUTE type)
+    qDebug() << "🔒 [LOCK_RESOURCES] Locking signals from aspect propagation...";
+    for (const QString& signalId : affectedSignals) {
+        totalLocks++;
+        QVariantMap lockResult = m_resourceLockService->lockResource(
+            "SIGNAL",           // resourceType
+            signalId,           // resourceId
+            route.key(),        // routeId
+            "ROUTE",           // lockType
+            route.operatorId,   // operatorId
+            QString("Signal control for %1").arg(route.key()) // reason
+            );
+
+        if (lockResult["success"].toBool()) {
+            successfulLocks++;
+            qDebug() << "   ✅ Locked signal:" << signalId;
+        } else {
+            failedLocks.append(QString("SIGNAL:%1 - %2").arg(signalId, lockResult["error"].toString()));
+            qCritical() << "   ❌ Failed to lock signal:" << signalId << "-" << lockResult["error"].toString();
+        }
+    }
+
+    // ✅ STEP 5: Summary and Safety Check
+    qDebug() << "🔒 [LOCK_RESOURCES] Resource locking summary:";
+    qDebug() << "   📊 Total resources:" << totalLocks;
+    qDebug() << "   ✅ Successfully locked:" << successfulLocks;
+    qDebug() << "   ❌ Failed to lock:" << failedLocks.size();
 
     if (!failedLocks.isEmpty()) {
-        qWarning() << "VitalRouteController: Failed to lock resources for route" << route.key() << ":" << failedLocks;
-        
-        // Rollback successful locks
+        qCritical() << "❌ [LOCK_RESOURCES] Failed locks:" << failedLocks;
+
+        // ✅ SAFETY: Rollback all successful locks on any failure
+        qWarning() << "🔄 [LOCK_RESOURCES] Rolling back successful locks due to failures...";
         unlockResourcesForRoute(route.key());
         return false;
     }
 
+    // ✅ SUCCESS: Log successful lock acquisition
+    recordSafetyEvent("resource_locks_acquired", route.key(),
+                      QString("Locked %1 resources: %2 circuits, %3 PMs, %4 signals")
+                          .arg(totalLocks)
+                          .arg(route.assignedCircuits.size() + route.overlapCircuits.size())
+                          .arg(route.lockedPointMachines.size())
+                          .arg(affectedSignals.size()));
+
+    qDebug() << "✅ [LOCK_RESOURCES] All route resources locked successfully";
     return true;
 }
 
@@ -1750,6 +1839,10 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
         qDebug() << "   🚦 Signal aspects:" << signalAspects.keys();
         qDebug() << "   🔧 Point machines:" << requiredPointMachines.keys();
 
+        // ✅ STEP 3.5: NEW - Extract Signal List for Resource Locking
+        QStringList affectedSignalList = signalAspects.keys();
+        qDebug() << "🎯 [INTELLIGENT_ROUTE] Signals to lock:" << affectedSignalList;
+
         // ✅ STEP 4: Create Route Assignment with Complete Information
         RouteAssignment route;
         route.id = QUuid::fromString(routeId);
@@ -1793,6 +1886,18 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
             return result;
         }
 
+        // ✅ STEP 6.5: UPDATED - Lock Resources Using ResourceLockService with Signal List
+        qDebug() << "🎯 [INTELLIGENT_ROUTE] Locking route resources...";
+        if (!lockResourcesForRoute(route, affectedSignalList)) {  // ✅ PASS SIGNAL LIST
+            qCritical() << "❌ [INTELLIGENT_ROUTE] Resource locking failed - rolling back route";
+            // Cleanup: remove from database
+            removeRouteFromDatabase(routeId);
+            result["success"] = false;
+            result["error"] = "Failed to acquire resource locks - route establishment aborted for safety";
+            return result;
+        }
+        qDebug() << "✅ [INTELLIGENT_ROUTE] Route resources locked successfully";
+
         // ✅ STEP 7: Add Route to Active Routes (in-memory tracking)
         m_activeRoutes[routeId] = route;
         qDebug() << "✅ [INTELLIGENT_ROUTE] Route added to active routes tracking";
@@ -1810,7 +1915,8 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
                     {"method", "INTELLIGENT_ASPECT_PROPAGATION"},
                     {"processingTimeMs", timer.elapsed()},
                     {"signalAspects", signalAspects},
-                    {"pointMachines", requiredPointMachines}
+                    {"pointMachines", requiredPointMachines},
+                    {"affectedSignals", affectedSignalList}  // ✅ NEW: Log locked signals
                 },
                 "INTELLIGENT_SYSTEM",
                 "VitalRouteController::establishRouteWithIntelligentAspects",
@@ -1830,12 +1936,14 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
         result["processingTimeMs"] = timer.elapsed();
         result["signalAspects"] = signalAspects;
         result["pointMachines"] = requiredPointMachines;
+        result["affectedSignals"] = affectedSignalList;  // ✅ NEW: Include in result
         result["method"] = "INTELLIGENT_ASPECT_PROPAGATION";
 
         qDebug() << "✅ [INTELLIGENT_ROUTE] Intelligent route establishment succeeded in" << timer.elapsed() << "ms";
         qDebug() << "   📊 Route ID:" << routeId;
         qDebug() << "   📊 Signals set:" << signalAspects.keys();
         qDebug() << "   📊 Point machines:" << requiredPointMachines.keys();
+        qDebug() << "   📊 Locked signals:" << affectedSignalList;
 
         return result;
 
@@ -1992,5 +2100,6 @@ bool VitalRouteController::isAdvancedStarterDestination(const QString& signalId)
     QVariantMap signalData = m_dbManager->getSignalById(signalId);
     return signalData["signal_type"].toString() == "ADVANCED_STARTER";
 }
+
 
 } // namespace RailFlux::Route

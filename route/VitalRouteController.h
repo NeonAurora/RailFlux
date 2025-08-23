@@ -264,7 +264,7 @@ private:
     bool checkPointMachineInterlocking(const QString& machineId, const QString& requestedPosition);
 
     // Resource management
-    bool lockResourcesForRoute(const RouteAssignment& route);
+    bool lockResourcesForRoute(const RouteAssignment& route, const QStringList& affectedSignals);
     bool unlockResourcesForRoute(const QString& routeId);
     QStringList getLockedResourcesForRoute(const QString& routeId) const;
 
