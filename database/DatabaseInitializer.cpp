@@ -395,6 +395,8 @@ bool DatabaseInitializer::createControlTables() {
             last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             -- Route assignment extensions (keep only what you need)
             protecting_signals TEXT[],
+            is_assigned BOOLEAN DEFAULT FALSE,
+            is_overlap BOOLEAN DEFAULT FALSE,
             length_meters NUMERIC(10,2),
             max_speed_kmh INTEGER,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -412,6 +414,8 @@ bool DatabaseInitializer::createControlTables() {
             end_col NUMERIC(10,2) NOT NULL,
             track_segment_type VARCHAR(20) DEFAULT 'STRAIGHT',
             is_assigned BOOLEAN DEFAULT FALSE,
+            is_overlap BOOLEAN DEFAULT FALSE,
+
             circuit_id VARCHAR(20) REFERENCES railway_control.track_circuits(circuit_id),
             length_meters NUMERIC(10,2),
             max_speed_kmh INTEGER,
@@ -457,6 +461,8 @@ bool DatabaseInitializer::createControlTables() {
             last_changed_by VARCHAR(100),
             interlocked_with INTEGER[],
             protected_track_circuits TEXT[],
+
+            is_locked BOOLEAN DEFAULT FALSE,
             manual_control_active BOOLEAN DEFAULT FALSE,
 
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -758,12 +764,16 @@ bool DatabaseInitializer::createIndexes() {
         "CREATE INDEX idx_track_circuits_id ON railway_control.track_circuits(circuit_id)",
         "CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE",
         "CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE",
+        "CREATE INDEX idx_track_circuits_assigned ON railway_control.track_circuits(is_assigned) WHERE is_assigned = TRUE",
+        "CREATE INDEX idx_track_circuits_overlap ON railway_control.track_circuits(is_overlap) WHERE is_overlap = TRUE",
 
         // Track segments indexes
         "CREATE INDEX idx_track_segments_id ON railway_control.track_segments(segment_id)",
         "CREATE INDEX idx_track_segments_circuit ON railway_control.track_segments(circuit_id)",
         "CREATE INDEX idx_track_segments_location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col)",
         "CREATE INDEX idx_track_segments_assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE",
+        "CREATE INDEX idx_track_segments_overlap ON railway_control.track_segments(is_overlap) WHERE is_overlap = TRUE",
+        "CREATE INDEX idx_signals_locked ON railway_control.signals(is_locked) WHERE is_locked = TRUE",
 
         // Signal indexes (including route assignment)
         "CREATE INDEX idx_signals_id ON railway_control.signals(signal_id)",
@@ -2629,6 +2639,7 @@ bool DatabaseInitializer::createViews() {
         ts.end_col,
         ts.track_segment_type,
         ts.is_assigned,
+        ts.is_overlap,
         ts.circuit_id,
         ts.length_meters,
         ts.max_speed_kmh,
@@ -2639,6 +2650,8 @@ bool DatabaseInitializer::createViews() {
 
         -- Circuit occupancy information
         COALESCE(tc.is_occupied, false) as is_occupied,
+        COALESCE(tc.is_assigned, false) as circuit_is_assigned,
+        COALESCE(tc.is_overlap, false) as circuit_is_overlap,
         tc.occupied_by,
         tc.last_changed_at as occupancy_changed_at,
 
@@ -2668,6 +2681,8 @@ bool DatabaseInitializer::createViews() {
         CASE
             WHEN NOT ts.is_active THEN 'INACTIVE'
             WHEN tc.is_occupied = true THEN 'OCCUPIED'
+            WHEN tc.is_assigned = true THEN 'ROUTE_ASSIGNED'
+            WHEN tc.is_overlap = true THEN 'OVERLAP_ASSIGNED'
             WHEN ts.is_assigned = true THEN 'ASSIGNED'
             WHEN rl.is_active = true THEN 'ROUTE_LOCKED'
             WHEN tc.circuit_id = 'INVALID' OR tc.circuit_id IS NULL THEN 'NO_CIRCUIT'
@@ -2745,6 +2760,8 @@ bool DatabaseInitializer::createViews() {
         s.location_row,
         s.location_col,
         s.direction,
+        s.is_locked,
+
         sa_main.aspect_code as current_aspect,
         sa_main.aspect_name as current_aspect_name,
         sa_main.color_code as current_aspect_color,
@@ -3408,15 +3425,16 @@ QVariantMap DatabaseInitializer::getDatabaseStatus() {
 // ============================================================================
 
 bool DatabaseInitializer::populateTrackCircuits() {
-    qDebug() << "🔄 Populating track circuits...";
+    qDebug() << "🔄 Populating track circuits with locking support...";
 
     QJsonArray circuitData = getTrackCircuitMappings();
 
+    // ✅ UPDATED: Include is_assigned and is_overlap columns for resource locking
     QString insertQuery = R"(
         INSERT INTO railway_control.track_circuits
-        (circuit_id, circuit_name, is_occupied, is_active,
+        (circuit_id, circuit_name, is_occupied, is_assigned, is_overlap, is_active,
          protecting_signals, length_meters, max_speed_kmh)
-        VALUES (?, ?, FALSE, TRUE, ?, ?, ?)
+        VALUES (?, ?, FALSE, ?, ?, TRUE, ?, ?, ?)
         ON CONFLICT (circuit_id) DO NOTHING
     )";
 
@@ -3449,9 +3467,12 @@ bool DatabaseInitializer::populateTrackCircuits() {
             maxSpeedKmh = 100; // Approach blocks
         }
 
+        // ✅ UPDATED: Include assigned and overlap parameters from JSON data
         QVariantList params = {
             circuit["circuit_id"].toString(),
             circuit["circuit_name"].toString(),
+            circuit["assigned"].toBool(),  // ✅ NEW: is_assigned from data
+            circuit["overlap"].toBool(),   // ✅ NEW: is_overlap from data
             protectingSignalsStr,
             lengthMeters,
             maxSpeedKmh
@@ -3462,19 +3483,20 @@ bool DatabaseInitializer::populateTrackCircuits() {
         }
     }
 
-    qDebug() << "✅ Populated" << circuitData.size() << "track circuits";
+    qDebug() << "✅ Populated" << circuitData.size() << "track circuits with locking support (all unlocked)";
     return true;
 }
 
 bool DatabaseInitializer::populateTrackSegments() {
-    qDebug() << "🔄 Populating track segments...";
+    qDebug() << "🔄 Populating track segments with locking support...";
 
     QJsonArray trackSegmentData = getTrackSegmentsData();
 
+    // ✅ UPDATED: Include is_overlap column for resource locking
     QString insertQuery = R"(
         INSERT INTO railway_control.track_segments
-        (segment_id, start_row, start_col, end_row, end_col, circuit_id, is_assigned, protecting_signals)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (segment_id, start_row, start_col, end_row, end_col, circuit_id, is_assigned, is_overlap, protecting_signals)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (segment_id) DO NOTHING
     )";
 
@@ -3500,6 +3522,7 @@ bool DatabaseInitializer::populateTrackSegments() {
             protectingSignalsStr = "{" + protectingSignalsList.join(",") + "}";
         }
 
+        // ✅ UPDATED: Include overlap parameter
         QVariantList params = {
             trackSegment["id"].toString(),
             trackSegment["startRow"].toDouble(),
@@ -3508,6 +3531,7 @@ bool DatabaseInitializer::populateTrackSegments() {
             trackSegment["endCol"].toDouble(),
             circuitIdValue,
             trackSegment["assigned"].toBool(),
+            trackSegment["overlap"].toBool(),  // ✅ NEW: is_overlap column
             protectingSignalsStr
         };
 
@@ -3516,12 +3540,12 @@ bool DatabaseInitializer::populateTrackSegments() {
         }
     }
 
-    qDebug() << "✅ Populated" << trackSegmentData.size() << "track segments";
+    qDebug() << "✅ Populated" << trackSegmentData.size() << "track segments with locking support";
     return true;
 }
 
 bool DatabaseInitializer::populateSignals() {
-    qDebug() << "🔄 Populating signals with route assignment integration...";
+    qDebug() << "🔄 Populating signals with route assignment integration and explicit locking status...";
 
     // Combine all signal types
     QJsonArray allSignals;
@@ -3600,15 +3624,15 @@ bool DatabaseInitializer::populateSignals() {
         else if (signalType == "STARTER") routeSignalType = "INTERMEDIATE";
         else if (signalType == "ADVANCED_STARTER") routeSignalType = "END";
 
-        // Insert query with route assignment integration
+        // ✅ UPDATED: Insert query with explicit is_locked column for safety
         QString insertQuery = R"(
             INSERT INTO railway_control.signals
             (signal_id, signal_name, signal_type_id, location_row, location_col,
              direction, current_aspect_id, calling_on_aspect_id, loop_aspect_id,
              loop_signal_configuration, aspect_count, possible_aspects,
              protected_track_circuits, is_active, location_description,
-             is_route_signal, route_signal_type, default_overlap_distance_m)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             is_route_signal, route_signal_type, default_overlap_distance_m, is_locked)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)
             ON CONFLICT (signal_id) DO NOTHING
         )";
 
@@ -3631,6 +3655,7 @@ bool DatabaseInitializer::populateSignals() {
             isRouteSignal,
             routeSignalType.isEmpty() ? QVariant() : routeSignalType,
             180 // Default overlap distance
+            // ✅ NOTE: is_locked = FALSE is now explicitly set in the VALUES clause
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -3638,12 +3663,12 @@ bool DatabaseInitializer::populateSignals() {
         }
     }
 
-    qDebug() << "✅ Populated" << allSignals.size() << "signals with route assignment properties";
+    qDebug() << "✅ Populated" << allSignals.size() << "signals with route assignment properties and explicit locking status (all unlocked)";
     return true;
 }
 
 bool DatabaseInitializer::populatePointMachines() {
-    qDebug() << "🔄 Populating point machines with route assignment integration...";
+    qDebug() << "🔄 Populating point machines with route assignment integration and explicit locking status...";
 
     QJsonArray pointsData = getPointMachinesData();
 
@@ -3676,7 +3701,7 @@ bool DatabaseInitializer::populatePointMachines() {
             pairedEntity = point["pairedEntity"].toString();
         }
 
-        // ⭐ NEW: Handle host track circuit (can be null for paired entities)
+        // Handle host track circuit (can be null for paired entities)
         QString hostTrackCircuit;
         if (point.contains("hostTrackCircuit") && !point["hostTrackCircuit"].toString().isEmpty()) {
             hostTrackCircuit = point["hostTrackCircuit"].toString();
@@ -3684,14 +3709,14 @@ bool DatabaseInitializer::populatePointMachines() {
                      << "assigned to host circuit:" << hostTrackCircuit;
         }
 
-        // ⭐ UPDATED: Insert with host_track_circuit field
+        // ✅ UPDATED: Explicitly include is_locked column for safety
         QString insertQuery = R"(
             INSERT INTO railway_control.point_machines
             (machine_id, machine_name, junction_row, junction_col,
              root_track_segment_connection, normal_track_segment_connection, reverse_track_segment_connection,
              current_position_id, operating_status, transition_time_ms, paired_entity, host_track_circuit,
-             route_locking_enabled, auto_normalize_after_route)
-            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, TRUE, TRUE)
+             route_locking_enabled, auto_normalize_after_route, is_locked)
+            VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, TRUE, TRUE, FALSE)
         )";
 
         QVariantList params = {
@@ -3706,7 +3731,8 @@ bool DatabaseInitializer::populatePointMachines() {
             point["operatingStatus"].toString("CONNECTED"),
             3000, // Default transition time
             pairedEntity.isEmpty() ? QVariant() : pairedEntity,
-            hostTrackCircuit.isEmpty() ? QVariant() : hostTrackCircuit  // ⭐ NEW: Host track circuit parameter
+            hostTrackCircuit.isEmpty() ? QVariant() : hostTrackCircuit
+            // ✅ NOTE: is_locked = FALSE is now explicitly set in the VALUES clause
         };
 
         if (!executeQuery(insertQuery, params)) {
@@ -3715,10 +3741,10 @@ bool DatabaseInitializer::populatePointMachines() {
         }
     }
 
-    qDebug() << "✅ Populated" << pointsData.size() << "point machines with host track circuit assignments";
-    qDebug() << "   📍 PM001 → W22T (primary)";
-    qDebug() << "   📍 PM004 → W21T (primary)";
-    qDebug() << "   📍 PM002, PM003 → No host circuit (paired entities)";
+    qDebug() << "✅ Populated" << pointsData.size() << "point machines with explicit locking status (all unlocked)";
+    qDebug() << "   📍 PM001 → W22T (primary, unlocked)";
+    qDebug() << "   📍 PM004 → W21T (primary, unlocked)";
+    qDebug() << "   📍 PM002, PM003 → No host circuit (paired entities, unlocked)";
 
     return true;
 }
@@ -4054,41 +4080,41 @@ QJsonArray DatabaseInitializer::getInterlockingRulesData() {
 
 QJsonArray DatabaseInitializer::getTrackSegmentsData() {
     return QJsonArray {
-        QJsonObject{{"id", "T1S1"}, {"startRow", 110}, {"startCol", 0}, {"endRow", 110}, {"endCol", 12}, {"circuit_id", "INVALID"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
-        QJsonObject{{"id", "T1S2"}, {"startRow", 110}, {"startCol", 13}, {"endRow", 110}, {"endCol", 34}, {"circuit_id", "A42T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"AS002"}}},
-        QJsonObject{{"id", "T1S3"}, {"startRow", 110}, {"startCol", 35}, {"endRow", 110}, {"endCol", 67}, {"circuit_id", "6T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
-        QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
-        QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"id", "T1S6"}, {"startRow", 110}, {"startCol", 128}, {"endRow", 110}, {"endCol", 158}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
-        QJsonObject{{"id", "T1S8"}, {"startRow", 110}, {"startCol", 222}, {"endRow", 110}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
-        QJsonObject{{"id", "T1S9"}, {"startRow", 110}, {"startCol", 264}, {"endRow", 110}, {"endCol", 286}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
-        QJsonObject{{"id", "T1S10"}, {"startRow", 110}, {"startCol", 287}, {"endRow", 110}, {"endCol", 305}, {"circuit_id", "2T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
-        QJsonObject{{"id", "T1S11"}, {"startRow", 110}, {"startCol", 306}, {"endRow", 110}, {"endCol", 338}, {"circuit_id", "1T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
-        QJsonObject{{"id", "T1S12"}, {"startRow", 110}, {"startCol", 339}, {"endRow", 110}, {"endCol", 358}, {"circuit_id", "A1T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"AS001"}}},
-        QJsonObject{{"id", "T1S13"}, {"startRow", 110}, {"startCol", 359}, {"endRow", 110}, {"endCol", 369}, {"circuit_id", "INVALID"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
-        QJsonObject{{"id", "T4S1"}, {"startRow", 88}, {"startCol", 125}, {"endRow", 88}, {"endCol", 137}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"id", "T4S2"}, {"startRow", 88}, {"startCol", 147}, {"endRow", 88}, {"endCol", 153}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"id", "T4S3"}, {"startRow", 88}, {"startCol", 154}, {"endRow", 88}, {"endCol", 226}, {"circuit_id", "4T"}, {"assigned", false}, {"protecting_signals", QJsonArray{}}},
-        QJsonObject{{"id", "T4S4"}, {"startRow", 88}, {"startCol", 227}, {"endRow", 88}, {"endCol", 232}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
-        QJsonObject{{"id", "T4S5"}, {"startRow", 88}, {"startCol", 242}, {"endRow", 88}, {"endCol", 258}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
-        QJsonObject{{"id", "T5S1"}, {"startRow", 106}, {"startCol", 125}, {"endRow", 92}, {"endCol", 139}, {"circuit_id", "W22T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"id", "T6S1"}, {"startRow", 92}, {"startCol", 240}, {"endRow", 105}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}}
+        QJsonObject{{"id", "T1S1"}, {"startRow", 110}, {"startCol", 0}, {"endRow", 110}, {"endCol", 12}, {"circuit_id", "INVALID"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T1S2"}, {"startRow", 110}, {"startCol", 13}, {"endRow", 110}, {"endCol", 34}, {"circuit_id", "A42T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"AS002"}}},
+        QJsonObject{{"id", "T1S3"}, {"startRow", 110}, {"startCol", 35}, {"endRow", 110}, {"endCol", 67}, {"circuit_id", "6T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
+        QJsonObject{{"id", "T1S4"}, {"startRow", 110}, {"startCol", 68}, {"endRow", 110}, {"endCol", 90}, {"circuit_id", "5T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
+        QJsonObject{{"id", "T1S5"}, {"startRow", 110}, {"startCol", 91}, {"endRow", 110}, {"endCol", 117}, {"circuit_id", "W22T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T1S6"}, {"startRow", 110}, {"startCol", 128}, {"endRow", 110}, {"endCol", 158}, {"circuit_id", "W22T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T1S7"}, {"startRow", 110}, {"startCol", 159}, {"endRow", 110}, {"endCol", 221}, {"circuit_id", "3T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T1S8"}, {"startRow", 110}, {"startCol", 222}, {"endRow", 110}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T1S9"}, {"startRow", 110}, {"startCol", 264}, {"endRow", 110}, {"endCol", 286}, {"circuit_id", "W21T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T1S10"}, {"startRow", 110}, {"startCol", 287}, {"endRow", 110}, {"endCol", 305}, {"circuit_id", "2T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
+        QJsonObject{{"id", "T1S11"}, {"startRow", 110}, {"startCol", 306}, {"endRow", 110}, {"endCol", 338}, {"circuit_id", "1T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
+        QJsonObject{{"id", "T1S12"}, {"startRow", 110}, {"startCol", 339}, {"endRow", 110}, {"endCol", 358}, {"circuit_id", "A1T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"AS001"}}},
+        QJsonObject{{"id", "T1S13"}, {"startRow", 110}, {"startCol", 359}, {"endRow", 110}, {"endCol", 369}, {"circuit_id", "INVALID"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T4S1"}, {"startRow", 88}, {"startCol", 125}, {"endRow", 88}, {"endCol", 137}, {"circuit_id", "W22T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T4S2"}, {"startRow", 88}, {"startCol", 147}, {"endRow", 88}, {"endCol", 153}, {"circuit_id", "W22T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T4S3"}, {"startRow", 88}, {"startCol", 154}, {"endRow", 88}, {"endCol", 226}, {"circuit_id", "4T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{}}},
+        QJsonObject{{"id", "T4S4"}, {"startRow", 88}, {"startCol", 227}, {"endRow", 88}, {"endCol", 232}, {"circuit_id", "W21T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T4S5"}, {"startRow", 88}, {"startCol", 242}, {"endRow", 88}, {"endCol", 258}, {"circuit_id", "W21T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"id", "T5S1"}, {"startRow", 106}, {"startCol", 125}, {"endRow", 92}, {"endCol", 139}, {"circuit_id", "W22T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"id", "T6S1"}, {"startRow", 92}, {"startCol", 240}, {"endRow", 105}, {"endCol", 254}, {"circuit_id", "W21T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}}
     };
 }
 
 QJsonArray DatabaseInitializer::getTrackCircuitMappings() {
     return QJsonArray {
-        QJsonObject{{"circuit_id", "A42T"}, {"circuit_name", "Approach Block A42T"}, {"protecting_signals", QJsonArray{"AS002"}}},
-        QJsonObject{{"circuit_id", "6T"}, {"circuit_name", "Main Line Section 6T"}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
-        QJsonObject{{"circuit_id", "5T"}, {"circuit_name", "Main Line Section 5T"}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
-        QJsonObject{{"circuit_id", "W22T"}, {"circuit_name", "Junction W22T Circuit"}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
-        QJsonObject{{"circuit_id", "3T"}, {"circuit_name", "Platform Section 3T"}, {"protecting_signals", QJsonArray{"HM001", "HM002"}}},
-        QJsonObject{{"circuit_id", "W21T"}, {"circuit_name", "Junction W21T Circuit"}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
-        QJsonObject{{"circuit_id", "2T"}, {"circuit_name", "Main Line Section 2T"}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
-        QJsonObject{{"circuit_id", "1T"}, {"circuit_name", "Main Line Section 1T"}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
-        QJsonObject{{"circuit_id", "A1T"}, {"circuit_name", "Exit Block A1T"}, {"protecting_signals", QJsonArray{"AS001"}}},
-        QJsonObject{{"circuit_id", "4T"}, {"circuit_name", "Loop Section 4T"}, {"protecting_signals", QJsonArray{}}}
+        QJsonObject{{"circuit_id", "A42T"}, {"circuit_name", "Approach Block A42T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"AS002"}}},
+        QJsonObject{{"circuit_id", "6T"}, {"circuit_name", "Main Line Section 6T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT001", "AS002"}}},
+        QJsonObject{{"circuit_id", "5T"}, {"circuit_name", "Main Line Section 5T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT001", "ST003"}}},
+        QJsonObject{{"circuit_id", "W22T"}, {"circuit_name", "Junction W22T Circuit"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "ST003", "ST004"}}},
+        QJsonObject{{"circuit_id", "3T"}, {"circuit_name", "Platform Section 3T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM001", "HM002"}}},
+        QJsonObject{{"circuit_id", "W21T"}, {"circuit_name", "Junction W21T Circuit"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"HM002", "ST001", "ST002"}}},
+        QJsonObject{{"circuit_id", "2T"}, {"circuit_name", "Main Line Section 2T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT002", "ST001"}}},
+        QJsonObject{{"circuit_id", "1T"}, {"circuit_name", "Main Line Section 1T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"OT002", "AS001"}}},
+        QJsonObject{{"circuit_id", "A1T"}, {"circuit_name", "Exit Block A1T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{"AS001"}}},
+        QJsonObject{{"circuit_id", "4T"}, {"circuit_name", "Loop Section 4T"}, {"assigned", false}, {"overlap", false}, {"protecting_signals", QJsonArray{}}}
     };
 }
 

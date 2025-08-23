@@ -81,6 +81,8 @@ CREATE TABLE railway_control.track_circuits (
     last_changed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     -- Route assignment extensions (keep only what you need)
     protecting_signals TEXT[],
+    is_assigned BOOLEAN DEFAULT FALSE,
+    is_overlap BOOLEAN DEFAULT FALSE,
     length_meters NUMERIC(10,2),
     max_speed_kmh INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -88,6 +90,7 @@ CREATE TABLE railway_control.track_circuits (
 );
 
 -- Track segments with circuit references
+
 CREATE TABLE railway_control.track_segments (
     id SERIAL PRIMARY KEY,
     segment_id VARCHAR(20) NOT NULL UNIQUE, -- e.g., "T1S1", "T1S2"
@@ -143,6 +146,8 @@ CREATE TABLE railway_control.signals (
     last_changed_by VARCHAR(100),
     interlocked_with INTEGER[],
     protected_track_circuits TEXT[],
+
+    is_locked BOOLEAN DEFAULT FALSE,
     manual_control_active BOOLEAN DEFAULT FALSE,
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -418,12 +423,15 @@ CREATE SEQUENCE railway_audit.event_sequence;
 CREATE INDEX idx_track_circuits_id ON railway_control.track_circuits(circuit_id);
 CREATE INDEX idx_track_circuits_occupied ON railway_control.track_circuits(is_occupied) WHERE is_occupied = TRUE;
 CREATE INDEX idx_track_circuits_active ON railway_control.track_circuits(is_active) WHERE is_active = TRUE;
+CREATE INDEX idx_track_circuits_assigned ON railway_control.track_circuits(is_assigned) WHERE is_assigned = TRUE;
+CREATE INDEX idx_track_circuits_overlap ON railway_control.track_circuits(is_overlap) WHERE is_overlap = TRUE;
 
 -- Track segments indexes
 CREATE INDEX idx_track_segments_id ON railway_control.track_segments(segment_id);
 CREATE INDEX idx_track_segments_circuit ON railway_control.track_segments(circuit_id);
 CREATE INDEX idx_track_segments_location ON railway_control.track_segments USING btree(start_row, start_col, end_row, end_col);
 CREATE INDEX idx_track_segments_assigned ON railway_control.track_segments(is_assigned) WHERE is_assigned = TRUE;
+CREATE INDEX idx_track_segments_overlap ON railway_control.track_segments(is_overlap) WHERE is_overlap = TRUE;
 
 -- Signal indexes (including route assignment)
 CREATE INDEX idx_signals_id ON railway_control.signals(signal_id);
@@ -432,6 +440,7 @@ CREATE INDEX idx_signals_type ON railway_control.signals(signal_type_id);
 CREATE INDEX idx_signals_active ON railway_control.signals(is_active) WHERE is_active = TRUE;
 CREATE INDEX idx_signals_preceded_by ON railway_control.signals(preceded_by_circuit_id) WHERE preceded_by_circuit_id IS NOT NULL;
 CREATE INDEX idx_signals_succeeded_by ON railway_control.signals(succeeded_by_circuit_id) WHERE succeeded_by_circuit_id IS NOT NULL;
+CREATE INDEX idx_signals_locked ON railway_control.signals(is_locked) WHERE is_locked = TRUE;
 
 -- Point machine indexes
 CREATE INDEX idx_point_machines_id ON railway_control.point_machines(machine_id);
@@ -2232,6 +2241,7 @@ SELECT
     ts.end_col,
     ts.track_segment_type,
     ts.is_assigned,
+    ts.is_overlap,
     ts.circuit_id,
     ts.length_meters,
     ts.max_speed_kmh,
@@ -2242,6 +2252,8 @@ SELECT
 
     -- Circuit occupancy information
     COALESCE(tc.is_occupied, false) as is_occupied,
+    COALESCE(tc.is_assigned, false) as circuit_is_assigned,
+    COALESCE(tc.is_overlap, false) as circuit_is_overlap,
     tc.occupied_by,
     tc.last_changed_at as occupancy_changed_at,
 
@@ -2271,6 +2283,8 @@ SELECT
     CASE
         WHEN NOT ts.is_active THEN 'INACTIVE'
         WHEN tc.is_occupied = true THEN 'OCCUPIED'
+        WHEN tc.is_assigned = true THEN 'ROUTE_ASSIGNED'
+        WHEN tc.is_overlap = true THEN 'OVERLAP_ASSIGNED'
         WHEN ts.is_assigned = true THEN 'ASSIGNED'
         WHEN rl.is_active = true THEN 'ROUTE_LOCKED'
         WHEN tc.circuit_id = 'INVALID' OR tc.circuit_id IS NULL THEN 'NO_CIRCUIT'
@@ -2350,6 +2364,8 @@ SELECT
     s.location_row,
     s.location_col,
     s.direction,
+    s.is_locked,
+
     sa_main.aspect_code as current_aspect,
     sa_main.aspect_name as current_aspect_name,
     sa_main.color_code as current_aspect_color,

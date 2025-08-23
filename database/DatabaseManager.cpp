@@ -549,12 +549,12 @@ bool DatabaseManager::isPortableServerRunning()
 QVariantList DatabaseManager::getTrackSegmentsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY";
+    qDebug() << "🔍 SAFETY: getTrackSegmentsList() - DIRECT DATABASE QUERY with locking status";
 
     QVariantList trackSegments;
     QSqlQuery trackSegmentQuery(db);
 
-    // ✅ UPDATED: Query with new schema fields
+    // ✅ UPDATED: Query with new locking schema fields
     QString trackSegmentSql = R"(
         SELECT
             ts.id,
@@ -566,22 +566,32 @@ QVariantList DatabaseManager::getTrackSegmentsList() {
             ts.end_col,
             ts.track_segment_type,
             ts.is_assigned,
+            ts.is_overlap,  -- ✅ NEW: Track segment overlap status
             ts.is_active,
             ts.circuit_id,
-            -- ✅ NEW FIELDS
+
+            -- Metadata fields
             ts.length_meters,
             ts.max_speed_kmh,
             ts.protecting_signals,
             ts.created_at,
             ts.updated_at,
-            -- ✅ OCCUPANCY DATA FROM TRACK_CIRCUITS
+
+            -- Circuit status information
             COALESCE(tc.is_occupied, false) as is_occupied,
+            COALESCE(tc.is_assigned, false) as circuit_is_assigned,  -- ✅ NEW
+            COALESCE(tc.is_overlap, false) as circuit_is_overlap,    -- ✅ NEW
             tc.occupied_by,
-            -- ✅ ROUTE ASSIGNMENT STATUS
+
+            -- ✅ UPDATED: Enhanced route assignment eligibility logic
             CASE
-                WHEN tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true THEN false
+                WHEN tc.is_occupied = true THEN false
+                WHEN tc.is_assigned = true OR tc.is_overlap = true THEN false  -- ✅ NEW: Consider circuit locking
+                WHEN ts.is_assigned = true OR ts.is_overlap = true THEN false  -- ✅ NEW: Consider segment locking
+                WHEN rl.is_active = true THEN false
                 ELSE true
             END as route_assignment_eligible
+
         FROM railway_control.track_segments ts
         LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
         LEFT JOIN railway_control.resource_locks rl ON (
@@ -597,7 +607,7 @@ QVariantList DatabaseManager::getTrackSegmentsList() {
         while (trackSegmentQuery.next()) {
             trackSegments.append(convertTrackSegmentRowToVariant(trackSegmentQuery));
         }
-        qDebug() << "✅ Loaded" << trackSegments.size() << "track segments with occupancy data";
+        qDebug() << "✅ Loaded" << trackSegments.size() << "track segments with occupancy and locking data";
     } else {
         qWarning() << "❌ SAFETY CRITICAL: Track Segment query failed:" << trackSegmentQuery.lastError().text();
     }
@@ -608,10 +618,12 @@ QVariantList DatabaseManager::getTrackSegmentsList() {
 QVariantList DatabaseManager::getAllSignalsList() {
     if (!connected) return QVariantList();
 
+    qDebug() << "SAFETY: getAllSignalsList() - Loading signals with locking status from v_signals_complete";
+
     QVariantList signalsList;
     QSqlQuery signalQuery(db);
 
-    // ✅ UPDATED: Query based on actual v_signals_complete view schema
+    // ? UPDATED: Include is_locked column for resource locking
     QString signalSql = R"(
         SELECT
             id,
@@ -622,6 +634,7 @@ QVariantList DatabaseManager::getAllSignalsList() {
             location_row as row,
             location_col as col,
             direction,
+            is_locked,  -- ? NEW: Resource locking status
             current_aspect,
             current_aspect_name,
             current_aspect_color,
@@ -655,9 +668,9 @@ QVariantList DatabaseManager::getAllSignalsList() {
         while (signalQuery.next()) {
             signalsList.append(convertSignalRowToVariant(signalQuery));
         }
-        qDebug() << "✅ Loaded" << signalsList.size() << "signals with complete aspect information from view";
+        qDebug() << "? Loaded" << signalsList.size() << "signals with complete aspect and locking information from view";
     } else {
-        qWarning() << "❌ SAFETY CRITICAL: Enhanced signal view query failed:" << signalQuery.lastError().text();
+        qWarning() << "? SAFETY CRITICAL: Enhanced signal view query failed:" << signalQuery.lastError().text();
     }
 
     return signalsList;
@@ -859,6 +872,7 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
             location_row as row,
             location_col as col,
             direction,
+            is_locked,
             current_aspect,
             current_aspect_name,
             current_aspect_color,
@@ -901,7 +915,7 @@ QVariantMap DatabaseManager::getSignalById(const QString& signalId) {
 QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) {
     if (!connected) return QVariantMap();
 
-    qDebug() << "🔍 QUERY: getTrackSegmentById(" << trackSegmentId << ")";
+    qDebug() << "?? QUERY: getTrackSegmentById(" << trackSegmentId << ") - with locking status";
 
     QSqlQuery query(db);
     query.prepare(R"(
@@ -915,6 +929,7 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) 
             ts.end_col,
             ts.track_segment_type,
             ts.is_assigned,
+            ts.is_overlap,
             ts.is_active,
             ts.circuit_id,
             ts.length_meters,
@@ -922,12 +937,22 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) 
             ts.protecting_signals,
             ts.created_at,
             ts.updated_at,
+
+            -- Circuit status information
             COALESCE(tc.is_occupied, false) as is_occupied,
+            COALESCE(tc.is_assigned, false) as circuit_is_assigned,  -- ? NEW
+            COALESCE(tc.is_overlap, false) as circuit_is_overlap,    -- ? NEW
             tc.occupied_by,
+
+            -- ? UPDATED: Enhanced route assignment eligibility logic
             CASE
-                WHEN tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true THEN false
+                WHEN tc.is_occupied = true THEN false
+                WHEN tc.is_assigned = true OR tc.is_overlap = true THEN false  -- ? NEW: Consider circuit locking
+                WHEN ts.is_assigned = true OR ts.is_overlap = true THEN false  -- ? NEW: Consider segment locking
+                WHEN rl.is_active = true THEN false
                 ELSE true
             END as route_assignment_eligible
+
         FROM railway_control.track_segments ts
         LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
         LEFT JOIN railway_control.resource_locks rl ON (
@@ -937,13 +962,14 @@ QVariantMap DatabaseManager::getTrackSegmentById(const QString& trackSegmentId) 
         )
         WHERE ts.segment_id = ?
     )");
+
     query.addBindValue(trackSegmentId);
 
     if (query.exec() && query.next()) {
         return convertTrackSegmentRowToVariant(query);
     }
 
-    qWarning() << "❌ Track segment" << trackSegmentId << "not found";
+    qWarning() << "? Track segment" << trackSegmentId << "not found";
     return QVariantMap();
 }
 
@@ -1566,7 +1592,7 @@ bool DatabaseManager::getTrackCircuitOccupancy(const QString& trackCircuitId) {
 QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCircuitId) {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ")";
+    qDebug() << "🔍 QUERY: getTrackSegmentsByCircuitId(" << trackCircuitId << ") - with locking status";
 
     QVariantList segments;
     QSqlQuery query(db);
@@ -1581,6 +1607,7 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
             ts.end_col,
             ts.track_segment_type,
             ts.is_assigned,
+            ts.is_overlap,  -- ✅ NEW: Track segment overlap status
             ts.is_active,
             ts.circuit_id,
             ts.length_meters,
@@ -1588,12 +1615,22 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
             ts.protecting_signals,
             ts.created_at,
             ts.updated_at,
+
+            -- Circuit status information
             COALESCE(tc.is_occupied, false) as is_occupied,
+            COALESCE(tc.is_assigned, false) as circuit_is_assigned,  -- ✅ NEW
+            COALESCE(tc.is_overlap, false) as circuit_is_overlap,    -- ✅ NEW
             tc.occupied_by,
+
+            -- ✅ UPDATED: Enhanced route assignment eligibility logic
             CASE
-                WHEN tc.is_occupied = true OR ts.is_assigned = true OR rl.is_active = true THEN false
+                WHEN tc.is_occupied = true THEN false
+                WHEN tc.is_assigned = true OR tc.is_overlap = true THEN false  -- ✅ NEW: Consider circuit locking
+                WHEN ts.is_assigned = true OR ts.is_overlap = true THEN false  -- ✅ NEW: Consider segment locking
+                WHEN rl.is_active = true THEN false
                 ELSE true
             END as route_assignment_eligible
+
         FROM railway_control.track_segments ts
         LEFT JOIN railway_control.track_circuits tc ON ts.circuit_id = tc.circuit_id
         LEFT JOIN railway_control.resource_locks rl ON (
@@ -1604,13 +1641,14 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
         WHERE ts.circuit_id = ?
         ORDER BY ts.segment_id
     )");
+
     query.addBindValue(trackCircuitId);
 
     if (query.exec()) {
         while (query.next()) {
             segments.append(convertTrackSegmentRowToVariant(query));
         }
-        qDebug() << "✅ Found" << segments.size() << "segments for circuit" << trackCircuitId;
+        qDebug() << "✅ Found" << segments.size() << "segments with locking status for circuit" << trackCircuitId;
     } else {
         qWarning() << "❌ Failed to get segments for circuit" << trackCircuitId << ":" << query.lastError().text();
     }
@@ -1621,12 +1659,12 @@ QVariantList DatabaseManager::getTrackSegmentsByCircuitId(const QString& trackCi
 QVariantList DatabaseManager::getTrackCircuitsList() {
     if (!connected) return QVariantList();
 
-    qDebug() << "🔍 SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY";
+    qDebug() << "🔍 SAFETY: getTrackCircuitsList() - DIRECT DATABASE QUERY with locking status";
 
     QVariantList circuits;
     QSqlQuery query(db);
 
-    // ✅ ENHANCED: Include all schema fields
+    // ✅ ENHANCED: Include all schema fields including new locking columns
     QString sql = R"(
         SELECT
             id,
@@ -1634,6 +1672,8 @@ QVariantList DatabaseManager::getTrackCircuitsList() {
             circuit_name,
             is_occupied,
             occupied_by,
+            is_assigned,  -- ✅ NEW: Route assignment status
+            is_overlap,   -- ✅ NEW: Overlap assignment status
             is_active,
             last_changed_at,
             protecting_signals,
@@ -1649,7 +1689,7 @@ QVariantList DatabaseManager::getTrackCircuitsList() {
         while (query.next()) {
             circuits.append(convertTrackCircuitRowToVariant(query));
         }
-        qDebug() << "✅ Loaded" << circuits.size() << "track circuits with complete information";
+        qDebug() << "✅ Loaded" << circuits.size() << "track circuits with complete information and locking status";
     } else {
         qWarning() << "❌ SAFETY CRITICAL: Track circuits query failed:" << query.lastError().text();
     }
@@ -1781,7 +1821,7 @@ QStringList DatabaseManager::getProtectedTrackCircuitsFromInterlockingRules(cons
 QVariantMap DatabaseManager::getTrackCircuitById(const QString& circuitId) {
     if (!connected) return QVariantMap();
 
-    qDebug() << "🔍 QUERY: getTrackCircuitById(" << circuitId << ")";
+    qDebug() << "🔍 QUERY: getTrackCircuitById(" << circuitId << ") - with locking status";
 
     QSqlQuery query(db);
     query.prepare(R"(
@@ -1791,6 +1831,8 @@ QVariantMap DatabaseManager::getTrackCircuitById(const QString& circuitId) {
             circuit_name,
             is_occupied,
             occupied_by,
+            is_assigned,  -- ✅ NEW: Route assignment status
+            is_overlap,   -- ✅ NEW: Overlap assignment status
             is_active,
             last_changed_at,
             protecting_signals,
@@ -1801,6 +1843,7 @@ QVariantMap DatabaseManager::getTrackCircuitById(const QString& circuitId) {
         FROM railway_control.track_circuits
         WHERE circuit_id = ?
     )");
+
     query.addBindValue(circuitId);
 
     if (query.exec() && query.next()) {
@@ -1849,6 +1892,7 @@ QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
     signal["col"] = query.value("col").toDouble();
     signal["direction"] = query.value("direction").toString();
     signal["isActive"] = query.value("is_active").toBool();
+    signal["isLocked"] = query.value("is_locked").toBool();  // ✅ NEW: Resource locking status
     signal["location"] = query.value("location").toString();
 
     // ✅ ASPECT INFORMATION
@@ -1869,7 +1913,7 @@ QVariantMap DatabaseManager::convertSignalRowToVariant(const QSqlQuery& query) {
     signal["lastChangedAt"] = query.value("last_changed_at").toString();
     signal["lastChangedBy"] = query.value("last_changed_by").toString();
 
-    // ✅ NEW ROUTE ASSIGNMENT FIELDS
+    // ✅ ROUTE ASSIGNMENT FIELDS
     signal["precededByCircuitId"] = query.value("preceded_by_circuit_id").toString();
     signal["succeededByCircuitId"] = query.value("succeeded_by_circuit_id").toString();
     signal["isRouteSignal"] = query.value("is_route_signal").toBool();
@@ -1938,14 +1982,21 @@ QVariantMap DatabaseManager::convertTrackSegmentRowToVariant(const QSqlQuery& qu
     trackSegment["isActive"] = query.value("is_active").toBool();
     trackSegment["circuitId"] = query.value("circuit_id").toString();
 
-    // ✅ ASSIGNMENT AND OCCUPANCY (from track_circuits)
+    // ✅ SEGMENT ASSIGNMENT AND LOCKING STATUS
     trackSegment["assigned"] = query.value("is_assigned").toBool();
+    trackSegment["isOverlap"] = query.value("is_overlap").toBool();  // ✅ NEW: Segment overlap status
+
+    // ✅ CIRCUIT OCCUPANCY AND LOCKING STATUS
     trackSegment["occupied"] = query.value("is_occupied").toBool();
     trackSegment["occupiedBy"] = query.value("occupied_by").toString();
+    trackSegment["circuitIsAssigned"] = query.value("circuit_is_assigned").toBool();  // ✅ NEW: Circuit assignment status
+    trackSegment["circuitIsOverlap"] = query.value("circuit_is_overlap").toBool();    // ✅ NEW: Circuit overlap status
 
-    // ✅ NEW FIELDS FROM SCHEMA
+    // ✅ PHYSICAL PROPERTIES
     trackSegment["lengthMeters"] = query.value("length_meters").toDouble();
     trackSegment["maxSpeedKmh"] = query.value("max_speed_kmh").toInt();
+
+    // ✅ TIMESTAMPS
     trackSegment["createdAt"] = query.value("created_at").toString();
     trackSegment["updatedAt"] = query.value("updated_at").toString();
 
@@ -2113,6 +2164,10 @@ QVariantMap DatabaseManager::convertTrackCircuitRowToVariant(const QSqlQuery& qu
     circuit["occupied"] = query.value("is_occupied").toBool();
     circuit["occupiedBy"] = query.value("occupied_by").toString();
     circuit["lastChangedAt"] = query.value("last_changed_at").toString();
+
+    // ✅ NEW: ROUTE ASSIGNMENT AND LOCKING STATUS
+    circuit["isAssigned"] = query.value("is_assigned").toBool();  // ✅ NEW: Route assignment status
+    circuit["isOverlap"] = query.value("is_overlap").toBool();    // ✅ NEW: Overlap assignment status
 
     // ✅ PHYSICAL PROPERTIES
     circuit["lengthMeters"] = query.value("length_meters").toDouble();

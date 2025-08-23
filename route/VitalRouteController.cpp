@@ -715,12 +715,12 @@ ValidationResult VitalRouteController::reserveRouteResourcesInternal(RouteAssign
         return ValidationResult::blocked("Failed to persist route to database");
     }
 
-    // ✅ FIXED: 3. Lock resources AFTER route is persisted (so it exists for the check)
-    if (!lockResourcesForRoute(route)) {
-        // ✅ SAFETY: Rollback - remove route from database if resource locking fails
-        removeRouteFromDatabase(route.key());
-        return ValidationResult::blocked("Failed to lock required resources", SafetyLevel::WARNING);
-    }
+    //  Following block is commented out. EstablishRouteWithIntellignetAspects function is now being instead
+    // if (!lockResourcesForRoute(route)) {
+    //     // ✅ SAFETY: Rollback - remove route from database if resource locking fails
+    //     removeRouteFromDatabase(route.key());
+    //     return ValidationResult::blocked("Failed to lock required resources", SafetyLevel::WARNING);
+    // }
 
     // 4. Add to active routes (unchanged)
     QString routeId = route.key();
@@ -1695,9 +1695,11 @@ ValidationResult VitalRouteController::lockRouteResources(const QString& routeId
     RouteAssignment& route = m_activeRoutes[routeId];
     route.assignedCircuits = circuits;
     route.lockedPointMachines = pointMachines;
-    
-    bool success = lockResourcesForRoute(route);
-    
+
+    // Below function block commented out has more aspects now
+    // bool success = lockResourcesForRoute(route);
+
+    bool success = false;
     if (success) {
         return ValidationResult::allowed("Resources locked successfully");
     } else {
