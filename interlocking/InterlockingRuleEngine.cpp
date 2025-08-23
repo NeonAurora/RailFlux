@@ -352,3 +352,48 @@ SignalRule InterlockingRuleEngine::parseRule(const QJsonObject& ruleObject) {
 
     return SignalRule(whenAspect, conditions, allowedSignals);
 }
+
+// Add this function to InterlockingRuleEngine.cpp
+QStringList InterlockingRuleEngine::getAspectsPermittedByController(
+    const QString& controllerSignalId,
+    const QString& controllerAspect,
+    const QString& controlledSignalId)
+{
+    qDebug() << "🔍 [RULE_ENGINE] Evaluating what" << controllerSignalId
+             << "(" << controllerAspect << ") allows for" << controlledSignalId;
+
+    // Find the controller signal's rules
+    auto signalInfoIt = m_signalRules.find(controllerSignalId);
+    if (signalInfoIt == m_signalRules.end()) {
+        qWarning() << "❌ [RULE_ENGINE] Controller signal" << controllerSignalId << "not found in rules";
+        return QStringList{"RED"}; // Safe fallback
+    }
+
+    const SignalInfo& signalInfo = signalInfoIt.value();
+
+    // Look for rules that match the controller's current aspect
+    for (const SignalRule& rule : signalInfo.rules) {
+        if (rule.getWhenAspect() == controllerAspect) {
+            qDebug() << "   📋 Found matching rule for aspect:" << controllerAspect;
+
+            // Check if all conditions are met (e.g., point machine positions)
+            if (!checkConditions(rule.getConditions())) {
+                qDebug() << "   ⚠️ Conditions not met for rule, skipping";
+                continue; // Try next rule
+            }
+
+            // Find allowed aspects for the controlled signal
+            for (const SignalRule::AllowedSignal& allowedSignal : rule.getAllowedSignals()) {
+                if (allowedSignal.signalId == controlledSignalId) {
+                    qDebug() << "   ✅" << controllerSignalId << "(" << controllerAspect
+                             << ") allows" << controlledSignalId << ":" << allowedSignal.allowedAspects;
+                    return allowedSignal.allowedAspects;
+                }
+            }
+        }
+    }
+
+    // No matching rule found
+    qWarning() << "   ⚠️ No matching rule found, defaulting to RED";
+    return QStringList{"RED"}; // Safe fallback
+}

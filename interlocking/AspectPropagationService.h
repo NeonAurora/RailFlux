@@ -329,12 +329,6 @@ private:
     QString getRoleDescription(SignalRole role) const;
 
     QVariantMap createErrorResult(const QString& errorMessage);
-    QStringList evaluateInterlockingRule(
-        const QString& controllerSignalId,
-        const QString& controllerAspect,
-        const QString& controlledSignalId,
-        const QVariantMap& pointMachineStates
-        );
 
 private:
     // Service dependencies

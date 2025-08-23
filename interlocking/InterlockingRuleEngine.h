@@ -24,6 +24,11 @@ public:
     QStringList getControlledSignals(const QString& signalId) const;
     QStringList getControllingSignals(const QString& signalId) const;
     bool isSignalIndependent(const QString& signalId) const;
+    QStringList getAspectsPermittedByController(
+        const QString& controllerSignalId,
+        const QString& controllerAspect,
+        const QString& controlledSignalId
+        );
 
 private:
     DatabaseManager* m_dbManager;

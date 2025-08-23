@@ -1534,7 +1534,6 @@ QStringList AspectPropagationService::getAspectsAllowedByControllers(
     return finalAllowed;
 }
 
-// ENHANCED: Replace simplified logic with proper interlocking rule evaluation
 QStringList AspectPropagationService::getAspectsPermittedByController(
     const ControlNode& controller,
     const QString& controlledSignalId)
@@ -1545,39 +1544,19 @@ QStringList AspectPropagationService::getAspectsPermittedByController(
     // ENHANCED: Use actual interlocking rules instead of simplified logic
     if (!m_ruleEngine) {
         qWarning() << "⚠️ [RULE_EVAL] No rule engine available, using fallback";
-        // Fallback to simplified logic only when rule engine is unavailable
-        if (controller.selectedAspect == "GREEN") {
-            return QStringList{"GREEN", "YELLOW", "RED"};
-        } else if (controller.selectedAspect == "YELLOW") {
-            return QStringList{"YELLOW", "RED"};
-        } else if (controller.selectedAspect == "RED") {
-            return QStringList{"RED"};
-        }
-        return QStringList{"RED"};
+        return QStringList{"RED"}; // Safe fallback only
     }
 
-    // ENHANCED: Get current point machine states for condition evaluation
-    QVariantMap pointMachineStates;
-    if (m_dbManager) {
-        pointMachineStates = m_dbManager->getAllPointMachineStates();
-        qDebug() << "   🔧 Point machine states loaded:" << pointMachineStates.keys();
-    }
-
-    // ENHANCED: Get interlocking rules for the controller signal
-    QString controllerAspect = controller.selectedAspect;
+    // ✅ REPLACE: Use rule engine instead of hardcoded evaluateInterlockingRule
     QStringList allowedAspects;
-
     try {
-        // Get the signal rules from the rule engine
-        // For now, we'll use a direct approach to evaluate the rules
-        allowedAspects = evaluateInterlockingRule(
+        allowedAspects = m_ruleEngine->getAspectsPermittedByController(
             controller.signalId,
-            controllerAspect,
-            controlledSignalId,
-            pointMachineStates
+            controller.selectedAspect,
+            controlledSignalId
             );
 
-        qDebug() << "   📋" << controller.signalId << "(" << controllerAspect
+        qDebug() << "   📋" << controller.signalId << "(" << controller.selectedAspect
                  << ") allows" << controlledSignalId << ":" << allowedAspects;
 
     } catch (const std::exception& e) {
@@ -1594,83 +1573,6 @@ QStringList AspectPropagationService::getAspectsPermittedByController(
     return allowedAspects;
 }
 
-// ENHANCED: Add method to evaluate specific interlocking rules
-QStringList AspectPropagationService::evaluateInterlockingRule(
-    const QString& controllerSignalId,
-    const QString& controllerAspect,
-    const QString& controlledSignalId,
-    const QVariantMap& pointMachineStates)
-{
-    qDebug() << "🔍 [INTERLOCK] Evaluating rule:" << controllerSignalId
-             << "(" << controllerAspect << ") → " << controlledSignalId;
-
-    // CRITICAL: Use the actual rulebook data
-    // For ST001 showing RED with PM001=NORMAL, should allow HM001: ["YELLOW", "RED", "RED_CALLING"]
-
-    // Hard-coded rules based on the actual rulebook (temporary implementation)
-    // TODO: This should be replaced with dynamic rule loading from JSON
-
-    if (controllerSignalId == "ST001") {
-        QString pm001Position = "NORMAL"; // Default assumption
-        if (pointMachineStates.contains("PM001")) {
-            QVariantMap pm001Data = pointMachineStates["PM001"].toMap();
-            pm001Position = pm001Data["current_position"].toString();
-        }
-
-        qDebug() << "   🔧 PM001 position:" << pm001Position;
-
-        if (controllerAspect == "RED" && pm001Position == "NORMAL" && controlledSignalId == "HM001") {
-            qDebug() << "   ✅ ST001 RED + PM001 NORMAL allows HM001: [YELLOW, RED, RED_CALLING]";
-            return QStringList{"YELLOW", "RED", "RED_CALLING"};
-        }
-        else if (controllerAspect == "YELLOW" && pm001Position == "NORMAL" && controlledSignalId == "HM001") {
-            qDebug() << "   ✅ ST001 YELLOW + PM001 NORMAL allows HM001: [YELLOW, RED]";
-            return QStringList{"YELLOW", "RED"};
-        }
-        else if (controllerAspect == "GREEN" && pm001Position == "NORMAL" && controlledSignalId == "HM001") {
-            qDebug() << "   ✅ ST001 GREEN + PM001 NORMAL allows HM001: [GREEN, RED]";
-            return QStringList{"GREEN", "RED"};
-        }
-    }
-
-    if (controllerSignalId == "HM001") {
-        if (controllerAspect == "YELLOW" && controlledSignalId == "OT001") {
-            qDebug() << "   ✅ HM001 YELLOW allows OT001: [GREEN, RED]";
-            return QStringList{"GREEN", "RED"};
-        }
-        else if (controllerAspect == "GREEN" && controlledSignalId == "OT001") {
-            qDebug() << "   ✅ HM001 GREEN allows OT001: [GREEN, RED]";
-            return QStringList{"GREEN", "RED"};
-        }
-        else if (controllerAspect == "RED" && controlledSignalId == "OT001") {
-            qDebug() << "   ✅ HM001 RED allows OT001: [RED]";
-            return QStringList{"RED"};
-        }
-    }
-
-    if (controllerSignalId == "AS001") {
-        QString pm004Position = "NORMAL"; // Default assumption
-        if (pointMachineStates.contains("PM004")) {
-            QVariantMap pm004Data = pointMachineStates["PM004"].toMap();
-            pm004Position = pm004Data["current_position"].toString();
-        }
-
-        qDebug() << "   🔧 PM004 position:" << pm004Position;
-
-        if (controllerAspect == "RED" && pm004Position == "NORMAL" && controlledSignalId == "ST001") {
-            qDebug() << "   ✅ AS001 RED + PM004 NORMAL allows ST001: [YELLOW, RED]";
-            return QStringList{"YELLOW", "RED"};
-        }
-        else if (controllerAspect == "GREEN" && pm004Position == "NORMAL" && controlledSignalId == "ST001") {
-            qDebug() << "   ✅ AS001 GREEN + PM004 NORMAL allows ST001: [GREEN, YELLOW, RED]";
-            return QStringList{"GREEN", "YELLOW", "RED"};
-        }
-    }
-
-    // Fallback: return safe default
-    qWarning() << "   ⚠️ No matching rule found, defaulting to RED";
-    return QStringList{"RED"};
-}
 
 bool AspectPropagationService::validateControlConstraints(
     const QString& signalId,
