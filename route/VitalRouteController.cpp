@@ -1769,91 +1769,134 @@ QVariantMap VitalRouteController::executeCoordinatedAspectChanges(
 {
     QElapsedTimer timer;
     timer.start();
-    
-    qDebug() << "🔧 VitalRouteController: Executing coordinated aspect changes...";
+
+    qDebug() << "?? VitalRouteController: Executing coordinated aspect changes...";
 
     QVariantMap result;
     QStringList successfulSignals;
     QStringList failedSignals;
     QStringList successfulPointMachines;
     QStringList failedPointMachines;
-    
+
     try {
-        // 1. First, set point machines to required positions
+        // 1. First, set point machines with PROPER DATA EXTRACTION
         for (auto it = pointMachinePositions.begin(); it != pointMachinePositions.end(); ++it) {
             QString machineId = it.key();
-            QString requiredPosition = it.value().toString();
-            
-            qDebug() << "   🔧 Setting point machine" << machineId << "to" << requiredPosition;
-            
+
+            // ? FIX: Extract requiredPosition from nested QVariantMap
+            QVariantMap pmData = it.value().toMap();
+            QString requiredPosition = pmData["requiredPosition"].toString();
+            QString currentPosition = pmData["currentPosition"].toString();
+            bool needsMovement = pmData["needsMovement"].toBool();
+
+            qDebug() << "   ?? Setting point machine" << machineId << "to" << requiredPosition;
+            qDebug() << "      Current:" << currentPosition << "Required:" << requiredPosition
+                     << "Movement needed:" << needsMovement;
+
+            // ? SAFETY CHECK: Ensure position is valid
+            if (requiredPosition.isEmpty() ||
+                (requiredPosition != "NORMAL" && requiredPosition != "REVERSE")) {
+                qCritical() << "? Invalid required position for PM" << machineId << ":" << requiredPosition;
+                failedPointMachines.append(machineId);
+                continue;  // Skip this point machine
+            }
+
+            // ? OPTIMIZATION: Skip if no movement needed
+            if (!needsMovement) {
+                qDebug() << "     ?? No movement required for" << machineId;
+                successfulPointMachines.append(machineId);
+                continue;
+            }
+
+            // ? VALIDATION: Check availability before attempting move
+            QString availabilityStatus = pmData["availabilityStatus"].toString();
+            bool isLocked = pmData["isLocked"].toBool();
+
+            if (availabilityStatus != "AVAILABLE" || isLocked) {
+                QString reason = isLocked ? "locked" : availabilityStatus;
+                qWarning() << "? Cannot move PM" << machineId << "- reason:" << reason;
+                failedPointMachines.append(machineId);
+                continue;
+            }
+
+            // ? FIX: Use auto to avoid namespace conflicts with ValidationResult
             if (m_interlockingService) {
-                auto pmResult = m_interlockingService->validatePointMachineOperation(
-                    machineId, "UNKNOWN", requiredPosition, "ROUTE_SYSTEM");
-                
-                if (pmResult.isAllowed()) {
-                    // TODO: Execute actual point machine change via DatabaseManager
-                    // For now, assume success
-                    successfulPointMachines.append(machineId);
-                    qDebug() << "     ✅ Point machine" << machineId << "set successfully";
-                } else {
+                auto pmValidation = m_interlockingService->validatePointMachineOperation(
+                    machineId, currentPosition, requiredPosition, "VitalRouteController");
+
+                if (!pmValidation.isAllowed()) {
+                    qWarning() << "? PM validation failed for" << machineId
+                               << ":" << pmValidation.getReason();
                     failedPointMachines.append(machineId);
-                    qWarning() << "     ❌ Point machine" << machineId << "failed:" << pmResult.getReason();
+                    continue;
                 }
             }
+
+            // ? FIX: Execute actual point machine movement with correct signature
+            bool pmSuccess = m_dbManager->updatePointMachinePosition(machineId, requiredPosition);
+            if (pmSuccess) {
+                successfulPointMachines.append(machineId);
+                qDebug() << "     ? Point machine" << machineId << "moved to" << requiredPosition;
+            } else {
+                failedPointMachines.append(machineId);
+                qCritical() << "? Failed to move point machine" << machineId << "to" << requiredPosition;
+            }
         }
-        
-        // 2. Then, set signal aspects in the correct order
+
+        // 2. Then set signal aspects
         for (auto it = signalAspects.begin(); it != signalAspects.end(); ++it) {
             QString signalId = it.key();
             QString requiredAspect = it.value().toString();
-            
-            qDebug() << "   🚦 Setting signal" << signalId << "to" << requiredAspect;
-            
+
+            qDebug() << "   ?? Setting signal" << signalId << "to" << requiredAspect;
+
+            // ? FIX: Use auto to avoid namespace conflicts with ValidationResult
             if (m_interlockingService) {
-                auto signalResult = m_interlockingService->validateMainSignalOperation(
-                    signalId, "UNKNOWN", requiredAspect, "ROUTE_SYSTEM");
-                
-                if (signalResult.isAllowed()) {
-                    // TODO: Execute actual signal aspect change via DatabaseManager
-                    // For now, assume success
-                    successfulSignals.append(signalId);
-                    qDebug() << "     ✅ Signal" << signalId << "set to" << requiredAspect;
-                } else {
+                auto signalValidation = m_interlockingService->validateMainSignalOperation(
+                    signalId, "UNKNOWN", requiredAspect, "VitalRouteController");
+
+                if (!signalValidation.isAllowed()) {
+                    qWarning() << "? Signal validation failed for" << signalId
+                               << ":" << signalValidation.getReason();
                     failedSignals.append(signalId);
-                    qWarning() << "     ❌ Signal" << signalId << "failed:" << signalResult.getReason();
+                    continue;
                 }
             }
+
+            bool signalSuccess = m_dbManager->updateSignalAspect(signalId, "MAIN", requiredAspect);
+            if (signalSuccess) {
+                successfulSignals.append(signalId);
+                qDebug() << "     ? Signal" << signalId << "set to" << requiredAspect;
+            } else {
+                failedSignals.append(signalId);
+                qCritical() << "? Failed to update signal" << signalId << "to" << requiredAspect;
+            }
         }
-        
+
         // 3. Determine overall success
         bool allSuccessful = failedSignals.isEmpty() && failedPointMachines.isEmpty();
-        
+
         result["success"] = allSuccessful;
         result["successfulSignals"] = successfulSignals;
         result["failedSignals"] = failedSignals;
         result["successfulPointMachines"] = successfulPointMachines;
         result["failedPointMachines"] = failedPointMachines;
         result["processingTimeMs"] = timer.elapsed();
-        
+
         if (allSuccessful) {
-            qDebug() << "✅ VitalRouteController: All coordinated changes executed successfully";
+            qDebug() << "? VitalRouteController: All coordinated changes executed successfully";
         } else {
-            qWarning() << "⚠️ VitalRouteController: Some coordinated changes failed";
+            qWarning() << "?? VitalRouteController: Some coordinated changes failed";
             result["error"] = QString("Failed signals: %1, Failed PMs: %2")
-                                .arg(failedSignals.join(","), failedPointMachines.join(","));
+                                  .arg(failedSignals.join(","), failedPointMachines.join(","));
         }
-        
-        // Record performance
-        recordValidationTime("coordinated_aspect_changes", std::chrono::milliseconds(timer.elapsed()));
-        
+
     } catch (const std::exception& e) {
-        qCritical() << "💥 VitalRouteController: Exception in coordinated aspect execution:" << e.what();
-        
+        qCritical() << "?? Exception in coordinated aspect execution:" << e.what();
         result["success"] = false;
-        result["error"] = QString("Coordinated aspect execution failed: %1").arg(e.what());
-        result["processingTimeMs"] = timer.elapsed();
+        result["error"] = QString("Exception: %1").arg(e.what());
     }
-    
+
     return result;
 }
 

@@ -2090,7 +2090,7 @@ PointMachineRequirement AspectPropagationService::getPointMachineRequirement(
         return requirement;
     }
 
-    // ✅ ENHANCED: Query track_circuit_edges for both point machine ID and required position
+    // ✅ FIX: Ensure we get non-null position values
     QSqlQuery query(m_dbManager->getDatabase());
     query.prepare(R"(
         SELECT
@@ -2100,6 +2100,7 @@ PointMachineRequirement AspectPropagationService::getPointMachineRequirement(
         WHERE from_circuit_id = ? AND to_circuit_id = ?
         AND condition_point_machine_id IS NOT NULL
         AND condition_position IS NOT NULL
+        AND condition_position != ''  -- ✅ ADDED: Exclude empty strings
         AND is_active = TRUE
         LIMIT 1
     )");
@@ -2107,13 +2108,23 @@ PointMachineRequirement AspectPropagationService::getPointMachineRequirement(
     query.addBindValue(toCircuit);
 
     if (query.exec() && query.next()) {
-        requirement.pointMachineId = query.value("condition_point_machine_id").toString();
-        requirement.requiredPosition = query.value("condition_position").toString();
-        requirement.isRequired = true;
+        QString pointMachineId = query.value("condition_point_machine_id").toString();
+        QString requiredPosition = query.value("condition_position").toString();
 
-        qDebug() << "  📋 Edge" << fromCircuit << "→" << toCircuit
-                 << "requires PM" << requirement.pointMachineId
-                 << "in position:" << requirement.requiredPosition;
+        // ✅ SAFETY CHECK: Ensure position is valid
+        if (!requiredPosition.isEmpty() &&
+            (requiredPosition == "NORMAL" || requiredPosition == "REVERSE")) {
+            requirement.pointMachineId = pointMachineId;
+            requirement.requiredPosition = requiredPosition;
+            requirement.isRequired = true;
+
+            qDebug() << "  📋 Edge" << fromCircuit << "→" << toCircuit
+                     << "requires PM" << requirement.pointMachineId
+                     << "in position:" << requirement.requiredPosition;
+        } else {
+            qWarning() << "  ⚠️ Invalid position found for" << fromCircuit << "→" << toCircuit
+                       << "PM:" << pointMachineId << "Position:" << requiredPosition;
+        }
     }
 
     return requirement;
