@@ -705,6 +705,7 @@ QVariantList DatabaseManager::getAllPointMachinesList() {
 
             -- Route assignment extensions
             paired_entity,
+            host_track_circuit,
             route_locking_enabled,
             auto_normalize_after_route,
 
@@ -987,6 +988,7 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
 
             -- Route assignment extensions
             paired_entity,
+            host_track_circuit,
             route_locking_enabled,
             auto_normalize_after_route,
 
@@ -1034,6 +1036,39 @@ QVariantMap DatabaseManager::getPointMachineById(const QString& machineId) {
     }
 
     return QVariantMap();
+}
+
+QVariantList DatabaseManager::getPointMachinesByTrackCircuit(const QString& trackCircuitId) {
+    if (!connected) return QVariantList();
+
+    qDebug() << "SAFETY: getPointMachinesByTrackCircuit(" << trackCircuitId << ") - DIRECT DATABASE QUERY";
+
+    QVariantList points;
+    QSqlQuery query(db);
+
+    query.prepare(R"(
+        SELECT
+            id, machine_id, machine_name, host_track_circuit,
+            current_position, availability_status,
+            junction_row, junction_col,
+            normal_track_segment_connection,
+            reverse_track_segment_connection
+        FROM railway_control.v_point_machines_complete
+        WHERE host_track_circuit = ?
+        ORDER BY machine_id
+    )");
+    query.addBindValue(trackCircuitId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            points.append(convertPointMachineRowToVariant(query));
+        }
+        qDebug() << "✅ Found" << points.size() << "point machines for track circuit" << trackCircuitId;
+    } else {
+        qWarning() << "❌ Failed to get point machines for track circuit:" << trackCircuitId << query.lastError().text();
+    }
+
+    return points;
 }
 
 
@@ -1964,6 +1999,7 @@ QVariantMap DatabaseManager::convertPointMachineRowToVariant(const QSqlQuery& qu
     QString pairedEntity = query.value("paired_entity").toString();
     pm["pairedEntity"] = pairedEntity.isEmpty() ? QVariant() : pairedEntity;
     pm["isPaired"] = !pairedEntity.isEmpty();
+    pm["hostTrackCircuit"] = query.value("host_track_circuit").toString();
     pm["routeLockingEnabled"] = query.value("route_locking_enabled").toBool();
     pm["autoNormalizeAfterRoute"] = query.value("auto_normalize_after_route").toBool();
 

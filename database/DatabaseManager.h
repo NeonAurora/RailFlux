@@ -104,6 +104,7 @@ public:
     // === INTERLOCKING HELPER METHODS ===
     QString getPairedMachine(const QString& machineId);
     QString getCurrentPointPosition(const QString& machineId);
+    QVariantList getPointMachinesByTrackCircuit(const QString& trackCircuitId);
 
     // === ROUTE ASSIGNMENT METHODS ===
     Q_INVOKABLE bool insertRouteAssignment(

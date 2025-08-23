@@ -147,12 +147,13 @@ public:
     Q_INVOKABLE QVariantMap emergencyReleaseAll(const QString& reason);
     
     // === INTELLIGENT ASPECT ESTABLISHMENT ===
-    Q_INVOKABLE QVariantMap establishRouteWithIntelligentAspects(
+    QVariantMap establishRouteWithIntelligentAspects(
         const QString& sourceSignalId,
         const QString& destinationSignalId,
-        const QStringList& routePath,
-        const QVariantMap& pointMachinePositions = QVariantMap()
-    );
+        const QStringList& routePath,        // ⭐ ADD
+        const QStringList& overlapPath,      // ⭐ ADD
+        const QVariantMap& pointMachinePositions = {}
+        );
     
     Q_INVOKABLE QVariantMap executeCoordinatedAspectChanges(
         const QVariantMap& signalAspects,

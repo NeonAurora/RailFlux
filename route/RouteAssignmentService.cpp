@@ -363,7 +363,7 @@ ProcessingResult RouteAssignmentService::processRouteRequest(const RouteRequest&
     ProcessingResult result;
     result.performanceBreakdown = QVariantMap();
 
-    // Stage 1: Validate Request
+    // ✅ STAGE 1: Basic Request Validation (KEEP - No conflicts)
     QElapsedTimer stageTimer;
     stageTimer.start();
 
@@ -371,10 +371,9 @@ ProcessingResult RouteAssignmentService::processRouteRequest(const RouteRequest&
     if (!result.success) return result;
 
     double validationTime = stageTimer.elapsed();
-    recordProcessingTime("validation", validationTime);
     result.performanceBreakdown["validation_ms"] = validationTime;
 
-    // Stage 2: Pathfinding
+    // ✅ STAGE 2: Pathfinding (KEEP - Essential for point machine calculation)
     stageTimer.restart();
 
     ProcessingResult pathResult = performPathfinding(request);
@@ -382,10 +381,9 @@ ProcessingResult RouteAssignmentService::processRouteRequest(const RouteRequest&
 
     result.path = pathResult.path;
     double pathfindingTime = stageTimer.elapsed();
-    recordProcessingTime("pathfinding", pathfindingTime);
     result.performanceBreakdown["pathfinding_ms"] = pathfindingTime;
 
-    // Stage 3: Overlap Calculation
+    // ✅ STAGE 3: Overlap Calculation (KEEP - Essential for safety)
     stageTimer.restart();
 
     ProcessingResult overlapResult = calculateOverlap(request, result.path);
@@ -393,32 +391,78 @@ ProcessingResult RouteAssignmentService::processRouteRequest(const RouteRequest&
 
     result.overlapCircuits = overlapResult.overlapCircuits;
     double overlapTime = stageTimer.elapsed();
-    recordProcessingTime("overlap_calculation", overlapTime);
     result.performanceBreakdown["overlap_calculation_ms"] = overlapTime;
 
-    // Stage 4: Resource Reservation
+    // ⭐ STAGE 4: REPLACE reserveResources() with Intelligent Route Establishment
     stageTimer.restart();
 
-    ProcessingResult reservationResult = reserveResources(request, result.path, result.overlapCircuits);
-    if (!reservationResult.success) return reservationResult;
+    if (!m_vitalController) {
+        result.error = "VitalRouteController not available";
+        return result;
+    }
 
-    result.routeId = reservationResult.routeId;
-    double reservationTime = stageTimer.elapsed();
-    recordProcessingTime("resource_reservation", reservationTime);
-    result.performanceBreakdown["resource_reservation_ms"] = reservationTime;
+    // Get current point machine states for intelligent propagation
+    QVariantMap currentPMStates;
+    if (m_dbManager) {
+        currentPMStates = m_dbManager->getAllPointMachineStates();
+    }
 
-    // Stage 5: Finalize Route
+    // ✅ CALL INTELLIGENT ROUTE ESTABLISHMENT (replaces reserveResources + execution)
+    QVariantMap intelligentResult = m_vitalController->establishRouteWithIntelligentAspects(
+        request.sourceSignalId,
+        request.destSignalId,
+        result.path,                    // ⭐ Pass route path
+        result.overlapCircuits,         // ⭐ Pass overlap path
+        currentPMStates
+        );
+
+    if (!intelligentResult["success"].toBool()) {
+        result.error = QString("Intelligent route establishment failed: %1")
+        .arg(intelligentResult["error"].toString());
+        return result;
+    }
+
+    // Extract results from intelligent establishment
+    result.routeId = request.requestId.toString();
+    result.signalAspects = intelligentResult["signalAspects"].toMap();
+    result.pointMachines = intelligentResult["pointMachines"].toMap();
+
+    double intelligentTime = stageTimer.elapsed();
+    result.performanceBreakdown["intelligent_establishment_ms"] = intelligentTime;
+
+    // ✅ STAGE 5: Database Persistence (KEEP - But simplified)
     stageTimer.restart();
 
-    ProcessingResult finalResult = finalizeRoute(request, result.path, result.overlapCircuits);
-    if (!finalResult.success) return finalResult;
+    // ✅ SIMPLIFIED: Only persist route assignment (signals/PMs already updated by intelligent establishment)
+    if (!persistRouteAssignment(result.routeId, request, result.path)) {
+        result.error = "Failed to persist route assignment";
+        return result;
+    }
+
+    // ✅ ENHANCED: Reserve overlap with point machine awareness
+    if (!result.overlapCircuits.isEmpty() && m_overlapService) {
+        QStringList releaseTriggers;
+        QVariantMap overlapReservation = m_overlapService->reserveOverlap(
+            result.routeId,
+            request.destSignalId,
+            result.overlapCircuits,
+            releaseTriggers,
+            request.requestedBy
+            );
+        // Overlap reservation failure is non-critical
+    }
 
     double finalizationTime = stageTimer.elapsed();
-    recordProcessingTime("finalization", finalizationTime);
     result.performanceBreakdown["finalization_ms"] = finalizationTime;
 
+    // ✅ SUCCESS
     result.success = true;
-    result.totalTimeMs = validationTime + pathfindingTime + overlapTime + reservationTime + finalizationTime;
+    result.totalTimeMs = validationTime + pathfindingTime + overlapTime + intelligentTime + finalizationTime;
+
+    qDebug() << "✅ ProcessRouteRequest: Complete intelligent route establishment succeeded";
+    qDebug() << "   📊 Total time:" << result.totalTimeMs << "ms";
+    qDebug() << "   🚦 Signals set:" << result.signalAspects.keys();
+    qDebug() << "   🔧 Point machines moved:" << result.pointMachines.keys();
 
     return result;
 }
@@ -552,46 +596,6 @@ ProcessingResult RouteAssignmentService::calculateOverlap(
     return result;
 }
 
-ProcessingResult RouteAssignmentService::reserveResources(
-    const RouteRequest& request,
-    const QStringList& path,
-    const QStringList& overlap
-    ) {
-    ProcessingResult result;
-
-    if (!m_vitalController) {
-        result.error = "VitalRouteController not available";
-        return result;
-    }
-
-    // Prepare route data for VitalRouteController
-    QVariantMap routeData;
-    routeData["id"] = request.requestId.toString();
-    routeData["sourceSignalId"] = request.sourceSignalId;
-    routeData["destSignalId"] = request.destSignalId;
-    routeData["direction"] = request.direction;
-    routeData["assignedCircuits"] = path;
-    routeData["overlapCircuits"] = overlap;
-    routeData["operatorId"] = request.requestedBy;
-
-    // ✅ FIXED: Convert string priority to integer (1-1000 range)
-    routeData["priority"] = convertPriorityToInt(request.priority);
-
-    // Use VitalRouteController for safety-critical resource reservation
-    QVariantMap reservationResult = m_vitalController->reserveRouteResources(routeData);
-
-    if (!reservationResult["success"].toBool()) {
-        result.error = QString("Resource reservation failed: %1").arg(reservationResult["reason"].toString());
-        return result;
-    }
-
-    result.success = true;
-    result.routeId = request.requestId.toString();
-    result.validationResults = reservationResult;
-
-    return result;
-}
-
 ProcessingResult RouteAssignmentService::finalizeRoute(
     const RouteRequest& request,
     const QStringList& path,
@@ -599,31 +603,53 @@ ProcessingResult RouteAssignmentService::finalizeRoute(
     ) {
     ProcessingResult result;
 
-    // Persist route assignment to database
-    if (!persistRouteAssignment(result.routeId, request, path)) {
-        result.error = "Failed to persist route assignment";
+    // ✅ SIMPLIFIED: Only handle database persistence and overlap reservation
+    // Signal aspects and point machine movements already handled by intelligent establishment
+
+    // 1. Persist route assignment to database
+    QString routeId = request.requestId.toString();
+    if (!persistRouteAssignment(routeId, request, path)) {
+        result.error = "Failed to persist route assignment to database";
         return result;
     }
 
-    // Reserve overlap if needed
-    if (!overlap.isEmpty() && m_overlapService) {
-        QStringList releaseTriggers; // Would be determined from overlap definition
+    qDebug() << "✅ Route assignment persisted to database:" << routeId;
 
+    // 2. Reserve overlap resources if needed (safety-critical)
+    if (!overlap.isEmpty() && m_overlapService) {
+        qDebug() << "🛡️ Reserving overlap resources for route:" << routeId;
+
+        QStringList releaseTriggers; // Would be determined from overlap definition
         QVariantMap overlapReservation = m_overlapService->reserveOverlap(
-            result.routeId,
+            routeId,
             request.destSignalId,
             overlap,
             releaseTriggers,
             request.requestedBy
-        );
+            );
 
-        // Overlap is optional; do not log non-critical failures here
-        Q_UNUSED(overlapReservation);
+        // ✅ ENHANCED: Check overlap reservation result (optional but logged)
+        if (overlapReservation["success"].toBool()) {
+            qDebug() << "✅ Overlap reservation successful for" << overlap.size() << "circuits";
+            result.overlapReservationId = overlapReservation["reservationId"].toString();
+        } else {
+            qWarning() << "⚠️ Overlap reservation failed (non-critical):"
+                       << overlapReservation["error"].toString();
+            // Note: Overlap failure is non-critical - route can still proceed
+        }
+    } else {
+        qDebug() << "ℹ️ No overlap required for this route";
     }
 
+    // 3. Success - route is now fully established and persisted
     result.success = true;
+    result.routeId = routeId;
+
+    qDebug() << "✅ Route finalization completed:" << routeId;
+
     return result;
 }
+
 
 bool RouteAssignmentService::cancelRoute(const QString& routeId, const QString& reason) {
     if (!m_isOperational) {

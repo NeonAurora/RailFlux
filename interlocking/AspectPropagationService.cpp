@@ -177,6 +177,17 @@ AspectPropagationResult AspectPropagationService::propagateAspectsInternal(
         qCritical() << "[AspectPropagationService > propagateAspectsInternal] RIPPLE Exception:" << e.what();
     }
 
+    QStringList routePath = options["routePath"].toStringList();
+    QStringList overlapPath = options["overlapPath"].toStringList();
+
+    if (!routePath.isEmpty()) {
+        qDebug() << "🔧 [POINT_MACHINES] Calculating required point machine states...";
+        result.pointMachines = calculateRequiredPointMachineStates(routePath, overlapPath);
+        qDebug() << "✅ [POINT_MACHINES] Found" << result.pointMachines.keys().size() << "point machines to configure";
+    } else {
+        qDebug() << "⚠️ [POINT_MACHINES] No route path provided, skipping point machine calculation";
+    }
+
     result.processingTimeMs = timer.elapsed();
     recordProcessingTime("ripple_full_propagation", result.processingTimeMs);
 
@@ -1970,4 +1981,81 @@ QString AspectPropagationService::getRoleDescription(SignalRole role) const
     default:
         return "UNKNOWN";
     }
+}
+
+QVariantMap AspectPropagationService::calculateRequiredPointMachineStates(
+    const QStringList& routePath,
+    const QStringList& overlapPath)
+{
+    qDebug() << "?? [POINT_MACHINES] Calculating required states for route path:" << routePath;
+    qDebug() << "?? [POINT_MACHINES] Overlap path:" << overlapPath;
+
+    QVariantMap requiredStates;
+    QStringList completePath = routePath + overlapPath;
+
+    // Process each transition in the complete path
+    for (int i = 0; i < completePath.size() - 1; i++) {
+        QString fromCircuit = completePath[i];
+        QString toCircuit = completePath[i + 1];
+
+        qDebug() << "  ?? Transition:" << fromCircuit << "?" << toCircuit;
+
+        // Get required point machine position for this transition
+        QString requiredPosition = getRequiredPointMachinePosition(fromCircuit, toCircuit);
+
+        if (!requiredPosition.isEmpty()) {
+            // Find point machines in the source track circuit
+            QVariantList pointMachines = m_dbManager->getPointMachinesByTrackCircuit(fromCircuit);
+
+            for (const QVariant& pmVariant : pointMachines) {
+                QVariantMap pm = pmVariant.toMap();
+                QString pmId = pm["id"].toString();
+
+                qDebug() << "    ?? Point machine" << pmId << "requires position:" << requiredPosition;
+
+                // Store required state
+                QVariantMap pmState;
+                pmState["requiredPosition"] = requiredPosition;
+                pmState["currentPosition"] = pm["currentPosition"].toString();
+                pmState["needsMovement"] = (pm["currentPosition"].toString() != requiredPosition);
+                pmState["hostTrackCircuit"] = fromCircuit;
+                pmState["forTransition"] = QString("%1?%2").arg(fromCircuit, toCircuit);
+
+                requiredStates[pmId] = pmState;
+            }
+        }
+    }
+
+    qDebug() << "? [POINT_MACHINES] Required states calculated:" << requiredStates.keys();
+    return requiredStates;
+}
+
+QString AspectPropagationService::getRequiredPointMachinePosition(
+    const QString& fromCircuit,
+    const QString& toCircuit)
+{
+    if (!m_dbManager) {
+        return QString();
+    }
+
+    // Query track_circuit_edges to find the required position
+    QSqlQuery query(m_dbManager->getDatabase());
+    query.prepare(R"(
+        SELECT condition_position
+        FROM railway_control.track_circuit_edges
+        WHERE from_circuit_id = ? AND to_circuit_id = ?
+        AND condition_point_machine_id IS NOT NULL
+        AND is_active = TRUE
+        LIMIT 1
+    )");
+    query.addBindValue(fromCircuit);
+    query.addBindValue(toCircuit);
+
+    if (query.exec() && query.next()) {
+        QString position = query.value("condition_position").toString();
+        qDebug() << "  ?? Edge" << fromCircuit << "?" << toCircuit << "requires position:" << position;
+        return position;
+    }
+
+    return QString(); // No point machine condition required
 }

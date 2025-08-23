@@ -1660,7 +1660,8 @@ void VitalRouteController::setAspectPropagationService(RailFlux::Interlocking::A
 QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
     const QString& sourceSignalId,
     const QString& destinationSignalId,
-    const QStringList& routePath,
+    const QStringList& routePath,      // ⭐ ADD: Main route path
+    const QStringList& overlapPath,    // ⭐ ADD: Overlap path
     const QVariantMap& pointMachinePositions)
 {
     QElapsedTimer timer;
@@ -1668,6 +1669,8 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
 
     qDebug() << "🎯 VitalRouteController: Establishing route with intelligent aspects:"
              << sourceSignalId << "→" << destinationSignalId;
+    qDebug() << "   📍 Route path:" << routePath;
+    qDebug() << "   🛡️ Overlap path:" << overlapPath;
 
     QVariantMap result;
 
@@ -1675,94 +1678,86 @@ QVariantMap VitalRouteController::establishRouteWithIntelligentAspects(
         qWarning() << "⚠️ VitalRouteController: Aspect propagation service not available";
         result["success"] = false;
         result["error"] = "Intelligent aspect propagation not available";
-        result["fallbackUsed"] = false;
         return result;
     }
 
     try {
-        // ENHANCED: Prepare aspect propagation options
+        // ✅ ENHANCED: Prepare aspect propagation options with paths
         QVariantMap propagationOptions;
 
+        // ⭐ ADD: Pass route paths for point machine calculation
+        propagationOptions["routePath"] = routePath;
+        propagationOptions["overlapPath"] = overlapPath;
+
         // Add future support for dynamic destination aspects
-        // This can be parameterized based on route type, operator preferences, etc.
         if (isAdvancedStarterDestination(destinationSignalId)) {
-            propagationOptions["desired_destination_aspect"] = "GREEN"; // Allow proceed for through routes
+            propagationOptions["desired_destination_aspect"] = "GREEN";
         } else {
-            propagationOptions["desired_destination_aspect"] = "RED";   // Standard stopping point
+            propagationOptions["desired_destination_aspect"] = "RED";
         }
-        // 1. Use intelligent aspect propagation to determine optimal signal aspects
+
+        // 1. ✅ ENHANCED: Use intelligent aspect propagation with point machine calculation
         QVariantMap propagationResult = m_aspectPropagationService->propagateAspectsAdvanced(
             sourceSignalId, destinationSignalId, pointMachinePositions, propagationOptions);
 
-        if (propagationResult["success"].toBool()) {
-            QVariantMap signalAspects = propagationResult["signalAspects"].toMap();
-            QVariantMap decisionReasons = propagationResult["decisionReasons"].toMap();
-
-            qDebug() << "🎯 Intelligent validation plan:";
-            for (auto it = signalAspects.begin(); it != signalAspects.end(); ++it) {
-                QString signalId = it.key();
-                QString aspect = it.value().toString();
-                QString reason = decisionReasons[signalId].toString();
-                qDebug() << "   🚦" << signalId << "→" << aspect << "(" << reason << ")";
-            }
-        } else {
-            qWarning() << "⚠️ VitalRouteController: Aspect propagation failed:"
-                       << propagationResult["errorMessage"].toString();
-
+        if (!propagationResult["success"].toBool()) {
             result["success"] = false;
             result["error"] = "Aspect propagation failed: " + propagationResult["errorMessage"].toString();
             result["propagationError"] = propagationResult["errorCode"].toString();
-            result["processingTimeMs"] = timer.elapsed();
             return result;
         }
 
-        // 2. Execute the coordinated aspect changes
+        // 2. Extract results (now includes point machines from path analysis)
         QVariantMap signalAspects = propagationResult["signalAspects"].toMap();
-        QVariantMap requiredPointMachines = propagationResult["pointMachines"].toMap();
+        QVariantMap requiredPointMachines = propagationResult["pointMachines"].toMap(); // ⭐ Now populated!
+        QVariantMap decisionReasons = propagationResult["decisionReasons"].toMap();
 
-        QVariantMap executionResult = executeCoordinatedAspectChanges(signalAspects, requiredPointMachines);
+        qDebug() << "🎯 Intelligent execution plan:";
+        qDebug() << "   🚦 Signal aspects:" << signalAspects.keys();
+        qDebug() << "   🔧 Point machines:" << requiredPointMachines.keys();
+
+        // 3. ✅ ENHANCED: Execute coordinated changes (point machines + signals)
+        QVariantMap executionResult = executeCoordinatedAspectChanges(
+            signalAspects, requiredPointMachines);
 
         if (!executionResult["success"].toBool()) {
             result["success"] = false;
-            result["error"] = "Aspect execution failed: " + executionResult["error"].toString();
+            result["error"] = "Execution failed: " + executionResult["error"].toString();
             result["executionDetails"] = executionResult;
-            result["processingTimeMs"] = timer.elapsed();
             return result;
         }
 
-        // 3. Record successful intelligent route establishment
+        // 4. ✅ SUCCESS: Record comprehensive results
         result["success"] = true;
-        result["method"] = "intelligent_propagation";
+        result["method"] = "intelligent_propagation_with_point_machines";
         result["signalAspects"] = signalAspects;
         result["pointMachines"] = requiredPointMachines;
-        result["decisionReasons"] = propagationResult["decisionReasons"];
-        result["propagationTimeMs"] = propagationResult["processingTimeMs"];
-        result["executionTimeMs"] = executionResult["processingTimeMs"];
+        result["routePath"] = routePath;
+        result["overlapPath"] = overlapPath;
+        result["decisionReasons"] = decisionReasons;
         result["totalTimeMs"] = timer.elapsed();
 
         qDebug() << "✅ VitalRouteController: Intelligent route establishment succeeded in"
                  << timer.elapsed() << "ms";
 
-        // Record performance metrics
-        recordValidationTime("intelligent_route_establishment", std::chrono::milliseconds(timer.elapsed()));
-
-        // Record telemetry event
+        // Record telemetry
         if (m_telemetryService) {
             m_telemetryService->recordSafetyEvent(
-                "intelligent_route_established",
+                "intelligent_route_executed",
                 "INFO",
                 "VitalRouteController",
-                QString("Intelligent aspects: %1 → %2").arg(sourceSignalId, destinationSignalId),
+                QString("Route: %1 → %2, Path: %3 circuits, PM: %4")
+                    .arg(sourceSignalId, destinationSignalId)
+                    .arg(routePath.size())
+                    .arg(requiredPointMachines.size()),
                 "system"
-            );
+                );
         }
 
     } catch (const std::exception& e) {
-        qCritical() << "💥 VitalRouteController: Exception in intelligent route establishment:" << e.what();
-
+        qCritical() << "💥 VitalRouteController: Exception:" << e.what();
         result["success"] = false;
-        result["error"] = QString("Intelligent route establishment failed: %1").arg(e.what());
-        result["processingTimeMs"] = timer.elapsed();
+        result["error"] = QString("Exception: %1").arg(e.what());
     }
 
     return result;

@@ -491,6 +491,7 @@ bool DatabaseInitializer::createControlTables() {
 
             -- Route assignment extensions
             paired_entity VARCHAR(20),
+            host_track_circuit TEXT REFERENCES railway_control.track_circuits(circuit_id),
             route_locking_enabled BOOLEAN DEFAULT TRUE,
             auto_normalize_after_route BOOLEAN DEFAULT TRUE,
 
@@ -777,6 +778,7 @@ bool DatabaseInitializer::createIndexes() {
         "CREATE INDEX idx_point_machines_position ON railway_control.point_machines(current_position_id)",
         "CREATE INDEX idx_point_machines_junction ON railway_control.point_machines USING btree(junction_row, junction_col)",
         "CREATE INDEX idx_point_machines_paired_entity ON railway_control.point_machines(paired_entity) WHERE paired_entity IS NOT NULL",
+        "CREATE INDEX idx_point_machines_host_track_circuit ON railway_control.point_machines(host_track_circuit)",
 
         // Route assignment indexes
         "CREATE INDEX idx_track_circuit_edges_from ON railway_control.track_circuit_edges(from_circuit_id) WHERE is_active = TRUE",
@@ -2614,6 +2616,7 @@ bool DatabaseInitializer::createViews() {
 
         -- Route assignment extensions
         pm.paired_entity,
+        pm.host_track_circuit,
         pm.route_locking_enabled,
         pm.auto_normalize_after_route,
 

@@ -295,6 +295,16 @@ private:
         const QVariantMap& options = QVariantMap()
         ) const;
 
+    QVariantMap calculateRequiredPointMachineStates(
+        const QStringList& routePath,
+        const QStringList& overlapPath = {}
+        );
+
+    QString getRequiredPointMachinePosition(
+        const QString& fromCircuit,
+        const QString& toCircuit
+        );
+
     // === DATA LOADING AND INTEGRATION ===
     ControlNode loadSignalControlData(const QString& signalId);
     QVector<ControlEdge> loadControlEdges(const QString& signalId);
