@@ -15,6 +15,7 @@ Item {
     property real endCol: 0
     property bool isOccupied: false
     property bool isAssigned: false
+    property bool isOverlap: false
     property string occupiedBy: ""            // ✅ NEW: What/who occupies this trackSegment
     property bool isActive: true              // ✅ NEW: Whether trackSegment is active/in-service
     property int cellSize: 20
@@ -38,6 +39,7 @@ Item {
     readonly property color trackSegmentColorNormal: getTrackSegmentTypeColor()
     readonly property color trackSegmentColorOccupied: "#ff3232"       // Red for occupied
     readonly property color trackSegmentColorAssigned: "#ffff00"      // Yellow for assigned
+    readonly property color trackSegmentColorOverlap: "#9966cc"
     readonly property color trackSegmentColorInactive: "#606060"      // Dark gray for inactive
     readonly property color railLineColor: "#a6a6a6"
 
@@ -104,6 +106,7 @@ Item {
     readonly property color currentTrackSegmentColor: {
         if (!isActive) return trackSegmentColorInactive;           // Highest priority: Inactive trackSegments
         if (isAssigned) return trackSegmentColorAssigned;          // High priority: Assignment
+        if (isOverlap) return trackSegmentColorOverlap;
         if (isOccupied) return trackSegmentColorOccupied;         // Medium priority: Occupation
         return trackSegmentColorNormal;                           // Default: Normal state (trackSegment type specific)
     }
@@ -147,6 +150,14 @@ Item {
             case "YARD": return "Yard Track Segment"
             default: return trackSegmentType
         }
+    }
+
+    function getTrackSegmentStatusText() {
+        if (isAssigned && isOverlap) return "ASSIGNED+OVERLAP"  // Edge case
+        if (isAssigned) return "ASSIGNED"
+        if (isOverlap) return "OVERLAP"
+        if (isOccupied) return "OCCUPIED" + (occupiedBy ? " by " + occupiedBy : "")
+        return "NORMAL"
     }
 
     // ============================================================================
@@ -258,7 +269,7 @@ Item {
         id: hoverArea
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: isActive ? clickCursor : Qt.ForbiddenCursor  // ✅ NEW: Different cursor for inactive
+        cursorShape: isActive ? clickCursor : Qt.ForbiddenCursor
 
         onClicked: {
             if (!isActive) {
@@ -270,7 +281,7 @@ Item {
                        "Name:", segmentName || "Unnamed",
                        "Type:", getTrackSegmentTypeDisplayName(),
                        "Coordinates:", "(" + startRow + "," + startCol + ") to (" + endRow + "," + endCol + ")",
-                       "State:", isAssigned ? "ASSIGNED" : (isOccupied ? "OCCUPIED by " + occupiedBy : "NORMAL"),
+                       "State:", getTrackSegmentStatusText(),
                        "Direction:", isHorizontal ? "H" : (isVertical ? "V" : (isTopLeftToBottomRight ? "TL→BR" : "BL→TR")),
                        "Active:", isActive)
             trackSegment.trackSegmentClicked(segmentId, isOccupied)
@@ -278,11 +289,10 @@ Item {
 
         onEntered: {
             trackSegment.trackSegmentHovered(segmentId)
-            // ✅ NEW: Enhanced hover information
             console.log("🚂 Track Segment Hover:", segmentId,
                        "Type:", getTrackSegmentTypeDisplayName(),
                        "Status:", isActive ? "Active" : "Inactive",
-                       isOccupied ? ("Occupied by: " + occupiedBy) : "Free")
+                       "State:", getTrackSegmentStatusText())  // ✅ NEW: Enhanced hover info
         }
     }
 
@@ -304,10 +314,10 @@ Item {
                   "\n" + getTrackSegmentTypeDisplayName() +
                   "\n(" + startRow + "," + startCol + ")→(" + endRow + "," + endCol + ")" +
                   "\n" + (isActive ? "ACTIVE" : "INACTIVE") +
-                  "\n" + (isAssigned ? "ASSIGNED" : (isOccupied ? "OCCUPIED" + (occupiedBy ? " by " + occupiedBy : "") : "NORMAL"))
+                  "\n" + getTrackSegmentStatusText()  // ✅ NEW: Enhanced status text
             color: debugTextColor
             font.pixelSize: debugTextSize
-            visible: false  // ✅ Set to true to verify all data fields
+            visible: false
             horizontalAlignment: Text.AlignHCenter
         }
     }

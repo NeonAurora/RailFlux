@@ -2094,6 +2094,8 @@ QVariantMap VitalRouteController::executeCoordinatedAspectChanges(
     return result;
 }
 
+
+
 // NEW: Helper method to determine if destination is an Advanced Starter
 bool VitalRouteController::isAdvancedStarterDestination(const QString& signalId) const
 {

@@ -12,6 +12,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <memory>
+#include <QSqlQuery>
 
 // Forward declaration
 class DatabaseManager;
@@ -75,6 +76,14 @@ class ResourceLockService : public QObject {
     Q_PROPERTY(bool isOperational READ isOperational NOTIFY operationalStateChanged)
 
 public:
+
+    struct ResourceStatusResult {
+        bool success = false;
+        QString error;
+        QStringList updatedResources;
+        int affectedRows = 0;
+    };
+
     explicit ResourceLockService(DatabaseManager* dbManager, QObject* parent = nullptr);
     ~ResourceLockService();
 
@@ -195,6 +204,14 @@ private:
     ResourceType stringToResourceType(const QString& typeStr) const;
     QVariantMap lockToVariantMap(const ResourceLock& lock) const;
     ResourceLock variantMapToLock(const QVariantMap& map) const;
+    bool updateIndividualResourceStatus(const ResourceLock& lock, bool lockStatus = true);
+    bool updateTrackCircuitStatus(const QString& circuitId, bool isLocking, bool isOverlap = false);
+    bool updatePointMachineStatus(const QString& machineId, bool isLocked);
+    bool updatePointMachineStatusWithPairing(const QString& machineId, bool lockStatus,
+                                             const QString& routeId,
+                                             QSet<QString>* processedMachines = nullptr);
+    bool updateSignalStatus(const QString& signalId, bool isLocked);
+    bool updateTrackSegmentStatus(const QString& circuitId, bool isLocking, bool isOverlap = false);
 
 private:
     DatabaseManager* m_dbManager;
