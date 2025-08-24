@@ -459,7 +459,7 @@ Rectangle {
                 cellSize: stationLayout.cellSize
                 isOccupied: modelData.occupied
                 isAssigned: modelData.assigned
-                isOverlap: modelData.overlap
+                isOverlap: modelData.isOverlap
                 occupiedBy: modelData.occupiedBy || ""  // ✅ NEW
                 isActive: modelData.isActive !== false  // ✅ NEW
                 onTrackSegmentClicked: stationLayout.handleTrackSegmentClick(segmentId, isOccupied)

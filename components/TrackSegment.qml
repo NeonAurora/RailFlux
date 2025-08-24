@@ -38,8 +38,8 @@ Item {
     // **✅ ENHANCED: TRACK SEGMENT STATE COLORS WITH TRACK SEGMENT SEGMENT TYPE SUPPORT**
     readonly property color trackSegmentColorNormal: getTrackSegmentTypeColor()
     readonly property color trackSegmentColorOccupied: "#ff3232"       // Red for occupied
-    readonly property color trackSegmentColorAssigned: "#ffff00"      // Yellow for assigned
-    readonly property color trackSegmentColorOverlap: "#9966cc"
+    readonly property color trackSegmentColorAssigned: "#00ffff"      // Yellow for assigned
+    readonly property color trackSegmentColorOverlap: "#ffff00"
     readonly property color trackSegmentColorInactive: "#606060"      // Dark gray for inactive
     readonly property color railLineColor: "#a6a6a6"
 
