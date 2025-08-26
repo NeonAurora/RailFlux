@@ -1,0 +1,21 @@
+\section*{Core Code Snippets}
+
+Below are selected parts of the C++ backend that implement route locking and signal validation:
+
+\subsection*{Route Locking Function}
+\begin{verbatim}
+bool InterlockingService::lockRoute(const QString& signalId) {
+    if (!canBeLocked(signalId)) return false;
+    // lock logic...
+    return true;
+}
+\end{verbatim}
+
+\subsection*{OR/AND Control Logic}
+\begin{verbatim}
+bool validateControlMode(const SignalInfo& signalInfo) {
+    return signalInfo.controlMode == "AND"
+        ? allConditionsMet(signalInfo)
+        : anyConditionMet(signalInfo);
+}
+\end{verbatim}

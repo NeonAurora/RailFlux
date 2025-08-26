@@ -1,0 +1,10 @@
+\section{Core Components}
+\label{sec:system-overview:components}
+
+The interlocking system is composed of a set of modular components, each operating independently yet coordinated within the broader framework to ensure safe and reliable railway operations. At the operational level, the signal manager maintains continuous communication with the signaling elements, enforcing aspect control while defaulting all signals to “danger” unless safe conditions are validated. This not only aligns with fundamental safety principles but also ensures that the system is inherently fail-safe, minimizing risks during unexpected failures.
+
+Equally critical is the point machine controller, which governs the alignment of switches and points before any route is authorized. By verifying that track elements are in the correct position, it guarantees route consistency and prevents conflicting train paths. The track circuit monitor complements this function by providing real-time feedback on track occupancy. Through constant surveillance of train positions, it identifies unauthorized entries into protected zones, creating a secondary safeguard against operational hazards.
+
+At the center of the architecture lies the interlocking rule engine, which acts as the decision-making brain of the system. It evaluates route requests against predefined logical conditions, applying structured rules such as AND/OR combinations, overlap checks, and conflict resolution strategies. By blocking unsafe commands at the logic layer, it ensures that no single operator action or hardware anomaly can compromise system integrity.
+
+These components are deliberately designed as reusable and testable modules, each capable of being validated in isolation. This modularity simplifies maintenance, supports incremental extension of functionality, and allows new configurations to be introduced without disrupting the stability of the overall system. Together, the components create a tightly integrated yet flexible framework that embodies both traditional safety assurances and the agility required for future expansions.

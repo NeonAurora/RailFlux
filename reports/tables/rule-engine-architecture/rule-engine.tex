@@ -1,0 +1,25 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Core Methods of the InterlockingRuleEngine Module}
+    \begin{tabular}{p{5.2cm} p{10.2cm}}
+        \toprule
+        \textbf{Function} & \textbf{Description} \\
+        \midrule
+        \texttt{loadRulesFromResource} & Loads all interlocking rules from a JSON configuration file and parses them into internal data structures. \\
+        \texttt{validateInterlocked \newline SignalAspectChange} & Validates whether a signal can change from its current aspect to a requested aspect based on controlling signals and their rule sets. \\
+        \texttt{validateControllingSignals} & Performs the core rule logic by checking all controlling signals using AND/OR aggregation. \\
+        \texttt{checkConditions} & Validates conditions (e.g., point machine position or track segment occupancy) for a rule. \\
+        \texttt{getCurrentSignalAspect} & Retrieves the real-time current aspect of a signal from the database. \\
+        \texttt{getCurrentPointPosition} & Returns the live position of a point machine (e.g., NORMAL or REVERSE) from the database. \\
+        \texttt{parseJsonRules} & Translates the JSON rule structure into in-memory objects categorized by signal ID. \\
+        \texttt{parseRule} & Parses an individual rule, extracting controlling aspects, allowed transitions, and conditions. \\
+        \texttt{parseCondition} & Translates JSON-defined conditions into structured logic constraints (e.g., point position). \\
+        \texttt{parseAllowedSignal} & Creates an allowed aspect entry for a specific signal from the JSON array. \\
+        \texttt{getControlledSignals} & Returns a list of signal IDs that the specified signal permits through its rules. \\
+        \texttt{getControllingSignals} & Returns a list of signals that control the given signal’s behavior. \\
+        \texttt{isSignalIndependent} & Indicates whether the signal has interlocking constraints or can always change aspects. \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:interlocking-rule-engine-methods}
+\end{table}

@@ -1,0 +1,27 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Core Functions of the TrackCircuitBranch Module}
+    \begin{tabular}{p{5.2cm} p{10.2cm}}
+        \toprule
+        \textbf{Function} & \textbf{Description} \\
+        \midrule
+        enforceTrackSegment \newline OccupancyInterlocking & Main method triggered upon occupancy transition. Identifies protecting signals and initiates enforcement. \\
+        checkTrackSegmentExists & Verifies the existence of the track segment using the database. \\
+        checkTrackSegmentActive & Checks if the track segment is operational and enabled. \\
+        getTrackSegmentState & Fetches current metadata: occupancy, activity, assigned status, and protecting signals. \\
+        getProtectingSignals \newline FromBothSources & Combines protecting signal IDs from both DB relations and configuration metadata. \\
+        getProtectingSignals \newline FromDatabase & Queries signal-track protection mapping from the relational table. \\
+        getProtectingSignals \newline FromTrackSegmentData & Extracts protecting signal array from track segment's own data field. \\
+        enforceSignalToRed & Attempts to set a single signal to RED; verifies status and logs failures. \\
+        enforceMultipleSignalsToRed & Batch-enforces RED on all protecting signals and reports any failures. \\
+        verifySignalIsRed & Confirms a signal's current aspect is RED. \\
+        areAllSignalsAtRed & Checks if all listed signals are already at RED state. \\
+        handleInterlockingFailure & Logs failure, emits freeze signal, and triggers interlockingFailure signal. \\
+        emitSystemFreeze & Issues a freeze event with detailed error reasons and affected entities. \\
+        logCriticalFailure & Logs a detailed system-level failure with timestamp and thread. \\
+        formatFailureDetails & Assembles a detailed failure message including time, signal IDs, and errors. \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:track-circuit-branch-functions}
+\end{table}

@@ -1,0 +1,18 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Core Functions of the SignalRule Module}
+    \begin{tabular}{p{5.2cm} p{10.2cm}}
+        \toprule
+        \textbf{Function} & \textbf{Description} \\
+        \midrule
+        SignalRule & Constructor that initializes the rule with controlling aspect, conditions, and allowed signals. \\
+        isSignalAspectAllowed & Checks whether a specific signal is permitted to display a given aspect under this rule. \\
+        buildLookupCache & Builds an internal map from signal ID to allowed aspects for fast runtime lookup. \\
+        getWhenAspect & Returns the aspect this rule applies to (e.g., when a controlling signal shows YELLOW). \\
+        getConditions & Returns the list of conditions (e.g., point machine states or track occupancy). \\
+        getAllowedSignals & Returns the list of signals and their allowed aspects this rule governs. \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:signal-rule-functions}
+\end{table}

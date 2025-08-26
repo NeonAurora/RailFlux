@@ -1,0 +1,104 @@
+%!TEX TS-program = pdflatex
+%
+% This is an improved dissertation template that satisfies the formatting requirements
+% by the Computer Sciences department and the graduate school at UW--Madison.
+%
+% Composed and improved by Guanzhou Hu <guanzhou.jose.hu@gmail.com> in 2025, based
+% this original template by Benton:  https://github.com/willb/wi-thesis-template
+%
+% Link to this improved template:  https://github.com/WiscADSL/Wisc-Dissertation
+% See here for an end result:  https://www.josehu.com/assets/file/Dissertation.pdf
+%
+% Below is the original copyright header by William Benton:
+%
+% Wisconsin dissertation template
+% Copyright (c) 2008-2009 William C. Benton.  All rights reserved.
+%
+% This program can be redistributed and/or modified under the terms of the LaTeX Project
+% Public License Distributed from CTAN archives in directory macros/latex/base/lppl.txt;
+% either version 1 of the License, or (at your option) any later version.
+%
+% This program includes other software that is licensed under the terms of the LPPL and
+% the Perl Artistic License; see README for details.
+%
+% You, the user, still hold the copyright to any document you produce with this software
+% (like your dissertation).
+%
+
+\documentclass[12pt,oneside,letterpaper]{memoir}
+
+\setlrmarginsandblock{1.2in}{1.2in}{*}   % left/right
+\setulmarginsandblock{1.4in}{1.4in}{*}   % upper/lower
+\checkandfixthelayout                % calculates the typeblock
+
+\setsecnumdepth{subsubsection}  % otherwise subsecs & subsubsecs won't have preceding numbers
+\maxtocdepth{subsection}        % otherwise subsecs won't appear in ToC
+
+\input{defs/preamble}       % all preambles go here
+\input{defs/thesisdefs}     % all definitions related to thesis formatting components
+\input{defs/customdefs}     % all your custom definitions such as system names
+
+\clearpage\pagenumbering{roman}     % roman page numbering until the first main chapter
+
+
+
+\begin{document}
+
+%% Uncomment the following if your .bib contains references that you will not 
+%% explicitly cite, but that should be in the final bibliography:
+% \nocite{*}
+
+\ifpdf
+\DeclareGraphicsExtensions{.pdf, .jpg, .tif}
+\else
+\DeclareGraphicsExtensions{.eps, .jpg}
+\fi
+
+\frontsheet
+  {01} % Project/Thesis No. (fill in)
+  {Improvement of Current Autonomous Railway Signal Operations: Bangladesh Perspectives} % Title
+  {Arnob Bhowmik} % Name
+  {1907065} % Roll
+  {August 2025} % Date line
+
+%% Title page elements definitions -- CHANGE TO YOURS:
+\title{Improvement of Current Autonomous Railway Signal Operations: Bangladesh Perspectives}
+\author{Arnob Bhowmik}
+\roll{1907065}
+\department{Computer Science and Engineering}
+\date{2025}
+\defensedate{June 30th, 2025}
+\degree{Bachelor of Science} % appears in the quoted line
+\supervisor{Dr. Muhammad Sheikh Sadi}
+\supervisortitle{Professor}
+\supervisordepartment{Department of Computer Science and Engineering}
+\supervisoruniv{Khulna University of Engineering \& Technology}
+
+
+\maketitle
+
+%% Dedication, Acknowledgments, Abstract, etc.:
+\input{0-frontmatter/frontmatter}
+
+%% Your main chapters, organized nicely:
+ \input{1-introduction/introduction}
+ \input{2-literature-review/literature-review}
+ \input{3-system-overview/system-overview}
+ \input{4-interlocking-logic/interlocking-logic}
+\input{5-methodology/methodology.tex}
+ \input{6-implementation/implementation}
+ \input{7-example-layout/example-layout}
+ \input{8-results/results}
+ \input{9-outro/outro}
+ \input{10-conclusion/conclusion}
+
+%% Comment out if you don't need any appendix:
+\begin{appendices}
+%%\input{99-appendix/appendix}
+\end{appendices}
+
+%% Bibliography:
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

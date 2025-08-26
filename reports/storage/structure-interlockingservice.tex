@@ -1,0 +1,25 @@
+RailFlux System Architecture - Core Module Analysis
+Interlocking Service - Central Safety Orchestrator
+The InterlockingService functions as the primary safety validation coordinator, implementing a delegated branch architecture pattern. It maintains operational state monitoring with sub-50ms response time requirements and reactive safety enforcement capabilities.
+Core Design Pattern: The service employs unique_ptr-managed validation branches, each specializing in distinct railway entity validation domains. Performance monitoring utilizes deque-based response time history with configurable size limits (MAX_RESPONSE_HISTORY = 1000). Operational state changes trigger Qt signal emissions for reactive UI updates.
+Validation Flow Architecture: Operator-initiated actions follow strict timing protocols with QElapsedTimer measurements. Each validation request delegates to appropriate branches, records performance metrics, and emits blocking signals for failed validations. Critical failures activate system freeze protocols through emergency signal pathways.
+Signal Branch - Aspect Control & Interlocking Validation
+SignalBranch implements multi-layered validation architecture combining database consistency checks with rule engine evaluation. The branch integrates InterlockingRuleEngine for safety rule processing and maintains dual-source validation for protected track circuits.
+Validation Layers:
+
+Entity State Validation: Signal existence, active status, and configuration consistency
+Transition Validation: Aspect change legitimacy using state machine patterns
+Track Circuit Protection: Comprehensive dual-source validation combining signal data and interlocking rules
+Rule Engine Integration: JSON-based interlocking rules loaded from resources with runtime evaluation
+Subsidiary Signal Support: Calling-on and loop signal validation with composite aspect prediction
+
+Protected Track Circuit Architecture: Implements ProtectedTrackSegmentsValidation structure with dual-source consistency checking. Validates track circuits from both signal configuration data and interlocking rule definitions, detecting inconsistencies through cross-referencing algorithms.
+Track Circuit Branch - Reactive Safety Enforcement
+TrackCircuitBranch serves as the primary reactive safety component, responding to hardware-driven track occupancy changes with automatic protective actions. Unlike validation branches, this module implements enforcement rather than validation logic.
+Reactive Architecture: Hardware occupancy events trigger enforceTrackSegmentOccupancyInterlocking with immediate protective signal control. The system maintains TrackSegmentState structures containing occupancy status, assignment state, activity flags, and protecting signal relationships.
+Protection Signal Resolution: Employs three-source validation methodology - interlocking rules, track circuits, and track segments - to determine comprehensive protecting signal coverage. Signal protection enforcement occurs through direct database stored procedure execution with transactional safety.
+Emergency Protocols: Critical failures trigger systemFreezeRequired signals with detailed failure context, while successful automatic protection activates automaticInterlockingCompleted notifications containing affected signal lists.
+Point Machine Branch - Position Control & Paired Operations
+PointMachineBranch handles point machine position validation with support for both individual and paired operations. Implements comprehensive validation spanning route conflicts, track occupancy, signal protection, and mechanical constraints.
+Validation Methodology: Ten-layer validation cascade including basic checks, position legitimacy, route assignments, timing constraints, signal protection, track occupancy, conflicting points, and route conflicts. Each layer operates independently with early termination on failures.
+Paired Operation Support: Specialized validation for synchronized point machine pairs with combined track segment occupancy checking and paired conflict resolution. Maintains separate validation paths for primary and paired machines while ensuring synchronized operation safety.

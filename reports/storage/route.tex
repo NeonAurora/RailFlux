@@ -1,0 +1,56 @@
+Module Architecture Analysis
+Interlocking Rule Engine
+Architecture Pattern: JSON-driven rule processing with cached lookup optimization. The engine maintains immutable SignalRule structures containing condition evaluation logic and permission matrices.
+Input Processing: Accepts signal identifiers, current aspects, and requested aspects. Validates against SignalInfo structures containing signal type, independence flags, control modes (AND/OR), and controlling signal relationships.
+Core Data Structures: SignalRule implements three-tier condition system - entity type validation, required state checking, and allowed signal mappings. Each rule contains whenAspect triggers, condition lists, and AllowedSignal permission sets. SignalInfo aggregates signal metadata with rule collections and control relationships.
+Output Generation: Returns ValidationResult structures with status codes, severity levels, affected entities, and rule identifiers. Supports composite aspect evaluation with main/subsidiary aspect decomposition.
+Lookup Optimization: Pre-computed QHash lookup caches map signal identifiers to permitted aspect lists. Cache rebuilding occurs on-demand with thread-safe lazy initialization patterns.
+Parsing Architecture: Recursive JSON parsing transforms resource-embedded interlocking rules into native C++ structures. Handles nested condition objects, aspect arrays, and control relationship definitions through dedicated parsing functions.
+Resource Lock Service
+Architecture Pattern: Multi-type lock management with conflict detection algorithms and expiration tracking. Implements EXCLUSIVE, SHARED, and OVERLAP lock semantics with database persistence.
+Input Validation: LockRequest structures specify resource type, identifier, route UUID, lock type, operator context, and timeout parameters. Validates resource existence, operator permissions, and timeout boundaries.
+Lock Compatibility Matrix: Internal compatibility evaluation between existing ResourceLock structures and incoming requests. EXCLUSIVE locks prevent all coexistence, ROUTE locks conflict with other ROUTE locks, OVERLAP locks have specialized railway-specific compatibility rules.
+Conflict Resolution: findConflictingLocks algorithm iterates through active locks, evaluating compatibility matrices and returning detailed conflict descriptions with route ownership information.
+Output Structures: LockResult contains success status, error details, lock timestamps, expiration times, and conflicting lock identifiers. ResourceStatusResult provides batch operation feedback with affected resource lists and row counts.
+Expiration Management: Background maintenance timer processes expire lock cleanup with configurable intervals. Expired locks trigger automatic release with audit logging and resource state updates.
+Database Integration: Transactional lock persistence with PostgreSQL-specific features including advisory locks for atomic operations and LISTEN/NOTIFY for real-time conflict notifications.
+Graph Service
+Architecture Pattern: A* pathfinding algorithm with conditional edge evaluation and heuristic optimization. Maintains adjacency list representation with GraphEdge structures containing weight calculations and point machine conditions.
+Input Processing: Pathfinding requests specify start/goal circuit identifiers, direction enumerations (UP/DOWN), point machine state mappings, and timeout constraints. Validates circuit existence and accessibility.
+Core Algorithm: Priority queue-based A* implementation using PathfindingNode structures with gCost, hCost, and parent tracking. OpenSet maintains frontier expansion with cost-based ordering.
+Edge Evaluation: GraphEdge structures contain conditional logic for point machine dependencies. isEdgeAccessible evaluates current point machine positions against required positions, supporting both moveable and fixed position requirements.
+Heuristic Calculation: Distance-based heuristics between circuit positions with configurable weight factors. calculateHeuristic provides admissible cost estimation for optimal path guarantees.
+Output Generation: PathfindingResult contains success status, optimal path as circuit identifier lists, total cost calculations, nodes explored count, and execution time metrics.
+Performance Monitoring: Maintains pathfinding statistics including success rates, average execution times, and node exploration efficiency. Automatic timeout protection prevents infinite loops.
+Overlap Service
+Architecture Pattern: Dynamic safety overlap calculation with automatic release trigger monitoring. Processes signal_overlap_definitions for braking distance calculations and release conditions.
+Input Requirements: Signal identifier, destination reference, overlap circuit lists, release trigger identifiers, and operator context. Validates signal existence and overlap definition availability.
+Calculation Engine: Processes overlap distance requirements based on signal definitions, track circuit configurations, and safety margin calculations. Supports both distance-based and circuit-based overlap definitions.
+Release Monitoring: Release trigger tracking monitors specified track circuits for occupancy changes that indicate overlap clearance conditions. Integrates with database LISTEN/NOTIFY for real-time trigger detection.
+Timer Management: Configurable timed overlap release with safety countdown mechanisms. Maintains active overlap reservations with expiration tracking and automatic cleanup.
+Output Structures: Overlap reservation results contain reservation identifiers, allocated circuit lists, release trigger configurations, and estimated release times.
+Telemetry Service
+Architecture Pattern: Event-driven performance metrics collection with trend analysis and alert generation. Maintains rolling statistics with configurable retention periods.
+Input Streams: Performance measurements (processing times, success rates), safety events (violations, warnings), resource utilization metrics, and system health indicators.
+Metric Aggregation: Real-time metric collection using circular buffer patterns for memory efficiency. Supports percentile calculations, moving averages, and trend detection algorithms.
+Event Classification: Safety events processed through severity categorization (INFO, WARNING, CRITICAL) with automatic escalation rules and audit trail generation.
+Alert Engine: Threshold-based alert generation with configurable warning and critical levels. Supports rate-based alerting to prevent notification flooding.
+Output Formats: Metric queries return statistical summaries, trend analyses, performance reports, and real-time system health status. Supports both point-in-time queries and historical trend analysis.
+Storage Architecture: Bounded collection management prevents memory leaks during continuous operation. Automatic data retention policies with configurable retention periods.
+Vital Route Controller
+Architecture Pattern: Safety-critical validation with five-tier safety level classification (VITAL_SAFE, SAFE, CAUTION, WARNING, DANGER). Implements emergency procedures with comprehensive failure handling.
+Input Validation: Route requests undergo multi-layer validation including signal compatibility, resource availability, interlocking compliance, and safety constraint verification.
+Safety Assessment: RouteAssignment structures processed through safety validation pipelines. Integrates with InterlockingService for rule compliance and ResourceLockService for conflict detection.
+Emergency Protocols: Emergency release capabilities with operator override functionality. Maintains audit trails for regulatory compliance and safety analysis.
+Route State Management: Complete route lifecycle tracking from REQUESTED through ACTIVE to RELEASED states. State transitions validated through safety constraint checking.
+Performance Monitoring: Sub-50ms response time requirements with automatic performance degradation detection. Maintains validation statistics and response time histories.
+Output Generation: ValidationResult structures with detailed safety assessments, resource reservation status, and emergency procedure availability.
+Aspect Propagation Service
+Architecture Pattern: Graph-based signal control dependency management with intelligent aspect selection algorithms. Implements RIPPLE algorithm for control graph pruning and topological sorting for dependency ordering.
+Input Processing: Source/destination signal pairs, point machine position requirements, and propagation options. Builds comprehensive control graphs through recursive relationship expansion.
+Graph Construction: ControlNode and ControlEdge structures represent signal control relationships with condition evaluation. Recursive expansion builds complete control influence networks.
+RIPPLE Algorithm: Destination-focused graph pruning using bidirectional breadth-first search. Reduces control graph complexity while maintaining complete influence pathways.
+Dependency Resolution: Topological sorting with Kahn's algorithm creates processing order. Detects circular dependencies through depth-first search with comprehensive cycle reporting.
+Aspect Selection: Intelligent aspect selection based on operational efficiency and safety constraints. Evaluates multiple permitted aspects and selects optimal configurations.
+Output Structures: AspectPropagationResult contains signal aspect assignments, point machine requirements, validation status, and detailed execution reasoning.
+Integration Patterns: Connects with InterlockingRuleEngine for control relationship data and VitalRouteController for safety validation. Supports both simulation and execution modes.

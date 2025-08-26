@@ -1,0 +1,14 @@
+\section{Safety Checks and Conflict Detection}
+\label{sec:interlocking:safety-checks}
+
+Safety is not enforced by a single rule but by a layered mechanism of pre-validation, real-time monitoring, and fallback measures. The interlocking system includes:
+
+\begin{itemize}
+\item \textbf{Route Conflict Detection:} Base engine can detect and pinpoint conflicting sections. Ensures no two active routes share track segments. A lookup against all reserved routes is performed before a new route is committed.
+\item \textbf{Point Conflict Detection:} Prevents contradictory point commands. A point cannot be locked in two opposing positions simultaneously across overlapping routes.
+\item \textbf{Occupancy Synchronization:} Real-time updates from track circuits ensure stale or conflicting data does not lead to unsafe decisions.
+\item \textbf{Command Verification:} Each command (e.g., route reservation, point alignment) passes a verification layer before execution.
+\item \textbf{System Logs and Feedback:} Any blocked or failed operation is logged with reasons and presented to the operator via the UI.
+\end{itemize}
+
+The safety framework has been designed to align with best practices in software-defined safety systems (IEC 61508, EN 50128), though full certification is marked as future work.

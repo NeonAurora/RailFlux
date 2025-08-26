@@ -1,0 +1,14 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Core Rule Engine Classes and Their Responsibilities}
+    \begin{tabular}{|p{5cm}|p{9.5cm}|}
+        \hline
+        \textbf{Class Name} & \textbf{Description} \\\hline
+        InterlockingRuleEngine & Central engine responsible for evaluating interlocking rules. It parses incoming route or signal commands and checks all safety constraints before granting approval. \\\hline
+        ValidationResult & Encapsulates the outcome of rule evaluations, including success status, reason for failure (if any), and log-friendly output. \\\hline
+        SignalBranch, PointMachineBranch, TrackCircuitBranch & Subcomponents that validate signal status, point machine alignment, and track occupancy respectively. \\\hline
+        RuleParser & Parses JSON-based interlocking definitions and extracts logical conditions, such as AND/OR dependencies and overlap protections. \\\hline
+    \end{tabular}
+    \label{tab:rule-engine-classes}
+\end{table}

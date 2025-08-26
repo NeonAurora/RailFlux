@@ -1,0 +1,29 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Core Functions of the PointMachineBranch Module}
+    \begin{tabular}{p{5.2cm} p{10.2cm}}
+        \toprule
+        \textbf{Function} & \textbf{Description} \\
+        \midrule
+        validatePositionChange & Orchestrates the full validation sequence for a requested point machine position change. \\
+        checkPointMachineExists & Verifies the existence of the point machine in the system database. \\
+        checkPointMachineActive & Ensures the machine is marked active and enabled for operation. \\
+        checkOperationalStatus & Checks if machine is failed, in transition, or locked out. \\
+        checkLockingStatus & Determines if the machine is mechanically locked. \\
+        checkTimeLocking & Ensures any time-based locking has expired. \\
+        checkDetectionLocking & Verifies detection locking based on occupied track segments. \\
+        checkProtectingSignals & Confirms that all protecting signals are showing RED. \\
+        checkTrackSegmentOccupancy & Prevents operation if the affected track segments are occupied. \\
+        checkConflictingPoints & Detects conflicting point machines and validates their current position. \\
+        checkRouteConflicts & Identifies conflicts with active or pending routes. \\
+        getPointMachineState & Helper method to fetch operating status, lock state, and metadata. \\
+        getProtectingSignals & Returns signal IDs that protect the given point machine. \\
+        getAffectedTrackSegments & Returns a list of track segments impacted by the position change. \\
+        getConflictingPointMachines & Lists point machines that conflict with the current one geometrically. \\
+        areAllProtectingSignalsAtRed & Utility function to check RED aspect of all provided signals. \\
+        analyzeRouteImpact & Evaluates route database to detect operational conflicts with routes. \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:point-machine-branch-functions}
+\end{table}

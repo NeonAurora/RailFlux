@@ -1,0 +1,573 @@
+% Dissertation meta elements definitions
+
+\makeatletter
+
+\newcounter{tocpage}
+\newcounter{lofpage}
+\newcounter{lotpage}
+\newcounter{listofheading}
+
+%=============================================================================
+% FRONT SHEET (custom first page, unnumbered and not counted)
+%=============================================================================
+\def\frontsheet#1#2#3#4#5{%
+  \newpage
+  % Header line (real header area, 12pt, left)
+  \renewcommand{\frontsheetheader}{{\fontsize{12}{14}\selectfont Project/Thesis No.:~#1}}
+  \thispagestyle{frontsheetps}%
+  \addtocounter{page}{-1}% don't count this page
+
+  % Switch to Times just for this page (ptm = Times)
+  {\fontfamily{ptm}\selectfont
+
+  % Content box starts ~1.2in from the top margin (per KUET guide)
+  % \vspace*{0.5in}
+
+  \begin{center}
+    % CSE 4000 line: 14pt bold
+    {\fontsize{14}{16}\selectfont \bfseries CSE 4000: Thesis/ Project\par}
+
+    % Gap: ~1.5 line of 14pt
+    \vspace*{21pt}
+
+    % Main title: 18pt, bold, small caps, 1.5 line spacing
+    {\fontsize{18}{27}\selectfont \bfseries\scshape #2\par}
+
+    % Gap: "2 blank lines of 12 size with 1.5 line space"
+    % -> 2 × (12pt × 1.5) = 36pt
+    \vspace*{36pt}
+
+    % "By" line: 14pt normal, centered
+    {\fontsize{14}{21}\selectfont By\par}
+
+    % Gap: "3 blank lines of 12 size" at 1.5 leading -> 3 × 18pt = 54pt
+    \vspace*{26pt}
+
+    % Name (14pt bold) + Roll (14pt normal)
+    {\fontsize{14}{21}\selectfont \bfseries #3\par}
+    {\fontsize{14}{21}\selectfont Roll:~#4\par}
+
+    % Gap before logo: generous to mimic KUET sample (~2 lines @ 14pt)
+    \vspace*{80pt}
+
+    % KUET logo: 1.2" tall (width scales)
+    \includegraphics[height=1.2in]{images/kuet-logo.png}\par
+
+    % Gap before footer block: "2 blank lines of 12 size" -> 36pt
+    \vspace*{88pt}
+
+    % Footer block: 12pt, bold, centered, 1.5 line spacing
+    {\fontsize{12}{18}\selectfont \bfseries
+      Department of Computer Science and Engineering\par
+      Khulna University of Engineering \& Technology\par
+      Khulna 9203, Bangladesh\par
+      #5\par}
+  \end{center}
+  }% end Times font
+  \newpage
+}
+%=============================================================================
+% TITLE PAGE
+%=============================================================================
+% Title page elements...
+%=============================================================================
+\newcommand\@thesistitlemedskip{0.15in}
+\newcommand\@thesistitlebigskip{0.55in}
+\newcommand{\degree}[1]{\gdef\@degree{#1}}
+\newcommand{\project}{\gdef\@doctype{A masters project report}}
+\newcommand{\prelim}{\gdef\@doctype{A preliminary report}}
+\newcommand{\thesis}{\gdef\@doctype{A thesis}}
+\newcommand{\dissertation}{\gdef\@doctype{A dissertation}}
+\newcommand{\department}[1]{\gdef\@department{(#1)}}
+\newcommand{\@thesiscommitteeskip}{35pt}
+\newcommand{\defensedate}[1]{\gdef\@defensedate{#1}}
+\newcommand{\committee}[1]{\gdef\@committee{#1}}
+\newcommand{\roll}[1]{\gdef\@roll{#1}}       \gdef\@roll{}
+\newcommand{\supervisor}[1]{\gdef\@supervisor{#1}} \gdef\@supervisor{}
+\newcommand{\supervisortitle}[1]{\gdef\@supervisortitle{#1}} \gdef\@supervisortitle{}
+\newcommand{\supervisordepartment}[1]{\gdef\@supervisordepartment{#1}} \gdef\@supervisordepartment{}
+\newcommand{\supervisoruniv}[1]{\gdef\@supervisoruniv{#1}} \gdef\@supervisoruniv{}
+
+
+\newenvironment{titlepage}
+ {\@restonecolfalse\if@twocolumn\@restonecoltrue\onecolumn
+  \else \newpage \fi \thispagestyle{empty}
+% \c@page\z@ -- deleted: count title page in thesis
+}{\if@restonecol\twocolumn \else \newpage \fi}
+
+\gdef\@degree{Bachelor Science}    % default is PhD
+\gdef\@doctype{A dissertation}         % default is dissertation
+
+\gdef\@department{(Computer Sciences)} % default is Computer Sciences
+\gdef\@defensedate{01/01/2100}         % default is a long time from now
+\gdef\@committee{                      % dome default names
+  Jane Doeverything, Professor, Computer Sciences\\
+  John Dosomethings, Associate Professor, Electrical Engineering\\
+}
+
+\renewcommand{\maketitle}{%
+  \begin{titlepage}
+    % Use your global pagestyle so the roman page number appears in footer center
+    \thispagestyle{footcenter}
+
+    % Use Times on this page for exact KUET look
+    {\fontfamily{ptm}\selectfont
+
+    % Title: 18 pt, bold, centered, 1.5 leading
+    \begin{center}
+      {\fontsize{18}{27}\selectfont \bfseries \@title\par}
+
+      % 3 blank lines of size 12 (1.5 leading) -> 3 * 18pt = 54pt
+      \vspace*{54pt}
+
+      % "By" (12 pt, centered)
+      {\fontsize{12}{18}\selectfont By\par}
+
+      % 2 blank lines of size 12 -> 36pt
+      \vspace*{36pt}
+
+      % Author (12 pt bold) and Roll (12 pt)
+      {\fontsize{12}{18}\selectfont \bfseries \@author\par}
+      {\fontsize{12}{18}\selectfont Roll: \@roll\par}
+
+      % 1 blank line (12 pt @ 1.5 leading) -> 18pt
+      \vspace*{18pt}
+
+      % Submission line (12 pt, centered)
+      {\fontsize{12}{18}\selectfont
+        A thesis submitted in partial fulfillment of the requirements for the degree of\par
+        ``\@degree\space in Computer Science \& Engineering''\par}
+
+      % 2 blank lines -> 36pt
+      \vspace*{36pt}
+    \end{center}
+
+    % Supervisor block: left aligned; signature line on the right
+    \noindent{\fontsize{12}{18}\selectfont \bfseries Supervisor:}
+    \par\medskip
+    \hspace*{0.6in}{\fontsize{12}{18}\selectfont \bfseries \@supervisor}\par
+    \hspace*{0.6in}{\fontsize{12}{18}\selectfont \@supervisortitle}\par
+    \hspace*{0.6in}{\fontsize{12}{18}\selectfont \@supervisordepartment}\par
+    \hspace*{0.6in}{\fontsize{12}{18}\selectfont \@supervisoruniv}\par
+    % Signature line on right
+    \vspace*{-72pt}% pull the line up to align with supervisor block (tweak if needed)
+    \hfill
+    \begin{minipage}{1.6in}
+      \centering
+      \rule{1.6in}{0.4pt}\\[-0.3ex]
+      {\fontsize{12}{18}\selectfont Signature}
+    \end{minipage}
+    \par
+    \vspace*{72pt}
+
+    % Push footer block near bottom and typeset it (12 pt bold, centered, 1.5 leading)
+    \vfill
+    \begin{center}
+      {\fontsize{12}{18}\selectfont \bfseries
+        Department of Computer Science and Engineering\par
+        Khulna University of Engineering \& Technology\par
+        Khulna 9203, Bangladesh\par
+        \@date\par}
+    \end{center}
+
+    }% end Times font
+  \end{titlepage}
+
+  % DO NOT reset counter; keep roman numbering from main.tex
+  % (Your \pagenumbering{roman} before \begin{document} is already in place)
+}
+
+
+%=============================================================================
+% ABSTRACT (KUET-styled; matches Acknowledgment header)
+%=============================================================================
+% Usage:
+% \begin{abstract}
+%   \input{0-frontmatter/0-2-abstract}
+% \end{abstract}
+
+\def\abstract{%
+  \clearpage
+  \thispagestyle{footcenter}% footer-centered page number
+  \addcontentsline{toc}{chapter}{Abstract}% single ToC entry
+  % Switch to Times for this page only:
+  \begingroup\fontfamily{ptm}\selectfont
+  % Heading: 16 pt, bold, centered:
+  \begin{center}
+    {\fontsize{16}{24}\selectfont\bfseries Abstract}
+  \end{center}
+  % Two blank lines of 12 pt below the heading:
+  \vspace*{24pt}
+}
+\def\endabstract{%
+  \par\endgroup % close the font group started in \abstract
+  \clearpage    % start the next front-matter page cleanly
+}
+
+%=============================================================================
+% UMI ABSTRACT
+%=============================================================================
+% The UMI abstract should begin with the author and title in a standard format.
+% After the author comes the advisor and university. After these lines comes
+% a bunch of double spaced text to make up the standard abstract.
+% After the abstract, the advisor's approval signature follows.
+% This page is not numbered and is delivered seperately to the thesis office.
+%=============================================================================
+\def\advisortitle#1{\gdef\@advisortitle{#1}}
+\def\advisorname#1{\gdef\@advisorname{#1}}
+\gdef\@advisortitle{Professor}
+\gdef\@advisorname{Cheer E.\ Place}
+
+\def\umiabstract{
+             \thispagestyle{empty}
+                  \addtocounter{page}{-1}
+                \begin{center}
+                  {\textbf{\expandafter\uppercase\expandafter{\@title}}}\\
+                  \vspace{12pt}
+                  \@author \\
+                  \vspace{12pt}
+                  Under the supervision of \@advisortitle\ \@advisorname\\
+                  At the University of Khulna University of Engineering and Technology
+                \end{center}
+}
+\def\endumiabstract{\vfill \hfill\@advisorname\par\newpage}
+
+%============================================================================
+% VERBATIM FILE
+%============================================================================
+% \verbatimfile{<filename>}    for verbatim inclusion of a file
+% - Note that the precise layout of line breaks in this file is important!
+% - added the \singlespace - EB
+%============================================================================
+\def\verbatimfile#1{\begingroup \singlespace
+                    \@verbatim \frenchspacing \@vobeyspaces
+                    \input#1 \endgroup
+}
+
+%=============================================================================
+% SEPARATOR Pages
+%   Creates a blank page with a text centered horizontally and vertically.
+%   The page is neither counted nor numbered.
+%   These pages are required in the thesis format before sections such
+%   as appendices, vita, bibliography, etc.
+%=============================================================================
+\def\separatorpage#1{
+  \newpage
+  \thispagestyle{empty}
+  \addtocounter{page}{-1}
+  \null
+  \vfil\vfil
+  \begin{center}
+    {\textbf{#1}}
+  \end{center}
+  \vfil\vfil
+  \newpage}
+
+%=============================================================================
+% COPYRIGHT PAGE (unnumbered, not counted)
+%=============================================================================
+\def\copyrightpage{%
+  \clearpage
+  {\thispagestyle{empty}% no header/footer on this page
+   \addtocounter{page}{-1}% don't count this page
+   \null\vfill
+   \begin{center}
+     {\fontfamily{ptm}\selectfont
+     \copyright\ Copyright by \@author\ \@date\\
+     All Rights Reserved}
+   \end{center}
+   \vfill\null
+  }%
+  \clearpage
+}
+
+%=============================================================================
+% GLOSSARY
+%=============================================================================
+% The glossary environment must do the following:
+% - produce the table of contents entry for the glossary
+% - start a new page with GLOSSARY centered two inches from the top
+%=============================================================================
+\def\glossary{
+  \chapter*{GLOSSARY}
+  \addcontentsline{toc}{chapter}{Glossary}}
+\def\endglossary{\par\newpage}
+
+%=============================================================================
+% NOMENCLATURE
+%=============================================================================
+% The nomenclature environment must do the following:
+% - produce the table of contents entry for the nomenclature section
+% - start a new page with NOMENCLATURE centered two inches from the top
+%=============================================================================
+\def\nomenclature{\separatorpage{DISCARD THIS PAGE}
+  \chapter*{Nomenclature}
+  \addcontentsline{toc}{chapter}{NOMENCLATURE}}
+\def\endnomenclature{\par\newpage}
+
+%=============================================================================
+% CONVENTIONS
+%=============================================================================
+% The conventions environment must do the following:
+% - produce the table of contents entry for the nomenclature section
+% - start a new page with CONVENTIONS centered two inches from the top
+%=============================================================================
+\def\conventions{\separatorpage{DISCARD THIS PAGE}
+  \chapter*{Conventions}
+  \addcontentsline{toc}{chapter}{CONVENTIONS}}
+\def\endconventions{\par\newpage}
+
+%=============================================================================
+% COLOPHON
+%=============================================================================
+% The colophon environment must do the following:
+% - produce the table of contents entry for the nomenclature section
+% - start a new page with COLOPHON centered two inches from the top
+%=============================================================================
+\def\colophon{\separatorpage{DISCARD THIS PAGE}
+  \chapter*{Colophon}
+  \addcontentsline{toc}{chapter}{Colophon}}
+\def\endcolophon{\par\newpage}
+
+%=============================================================================
+% LIST OF SYMBOLS
+%=============================================================================
+% The list of symbols environment must do the following:
+% - produce the table of contents entry for the list of symbols section
+% - start a new page with LIST OF SYMBOLS centered two inches from the top
+%=============================================================================
+\def\listofsymbols{\separatorpage{DISCARD THIS PAGE}
+  \eject
+  \chapter*{LIST OF SYMBOLS}
+  \addcontentsline{toc}{chapter}{LIST OF SYMBOLS}}
+\def\endlistofsymbols{\par\newpage}
+
+%=============================================================================
+% VITA
+%=============================================================================
+% The vita environment must do the following:
+% - produce a separator page with the word vita centered
+% - produce the table of contents entry for the vita
+% - start a new page with VITA centered two inches from the top
+%=============================================================================
+\def\vita{
+%  \separatorpage{VITA}         % UW doesn't require this EB
+  \chapter*{VITA}
+  \addcontentsline{toc}{chapter}{VITA}}
+\def\endvita{\par\newpage}
+
+%=============================================================================
+% ACKNOWLEDGMENT (KUET-styled)
+%=============================================================================
+% Usage:
+% \begin{acks}
+%   <your paragraph(s)>
+%   \acksignature{Authors}         % or \acksignature{Rafik Sheikh}
+% \end{acks}
+
+\newcommand{\acksignature}[1]{%
+  \par\vspace*{24pt}% 2 blank lines of 12 pt
+  \noindent\hfill{\fontsize{12}{18}\selectfont\bfseries #1}\par
+}
+
+\def\acks{%
+  \clearpage
+  \thispagestyle{footcenter}% footer-centered page number
+  \addcontentsline{toc}{chapter}{Acknowledgment}%
+  % Switch to Times for this page only:
+  \begingroup\fontfamily{ptm}\selectfont
+  % 0.5 inch space above the heading:
+  % Heading: 16 pt, bold, centered:
+  \begin{center}
+    {\fontsize{16}{24}\selectfont\bfseries Acknowledgment}
+  \end{center}
+  % Two blank lines of 12 pt below the heading:
+  \vspace*{24pt}
+}
+\def\endacks{%
+  \par\endgroup % close the font group started in \acks
+  \clearpage    % (optional) force the next front-matter page to start fresh
+}
+
+%=============================================================================
+% DEDICATION
+%=============================================================================
+% The dedication environment must do the following:
+% - start a new page
+% - center the text vertically
+% - include the text in a center environment
+%=============================================================================
+\def\dedication{
+  \newpage
+  \null\vfil
+  \begin{center}}
+\def\enddedication{\end{center}\par\vfil\newpage}
+  
+%=============================================================================
+% DATE
+%=============================================================================
+%\def\today{\ifcase\month\or
+  %January\or February\or March\or April\or May\or June\or
+  %July\or August\or September\or October\or November\or December\fi
+  %\space\number\day, \number\year}
+\newcount\@testday
+\def\today{\@testday=\day
+  \ifnum\@testday>30 \advance\@testday by -30
+  \else\ifnum\@testday>20 \advance\@testday by -20
+  \fi\fi
+  \number\day\ \
+  \ifcase\month\or
+    January \or February \or March \or April \or May \or June \or
+    July \or August \or September \or October \or November \or December
+    \fi\ \number\year
+}
+
+%% Use a single counter for theorems and theorem-like environments:
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{assertion}[theorem]{Assertion}
+\newtheorem{claim}[theorem]{Claim}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{figger}[theorem]{Figure}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{prop}[theorem]{Proposition}
+\newtheorem{remark}[theorem]{Remark}
+
+%=============================================================================
+% TABLE OF CONTENTS; LIST OF FIGURES; LIST OF TABLES
+%=============================================================================
+% In report style, \tableofcontents, \listoffigures, etc. are always
+% set in single-column style.  @restonecol is used to keep track of
+% whether we need to switch back to double column style after the toc.
+%
+% The only known problem now is that the first page with the new
+% layout is too long.  The problem seems to be that the change to
+% textheight doesn't take place on the first page.  Even if it's the
+% first line in the table of contents macro.  Presumably the same
+% problem also occurs in the lof and lot.
+%
+% I'm taking a shot at fixing the problem by dropping in a throw-away
+% page between the change to the height parameters and the start of
+% the chapter.  Isn't elegance wonderful?
+%
+%=============================================================================
+% \def\@tableof#1#2#3#4#5{
+% { % limit scope of following declarations!!
+%   \@restonecolfalse\if@twocolumn\@restonecoltrue\onecolumn\fi
+%   \addtolength{\textheight}{-40pt}       % -24-16
+%   \addtolength{\majorheadskip}{-40pt}    % -24-16
+%   \addtolength{\headheight}{52pt}        %  36+16
+%   \addtolength{\headsep}{-12pt}          % -12
+%   \separatorpage{DISCARD THIS PAGE}
+%   \chapter*{#1}
+%   #5
+%   \relax\markboth{#1}{#1}
+%   \hbox to \hsize{#2 \hfil Page}
+%   \singlespace
+%   \setcounter{#3}{0}
+%   \setcounter{listofheading}{1}  % change from 0 to 1 by mccauley, 14may93
+%   \def\@oddhead{\vbox to \headheight{\vspace{4pt}
+%     \hbox to \hsize{\hfil\textrm{\thepage}} \vfil
+%     \ifnum\value{#3}=1
+%       \ifnum\value{listofheading}=2
+%         \hbox to \hsize{Appendix\hfil} \vspace{4pt} \fi
+%       \ifnum\value{listofheading}=1
+%         \stepcounter{listofheading} \fi
+%       \hbox to \hsize{#2 \hfil Page}
+%     \else
+%       \setcounter{#3}{1}
+%     \fi}}
+%   \def\@evenhead{\vbox to \headheight{\vspace{4pt}
+%     \hbox to \hsize{\textrm{\thepage}\hfil} \vfil
+%     \ifnum\value{#3}=1
+%       \ifnum\value{listofheading}=2
+%         \hbox to \hsize{Appendix\hfil} \vspace{4pt} \fi
+%       \ifnum\value{listofheading}=1
+%         \stepcounter{listofheading} \fi
+%       \hbox to \hsize{#2 \hfil Page}
+%     \else
+%       \setcounter{#3}{1}
+%     \fi}}
+%   \@starttoc{#4}  \if@restonecol\twocolumn\fi
+%   \newpage
+% }}
+% 
+% \def\tableofcontents{\@tableof{TABLE OF CONTENTS}{}{tocpage}{toc}{}}
+% 
+% \def\listoffigures{
+%   \@tableof{LIST OF FIGURES}{Figure}{lofpage}{lof}
+%   {\protect\addcontentsline{toc}{chapter}{LIST OF FIGURES}}}
+% 
+% \def\listoftables{
+%   \@tableof{LIST OF TABLES}{Table}{lotpage}{lot}
+%   {\protect\addcontentsline{toc}{chapter}{LIST OF TABLES}}}
+
+%=============================================================================
+% BIBLIOGRAPHY
+%=============================================================================
+% The thebibliography environment executes the following commands:
+%
+%  o start a new 'chapter' with BIBLIOGRAPHY as the heading
+%  o produce a separator page for the bibliography
+%
+%  \def\newblock{\hskip .11em plus .33em minus -.07em} --
+%      Defines the `closed' format, where the blocks (major units of
+%      information) of an entry run together.
+%
+%  \sloppy  -- Used because it's rather hard to do line breaks in
+%      bibliographies,
+%
+%  \sfcode`\.=1000\relax --
+%      Causes a `.' (period) not to produce an end-of-sentence space.
+%=============================================================================
+% \altbibtitle
+%   The default title for the References chapter is ``LIST OF REFERENCES''
+%   Since some people prefer ``BIBLIOGRAPHY'', the command
+%   \altbibtitle has been added to change the chapter title.
+%   This command does nothing more than change REFERENCES to BIBLIOGRAPHY
+%============================================================================
+\def\@bibchaptitle{References}
+\def\altbibtitle{\def\@bibchaptitle{Bibliography}}
+\def\thebibliography#1{
+  %\separatorpage{\@bibchaptitle}
+  % \global\@bibpresenttrue
+  \chapter*{\@bibchaptitle\markboth{\@bibchaptitle}{\@bibchaptitle}}
+  \addcontentsline{toc}{chapter}{\@bibchaptitle}
+  \vspace{0.375in}    % added to match 4 line requirement
+  \interlinepenalty=10000 % added to prevent breaking of bib entries
+  \singlespace\list
+  {[\arabic{enumi}]}{\settowidth\labelwidth{[#1]}\leftmargin\labelwidth
+    \advance\leftmargin\labelsep \usecounter{enumi}}
+  \def\newblock{\hskip .11em plus .33em minus -.07em}
+  \sloppy
+  \sfcode`\.=1000\relax}
+\let\endthebibliography=\endlist
+
+% ---- KUET-style centered chapter heading ----
+% (CHAPTER I) on one line, blank line, then the chapter title
+\makechapterstyle{kuet}{
+  % spacing around the heading block
+  \setlength{\beforechapskip}{1pt}   % <-- reduce vertical gap before heading
+  \setlength{\midchapskip}{12pt}      % 1 blank line (12 pt) between name/num and title
+  \setlength{\afterchapskip}{24pt}    % 2 blank lines (12 pt) after the title
+
+  % fonts (Times look)
+  \renewcommand\chapnamefont{\normalfont\bfseries\fontsize{14}{21}\selectfont}
+  \renewcommand\chapnumfont {\normalfont\bfseries\fontsize{14}{21}\selectfont}
+  \renewcommand\chaptitlefont{\normalfont\bfseries\fontsize{16}{24}\selectfont}
+
+  % center everything and print on two lines
+  \renewcommand\printchaptername{\centering\chapnamefont\MakeUppercase{\@chapapp}}
+  \renewcommand\printchapternum{\centering\chapnumfont\Roman{chapter}\par}
+  \renewcommand\printchaptertitle[1]{\centering\chaptitlefont ##1}
+}
+
+% Use roman numerals if you want "CHAPTER I":
+\renewcommand{\thechapter}{\arabic{chapter}}
+
+% Activate this chapter style
+\chapterstyle{kuet}
+
+\makeatother

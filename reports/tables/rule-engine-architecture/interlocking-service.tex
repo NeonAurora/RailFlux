@@ -1,0 +1,27 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Core Functions of InterlockingService Module}
+    \begin{tabular}{|p{4.8cm}|p{10.2cm}|}
+        \hline
+        \textbf{Function Name} & \textbf{Description} \\\hline
+        validateSignalOperation &
+        Handles user-initiated signal aspect changes and routes them through the SignalBranch for validation. Emits events on failure. \\\hline
+
+        validatePointMachine \newline Operation &
+        Verifies safe position change requests for point machines via the PointMachineBranch, including operator audit logs. \\\hline
+
+        reactToTrackSegment \newline OccupancyChange &
+        Automatically enforces interlocking rules when track occupancy changes. Reacts to safety-critical transitions. \\\hline
+
+        handleCriticalFailure&
+        Initiates system freeze and emits safety violation alerts when a module fails validation or encounters inconsistency. \\\hline
+
+        recordResponseTime &
+        Tracks and stores performance timings. Raises performance warnings if safety checks exceed time thresholds. \\\hline
+
+        initialize&
+        Prepares internal modules, validates database connectivity, and transitions the interlocking engine to an operational state. \\\hline
+    \end{tabular}
+    \label{tab:interlocking-service}
+\end{table}

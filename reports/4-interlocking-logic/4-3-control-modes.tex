@@ -1,0 +1,6 @@
+\section{Conditional Control Modes}
+\label{sec:interlocking:control-modes}
+
+To handle complex station layouts and shared infrastructure, the interlocking engine incorporates flexible control modes that allow rules to be enforced with varying levels of strictness. In some cases, absolute conditions must be satisfied—such as when multiple track elements or safety requirements need to align precisely—ensuring the highest level of security for critical routes. In other scenarios, the system permits fallback logic, where meeting one of several defined conditions is sufficient. This is particularly valuable when alternate overlaps or redundant paths are available, allowing safe continuity of operations even if the primary option is unavailable.
+
+These modes are configured on a per-rule basis within the JSON schema, giving engineers the ability to fine-tune interlocking behavior without altering the core code. By supporting both strict and permissive logic patterns, the system balances safety with operational flexibility, ensuring that rules remain both robust and adaptable to the realities of diverse railway environments.

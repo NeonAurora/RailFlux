@@ -1,0 +1,22 @@
+\begin{table}[H]
+    \centering
+    \renewcommand{\arraystretch}{1.3}
+    \caption{Summary of Tables in the Railway Interlocking Database Schema}
+    \begin{tabular}{|p{4.5cm}|p{10.2cm}|}
+        \hline
+        \textbf{Table Name} & \textbf{Description} \\ \hline
+        signals & Signal metadata including location, direction, aspects, and interlocks. \\ \hline
+        point\_machines & Physical point machine definitions with geometry, state, and safety locking. \\ \hline
+        trackSegment\_circuits & Circuit-level occupancy for segments; used for real-time tracking. \\ \hline
+        track\_segment & Geometrical layout and assignment status of track segments. \\ \hline
+        text\_labels & Optional UI labels for HMI rendering, with color, font, and coordinates. \\ \hline
+        signal\_track\_segment & Defines protected segments for each signal and type of protection. \\ \hline
+        interlocking\_rules & Declarative interlocking logic between source and target railway entities. \\ \hline
+        system\_state & Key-value store to track system-wide runtime flags and states. \\ \hline
+        event\_log & Full audit trail for every change to railway control objects, with replay data. \\ \hline
+        system\_events & Critical event reporting for diagnostics and safety-related incidents. \\ \hline
+        
+    \end{tabular}
+    
+    \label{tab:railway-schema}
+\end{table}

@@ -1,0 +1,6 @@
+\section{Operational Workflow}
+\label{sec:system-overview:workflow}
+
+Figure~\ref{fig:interlocking-logic-overview} outlines the interaction between components during a typical signal command.
+
+When an operator initiates a command through the user interface, the system first retrieves real-time information on track occupancy, point machine positions, and current signal aspects. This data is then passed to the interlocking rule engine, which evaluates route availability, overlap zones, and all relevant safety constraints. Only if every condition is satisfied is the signal cleared and the associated points locked in place to protect the movement authority. In cases where validation fails, the system responds immediately with a diagnostic message, explaining which requirement was not met. This structured process not only enables confident and transparent decision-making but also provides complete traceability, ensuring that every action can be audited and analyzed in the event of an irregularity or system failure.

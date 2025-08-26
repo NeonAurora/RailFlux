@@ -1,0 +1,7 @@
+\section{Safety Mechanisms}
+
+\label{sec:system-overview:safety}
+
+Safety within the interlocking system is achieved through a layered approach that combines strict default behaviors with comprehensive validation checks. All signals are designed to default to “stop” unless explicitly proven safe, ensuring that no unintended clearance is ever granted. Before any command is executed, it must pass through multiple validation stages, including point alignment, route conflict detection, overlap availability, and flank protection. This multi-layer filtering ensures that errors or omissions in one area are caught by another, creating redundancy across the system.
+
+In the event of a failure, detailed error logging and rollback mechanisms allow the system to revert to the last known safe state, preserving both operational continuity and forensic traceability. Even manual interventions are subject to the same safety logic, preventing unsafe overrides and maintaining consistency between automated and human actions. By structuring these mechanisms to withstand single points of failure, the system upholds the core principle of interlocking: that safety must never be compromised, regardless of the circumstances.

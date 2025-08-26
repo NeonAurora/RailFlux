@@ -1,0 +1,15 @@
+\section{SignalBranch Module}
+\label{sec:methodology:signal-branch}
+
+The SignalBranch module is dedicated to validating and enforcing signal-specific logic whenever a route request is initiated. Its core responsibility is to ensure that the conditions tied to each signal aspect are satisfied before a signal is cleared for train movement. This involves evaluating whether a signal can safely display a permissive aspect, such as green or yellow, based on the current rules and real-time infrastructure states. To achieve this, the module interacts with track circuit data, point machine positions, and defined rule dependencies, ensuring that signals only transition when the entire route has been validated as safe.
+
+The logic flow is tightly integrated into the broader InterlockingRuleEngine, which invokes the module’s validation methods as part of the signal clearance process. Inputs are drawn from live track occupancy updates provided by the TrackCircuitBranch and consolidated into structured validation results that feed both the system logger and the operator interface. This design ensures that every clearance decision is traceable, both visually in the simulation layer and persistently through event logs.
+
+The module was deliberately designed with modularity and extensibility in mind. By treating signals as independent units with their own configurable rules, changes in signaling logic can be made without disrupting the broader system. Abstraction layers separate signal validation from track and point logic, while JSON-based configurations allow dependencies to be expressed through flexible AND/OR conditions. This approach minimizes code changes while preserving adaptability, making the SignalBranch both a reliable enforcer of safety and a flexible component for evolving station requirements.
+% Optional:
+% \begin{figure}[H]
+%     \centering
+%     \includegraphics[width=0.85\textwidth]{images/module-flow/signal-branch-flow.pdf}
+%     \floatcap{Signal Branch Flowchart}{Illustration of signal validation process through SignalBranch}
+%     \label{fig:signal-branch-flow}
+% \end{figure}

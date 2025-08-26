@@ -1,0 +1,6 @@
+\section{Rule Engine Implementation (Qt C++)}
+\label{sec:implementation:rule-engine}
+
+The interlocking rule engine is implemented as a modular core component, deliberately decoupled from the graphical interface to ensure that safety-critical logic remains robust and independent of user-facing states. Its architecture is organized around specialized validation branches, each responsible for a distinct operational domain such as track clearance, point machine alignment, overlap availability, and signal dependencies. By delegating these checks to independent modules, the engine maintains both clarity of responsibility and ease of future extension.
+
+When a request is made to clear a signal or reserve a route, the engine retrieves the relevant rule from the database and evaluates it against current infrastructure states. The process integrates multiple conditions in parallel, and the outcome is encapsulated in a structured validation result that either authorizes the command or records explicit reasons for rejection. This design not only enforces rigorous safety constraints but also provides transparency and traceability for operators and auditors. The layered approach reflects modern software engineering principles, allowing the rule engine to evolve without compromising its core function as the guardian of safe train movement.
